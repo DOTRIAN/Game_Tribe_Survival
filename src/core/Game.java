@@ -39,6 +39,11 @@ public class Game {
     private double cameraY;
     private int menuIndex;
 
+    private long welcomeFlashUntilNs;
+    private static final long WELCOME_FLASH_DURATION_NS = 120_000_000L; // flash nhe khi enter o Welcome
+    private static final long WELCOME_TRANSITION_DELAY_NS = 220_000_000L; // tre de thay duoc hieu ung chuyen man
+    private int pendingWelcomeAction; // -1: khong co action dang cho
+
     public Game(Stage stage) {
         this.inputHandler = new InputHandler();
         this.player = new Player(PLAYER_START_X, PLAYER_START_Y, 32, 32, 4, 100);
@@ -57,6 +62,8 @@ public class Game {
         this.cameraX = 0;
         this.cameraY = 0;
         this.menuIndex = 0;
+        this.welcomeFlashUntilNs = 0L;
+        this.pendingWelcomeAction = -1;
     }
 
     public void start() {
@@ -74,23 +81,32 @@ public class Game {
         }
 
         if (!skipGameplay && gameState == GameState.WELCOME) {
-            if (inputHandler.isJustPressed(KeyCode.UP) || inputHandler.isJustPressed(KeyCode.W)) {
-                menuIndex = (menuIndex - 1 + MENU_COUNT) % MENU_COUNT;
-            }
-            if (inputHandler.isJustPressed(KeyCode.DOWN) || inputHandler.isJustPressed(KeyCode.S)) {
-                menuIndex = (menuIndex + 1) % MENU_COUNT;
+            if (pendingWelcomeAction == -1) { // chi cho di chuyen menu khi khong dang transition
+                if (inputHandler.isJustPressed(KeyCode.UP) || inputHandler.isJustPressed(KeyCode.W)) {
+                    menuIndex = (menuIndex - 1 + MENU_COUNT) % MENU_COUNT;
+                }
+                if (inputHandler.isJustPressed(KeyCode.DOWN) || inputHandler.isJustPressed(KeyCode.S)) {
+                    menuIndex = (menuIndex + 1) % MENU_COUNT;
+                }
             }
             if (inputHandler.isJustPressed(KeyCode.H)) {
                 gameState = GameState.GUIDE;
             } else if (inputHandler.isJustPressed(KeyCode.ENTER)) {
-                if (menuIndex == MENU_PLAY) {
+                welcomeFlashUntilNs = now + WELCOME_FLASH_DURATION_NS; // bat flash dung luc nhan ENTER
+                pendingWelcomeAction = menuIndex; // luu action, chua switch ngay
+            }
+
+            long transitionAtNs = welcomeFlashUntilNs + WELCOME_TRANSITION_DELAY_NS; // moc thoi gian duoc phep switch
+            if (pendingWelcomeAction != -1 && now >= transitionAtNs) {
+                if (pendingWelcomeAction == MENU_PLAY) {
                     restartGame();
                     gameState = GameState.PLAYING;
-                } else if (menuIndex == MENU_GUIDE) {
+                } else if (pendingWelcomeAction == MENU_GUIDE) {
                     gameState = GameState.GUIDE;
-                } else if (menuIndex == MENU_EXIT) {
+                } else if (pendingWelcomeAction == MENU_EXIT) {
                     Platform.exit();
                 }
+                pendingWelcomeAction = -1; // reset action sau khi xu ly
             }
             skipGameplay = true;
         }
@@ -105,7 +121,22 @@ public class Game {
             skipGameplay = true;
         }
 
+        if (!skipGameplay && gameState == GameState.PAUSED) {
+            if (inputHandler.isJustPressed(KeyCode.P)) {
+                gameState = GameState.PLAYING;
+            } else if (inputHandler.isJustPressed(KeyCode.ESCAPE)) {
+                gameState = GameState.WELCOME;
+                menuIndex = 0;
+            }
+            skipGameplay = true;
+        }
+
         if (!skipGameplay && gameState == GameState.PLAYING) {
+            if (inputHandler.isJustPressed(KeyCode.ESCAPE)) {
+                gameState = GameState.PAUSED;
+                inputHandler.update();
+                return;
+            } // ddang choiw bam esc thi dung frame
             double oldPlayerX = player.getX();
             double oldPlayerY = player.getY();
 
@@ -180,7 +211,8 @@ public class Game {
     }
 
     public void render(long now) {
-        renderer.render(gameState, player, wolf, now, wolfMoving, trees, cameraX, cameraY, menuIndex);
+        boolean welcomeFlashing = now < welcomeFlashUntilNs;
+        renderer.render(gameState, player, wolf, now, wolfMoving, trees, cameraX, cameraY, menuIndex, welcomeFlashing);
     }
 
     public GameState getGameState() {
@@ -207,6 +239,7 @@ public class Game {
         wolf.reset(ENEMY_START_X, ENEMY_START_Y);
         gameState = GameState.PLAYING;
         menuIndex = 0;
+        pendingWelcomeAction = -1; // dam bao khong con action cho tu menu
         lastDamageTime = 0;
         wolfMoving = false;
         cameraX = 0;

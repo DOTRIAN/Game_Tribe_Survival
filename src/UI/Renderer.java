@@ -19,8 +19,6 @@ import javafx.scene.text.FontWeight;
 
 public class Renderer {
 
-
-
     private final Canvas canvas;  // Là vùng để vẽ game
     private final GraphicsContext graphicsContext;   // là cây bút để vẽ canvas
     private final Hud hud;
@@ -56,7 +54,7 @@ public class Renderer {
         });
     }
 
-    public void render(GameState gameState, Player player, Wolf wolf,long now,boolean wolfMoving, List<Tree> trees,double cameraX, double cameraY, int menuIndex) {
+    public void render(GameState gameState, Player player, Wolf wolf,long now,boolean wolfMoving, List<Tree> trees,double cameraX, double cameraY, int menuIndex, boolean welcomeFlashing) { // fix duplicate menuIndex param
         if (gameState == GameState.WELCOME) {
             if (welcomeBackgroundImage.isError()) {
                 graphicsContext.setFill(Color.web("#2a3a2a"));
@@ -67,6 +65,10 @@ public class Renderer {
 
             graphicsContext.setFill(Color.color(0, 0, 0, 0.5));
             graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
+            if (welcomeFlashing) {
+                graphicsContext.setFill(Color.color(1, 1, 1, 0.18));
+                graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
+            }  // them flash 
 
             double panelX = 280;
             double panelY = 120;
@@ -100,6 +102,11 @@ public class Renderer {
                 } else {
                     graphicsContext.fillText(menuItems[i], 460, itemY + 2);
                 }
+                if (selected) {
+                    graphicsContext.setFill(Color.web("#fff4d8"));
+                    graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 24));
+                    graphicsContext.fillText(">", 365, itemY + 3);
+                }
 
                 itemY += 58;
             }
@@ -108,20 +115,43 @@ public class Renderer {
         }
 
         if (gameState == GameState.GUIDE) {
-            graphicsContext.setFill(Color.LIGHTYELLOW);
+            if (welcomeBackgroundImage.isError()) {
+                graphicsContext.setFill(Color.web("#2a3a2a"));
+                graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
+            } else {
+                graphicsContext.drawImage(welcomeBackgroundImage, 0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
+            }
+
+            graphicsContext.setFill(Color.color(0, 0, 0, 0.55));
             graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
 
-            graphicsContext.setFill(Color.DARKGREEN);
-            graphicsContext.fillText("HOW TO PLAY", 420, 180);
-            graphicsContext.fillText("W A S D: Move", 390, 230);
-            graphicsContext.fillText("J: Take damage (test)", 390, 260);
-            graphicsContext.fillText("K: Heal (test)", 390, 290);
-            graphicsContext.fillText("ENTER: Play", 390, 340);
-            graphicsContext.fillText("ESC: Back to Welcome", 390, 370);
+            double panelX = 210;
+            double panelY = 95;
+            double panelW = 540;
+            double panelH = 350;
+
+            graphicsContext.setFill(Color.color(0.95, 0.92, 0.78, 0.92));
+            graphicsContext.fillRoundRect(panelX, panelY, panelW, panelH, 20, 20);
+            graphicsContext.setStroke(Color.web("#5b4a2e"));
+            graphicsContext.setLineWidth(3);
+            graphicsContext.strokeRoundRect(panelX, panelY, panelW, panelH, 20, 20);
+
+            graphicsContext.setFill(Color.web("#2f2618"));
+            graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 34));
+            graphicsContext.fillText("GUIDE", 430, 155);
+            graphicsContext.setFont(Font.font("Georgia", FontWeight.NORMAL, 22));
+            graphicsContext.fillText("W A S D : Move", 285, 215);
+            graphicsContext.fillText("J : Take Damage (Test)", 285, 255);
+            graphicsContext.fillText("K : Heal (Test)", 285, 295);
+
+            graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 20));
+            graphicsContext.fillText("ENTER : Play", 285, 355);
+            graphicsContext.fillText("ESC : Back to Menu", 470, 355);
+
             return;
         }
 
-        if (gameBackgroundImage.isError()) {
+            if (gameBackgroundImage.isError()) {
             graphicsContext.setFill(Color.BEIGE);
             graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
         } else {
@@ -154,6 +184,18 @@ public class Renderer {
             graphicsContext.setFill(Color.BLACK);
             graphicsContext.fillText("The wolf caught you.", 380, 280);
             graphicsContext.fillText("Press R to restart.", 385, 310);
+        }
+        if (gameState == GameState.PAUSED) {
+            graphicsContext.setFill(Color.color(0, 0, 0, 0.45));
+            graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
+
+            graphicsContext.setFill(Color.WHITE);
+            graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 42));
+            graphicsContext.fillText("PAUSED", 390, 230);
+
+            graphicsContext.setFont(Font.font("Georgia", FontWeight.NORMAL, 22));
+            graphicsContext.fillText("Press P to Resume", 360, 280);
+            graphicsContext.fillText("Press ESC to Menu", 355, 315);
         }
     }
 }
