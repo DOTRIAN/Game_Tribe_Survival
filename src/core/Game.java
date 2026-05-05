@@ -7,6 +7,9 @@ import input.InputHandler;
 import javafx.application.Platform;
 import javafx.scene.input.KeyCode;
 import javafx.stage.Stage;
+import map.MapData;
+import map.MapObjectData;
+import map.TiledMapLoader;
 import ui.Renderer;
 
 import java.util.ArrayList;
@@ -20,6 +23,7 @@ public class Game {
     private final Player player;
     private final Wolf wolf;
     private final List<Tree> trees;
+    private final List<MapObjectData> mapCollisions;
     private GameState gameState;
 
     private static final double PLAYER_START_X = 100;
@@ -38,6 +42,7 @@ public class Game {
     private double cameraX;
     private double cameraY;
     private int menuIndex;
+    private MapData mapData;
 
     private long welcomeFlashUntilNs;
     private static final long WELCOME_FLASH_DURATION_NS = 120_000_000L; // flash nhe khi enter o Welcome
@@ -64,6 +69,19 @@ public class Game {
         this.menuIndex = 0;
         this.welcomeFlashUntilNs = 0L;
         this.pendingWelcomeAction = -1;
+
+        MapData loadedMap = null;
+        try {
+            // Load map TMX de thay cho background image tinh.
+            loadedMap = new TiledMapLoader().load("assets/maps/mapdemo.tmx");
+        } catch (Exception exception) {
+            // Neu map loi thi game van chay theo luong cu.
+            System.out.println("Cannot load tiled map: " + exception.getMessage());
+        }
+
+        this.mapData = loadedMap;
+        this.mapCollisions = loadedMap != null ? loadedMap.getCollisionObjects() : new ArrayList<>();
+        this.renderer.setMapData(loadedMap);
     }
 
     public void start() {
@@ -167,7 +185,7 @@ public class Game {
             wolf.moveToward(player);
             wolf.clampPosition(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
 
-            if (isPlayerCollidingWithAnyTree()) {
+            if (isPlayerCollidingWithAnyTree() || isPlayerCollidingWithMapCollision()) {
                 player.setPosition(oldPlayerX, oldPlayerY);
             }
 
@@ -255,6 +273,11 @@ public class Game {
     }
 
     private boolean isPlayerCollidingWithAnyTree() {
+        // Khi da co map collisions, tree hard-code cu khong can chen collision nua.
+        if (mapData != null) {
+            return false;
+        }
+
         for (Tree tree : trees) {
             boolean colliding = player.getX() < tree.getX() + tree.getWidth()
                     && player.getX() + player.getWidth() > tree.getX()
@@ -262,6 +285,28 @@ public class Game {
                     && player.getY() + player.getHeight() > tree.getY();
 
             if (colliding) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isPlayerCollidingWithMapCollision() {
+        if (mapCollisions.isEmpty()) {
+            return false;
+        }
+
+        double px = player.getX();
+        double py = player.getY();
+        double pw = player.getWidth();
+        double ph = player.getHeight();
+
+        for (MapObjectData object : mapCollisions) {
+            // Chi check object dung vai tro collision.
+            if (!"Collision".equalsIgnoreCase(object.getType())) {
+                continue;
+            }
+            if (object.intersects(px, py, pw, ph)) {
                 return true;
             }
         }

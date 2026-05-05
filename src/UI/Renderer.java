@@ -5,6 +5,8 @@ import entity.Player;
 import entity.Wolf;
 import entity.Tree;
 import input.InputHandler;
+import map.MapData;
+import map.MapRenderer;
 import javafx.scene.Scene;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
@@ -24,6 +26,7 @@ public class Renderer {
     private final Hud hud;
     private final Image welcomeBackgroundImage;
     private final Image gameBackgroundImage;
+    private MapRenderer mapRenderer;
 
 
     public Renderer(Stage stage, InputHandler inputHandler) {
@@ -54,7 +57,12 @@ public class Renderer {
         });
     }
 
-    public void render(GameState gameState, Player player, Wolf wolf,long now,boolean wolfMoving, List<Tree> trees,double cameraX, double cameraY, int menuIndex, boolean welcomeFlashing) { // fix duplicate menuIndex param
+    public void setMapData(MapData mapData) {
+        // Cho phep Game truyen map sau khi load xong.
+        this.mapRenderer = (mapData == null) ? null : new MapRenderer(mapData);
+    }
+
+    public void render(GameState gameState, Player player, Wolf wolf,long now,boolean wolfMoving, List<Tree> trees, double cameraX, double cameraY, int menuIndex, boolean welcomeFlashing) { // fix duplicate menuIndex param
         if (gameState == GameState.WELCOME) {
             if (welcomeBackgroundImage.isError()) {
                 graphicsContext.setFill(Color.web("#2a3a2a"));
@@ -151,19 +159,33 @@ public class Renderer {
             return;
         }
 
-            if (gameBackgroundImage.isError()) {
-            graphicsContext.setFill(Color.BEIGE);
-            graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
+        // Luon clear full canvas o gameplay states de tranh "bong ma" frame cu (welcome/guide).
+        graphicsContext.setFill(Color.web("#1b1b1b"));
+        graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
+
+        if (mapRenderer != null) {
+            // Quan trong: ve cac layer duoi entity truoc (Grounds + Objects).
+            // Neu ve Foreground o day thi player/wolf se de len tan cay.
+            mapRenderer.renderBelowEntities(graphicsContext, cameraX, cameraY);
         } else {
-            graphicsContext.drawImage(
-                    gameBackgroundImage,
-                    0, 0,
-                    GameConfig.WIDTH, GameConfig.HEIGHT
-            );
+            // Fallback giu nguyen cach ve background cu de tranh vo game.
+            if (gameBackgroundImage.isError()) {
+                graphicsContext.setFill(Color.BEIGE);
+                graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
+            } else {
+                graphicsContext.drawImage(
+                        gameBackgroundImage,
+                        0, 0,
+                        GameConfig.WIDTH, GameConfig.HEIGHT
+                );
+            }
         }
 
         for (Tree tree : trees) {
-            tree.draw(graphicsContext,cameraX,cameraY);  // tu goij de ve cay
+            // Chi ve tree hard-code khi chua co map tiled.
+            if (mapRenderer == null) {
+                tree.draw(graphicsContext,cameraX,cameraY);  // tu goij de ve cay
+            }
         }
         //4 dongf treen la ve cay
         graphicsContext.setFill(Color.DARKGREEN);
@@ -171,9 +193,17 @@ public class Renderer {
         graphicsContext.fillText("WASD: move", 20, 55);
         graphicsContext.fillText("J: take damage | K: heal", 20, 80);
 
+        // Entity duoc ve sau layer duoi, truoc layer tren.
+        // Muc tieu: khi vao vung tan cay, Foreground se che entity dung depth.
         player.draw(graphicsContext,cameraX,cameraY);
 
         wolf.draw(graphicsContext,cameraX,cameraY,now,wolfMoving,player);
+
+        if (mapRenderer != null) {
+            // Day la buoc tao hieu ung "nhan vat bi tan cay che".
+            // Foreground bat buoc ve sau player/wolf.
+            mapRenderer.renderAboveEntities(graphicsContext, cameraX, cameraY);
+        }
 
         hud.render(graphicsContext,player);
 
