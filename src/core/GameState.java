@@ -1,7 +1,8 @@
 package core;
 
 public enum GameState {
-    MENU,
+    WELCOME,
+    GUIDE,
     PLAYING,
     PAUSED,
     GAME_OVER
