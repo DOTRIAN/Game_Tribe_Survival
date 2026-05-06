@@ -65,10 +65,55 @@ public class TiledMapLoader {
             String imageSource = imageElement.getAttribute("source");
             File imageFile = new File(tsxFile.getParentFile(), imageSource);
             Image tilesetImage = new Image(imageFile.toURI().toString());
+            Map<Integer, TilesetData.TileAnimationData> animations = readTileAnimations(tsxRoot);
 
-            tilesets.add(new TilesetData(firstGid, columns, tileWidth, tileHeight, tileCount, tilesetImage));
+            tilesets.add(new TilesetData(firstGid, columns, tileWidth, tileHeight, tileCount, tilesetImage, animations));
         }
         return tilesets;
+    }
+
+    private Map<Integer, TilesetData.TileAnimationData> readTileAnimations(Element tsxRoot) {
+        Map<Integer, TilesetData.TileAnimationData> animations = new HashMap<>();
+        NodeList tileNodes = tsxRoot.getElementsByTagName("tile");
+        for (int i = 0; i < tileNodes.getLength(); i++) {
+            Node tileNode = tileNodes.item(i);
+            if (!(tileNode instanceof Element)) {
+                continue;
+            }
+            Element tileElement = (Element) tileNode;
+            int tileId = parseInt(tileElement.getAttribute("id"), -1);
+            if (tileId < 0) {
+                continue;
+            }
+
+            NodeList animationNodes = tileElement.getElementsByTagName("animation");
+            if (animationNodes.getLength() == 0) {
+                continue;
+            }
+            Element animationElement = (Element) animationNodes.item(0);
+            NodeList frameNodes = animationElement.getElementsByTagName("frame");
+            if (frameNodes.getLength() == 0) {
+                continue;
+            }
+
+            int[] frameIds = new int[frameNodes.getLength()];
+            long[] frameDurations = new long[frameNodes.getLength()];
+            for (int j = 0; j < frameNodes.getLength(); j++) {
+                Node frameNode = frameNodes.item(j);
+                if (!(frameNode instanceof Element)) {
+                    frameIds[j] = tileId;
+                    frameDurations[j] = 120_000_000L;
+                    continue;
+                }
+                Element frameElement = (Element) frameNode;
+                frameIds[j] = parseInt(frameElement.getAttribute("tileid"), tileId);
+                long durationMs = parseInt(frameElement.getAttribute("duration"), 120);
+                frameDurations[j] = Math.max(durationMs, 1L) * 1_000_000L;
+            }
+
+            animations.put(tileId, new TilesetData.TileAnimationData(frameIds, frameDurations));
+        }
+        return animations;
     }
 
     private List<TileLayerData> readTileLayers(Element mapElement, int mapWidth, int mapHeight) {

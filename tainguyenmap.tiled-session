@@ -1,23 +1,72 @@
 {
-    "activeFile": "",
+    "activeFile": "assets/maps/mapdemo.tmx",
     "expandedProjectPaths": [
+        "assets",
+        ".",
+        "assets/maps"
     ],
     "fileStates": {
+        "assets/maps/Bonfire_07-Sheet.tsx": {
+            "scaleInDock": 1,
+            "scaleInEditor": 2
+        },
+        "assets/maps/Rocks.tsx": {
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "assets/maps/TreeSize02.tsx": {
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "assets/maps/TreeSize04.tsx": {
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "assets/maps/Wall_Tiles.tsx": {
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "assets/maps/floors.tsx": {
+            "scaleInDock": 1,
+            "scaleInEditor": 3
+        },
+        "assets/maps/mapdemo.tmx": {
+            "scale": 1,
+            "selectedLayer": 3,
+            "viewCenter": {
+                "x": 944,
+                "y": 659.5
+            }
+        }
     },
-    "last.imagePath": "D:/Game__TEST/assets/tilesets/Pixel Crawler - Free Pack/Environment/Props/Static/Trees/Model_01",
+    "frame.defaultDuration": 50,
+    "last.imagePath": "D:/Game__TEST/assets/tilesets/Pixel Crawler - Free Pack/Environment/Structures/Stations/Bonfire",
     "last.objectTemplatePath": "D:/Game__TEST/assets/maps",
     "map.lastUsedFormat": "tmx",
     "map.tileHeight": 16,
     "map.tileWidth": 16,
     "openFiles": [
+        "assets/maps/mapdemo.tmx",
+        "assets/maps/floors.tsx",
+        "assets/maps/Wall_Tiles.tsx",
+        "assets/maps/Rocks.tsx",
+        "assets/maps/TreeSize04.tsx",
+        "assets/maps/TreeSize02.tsx"
     ],
     "project": "tainguyenmap.tiled-project",
     "property.type": "int",
     "recentFiles": [
+        "assets/maps/Bonfire_07-Sheet.tsx",
+        "assets/maps/TreeSize02.tsx",
+        "assets/maps/TreeSize04.tsx",
+        "assets/maps/Rocks.tsx",
+        "assets/maps/Wall_Tiles.tsx",
+        "assets/maps/floors.tsx",
+        "assets/maps/mapdemo.tmx"
     ],
     "tileset.lastUsedFormat": "tsx",
     "tileset.tileSize": {
-        "height": 16,
-        "width": 16
+        "height": 32,
+        "width": 32
     }
 }

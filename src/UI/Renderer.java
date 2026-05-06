@@ -1,52 +1,51 @@
 package ui;
 
+import core.GameConfig;
 import core.GameState;
 import entity.Player;
-import entity.Wolf;
 import entity.Tree;
+import entity.Wolf;
 import input.InputHandler;
-import map.MapData;
-import map.MapRenderer;
 import javafx.scene.Scene;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
+import javafx.scene.image.Image;
 import javafx.scene.layout.StackPane;
 import javafx.scene.paint.Color;
-import javafx.stage.Stage;
-import  core.GameConfig;
-import javafx.scene.image.Image;
-import java.util.List;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
+import javafx.stage.Stage;
+import map.MapData;
+import map.MapRenderer;
+
+import java.util.List;
 
 public class Renderer {
+    // Zoom camera cho gameplay:
+    // - > 1.0: nhin gan hon (entity/map to hon tren man hinh)
+    // - = 1.0: giu nguyen
+    // - < 1.0: nhin xa hon
+    private static final double CAMERA_ZOOM = 1.5;
 
-    private final Canvas canvas;  // Là vùng để vẽ game
-    private final GraphicsContext graphicsContext;   // là cây bút để vẽ canvas
+    private final Canvas canvas;
+    private final GraphicsContext graphicsContext;
     private final Hud hud;
     private final Image welcomeBackgroundImage;
     private final Image gameBackgroundImage;
     private MapRenderer mapRenderer;
 
-
     public Renderer(Stage stage, InputHandler inputHandler) {
         this.canvas = new Canvas(GameConfig.WIDTH, GameConfig.HEIGHT);
         this.graphicsContext = canvas.getGraphicsContext2D();
-        this.hud= new Hud();
+        this.hud = new Hud();
         this.welcomeBackgroundImage = new Image("file:assets/backgrounds/menu_bg1.png");
         this.gameBackgroundImage = new Image("file:assets/backgrounds/grass03.png");
 
-
-        StackPane root = new StackPane(canvas);// tạo 1 StackPane và đặt canvas trong nó
-        // StackPane là 1 layout container của JVFX để quản lý các node con
-        // ko đưa canvas vào thẳng scene vì scene thường nhận 1 root node, và StackPane là root đó
-
-        Scene scene = new Scene(root, GameConfig.WIDTH,GameConfig.HEIGHT);
+        StackPane root = new StackPane(canvas);
+        Scene scene = new Scene(root, GameConfig.WIDTH, GameConfig.HEIGHT);
         inputHandler.attach(scene);
-        //gán input vào scene, kiểu hãy đọc input trên scene này
 
-        stage.setScene(scene); // đặt scene làm nội dung của cửa sổ stage
-        //->> kể từ giờ cửa sổ sẽ hiển thị scene vừa tạo
+        stage.setScene(scene);
         stage.show();
         canvas.setFocusTraversable(true);
         canvas.requestFocus();
@@ -58,11 +57,11 @@ public class Renderer {
     }
 
     public void setMapData(MapData mapData) {
-        // Cho phep Game truyen map sau khi load xong.
         this.mapRenderer = (mapData == null) ? null : new MapRenderer(mapData);
     }
 
-    public void render(GameState gameState, Player player, Wolf wolf,long now,boolean wolfMoving, List<Tree> trees, double cameraX, double cameraY, int menuIndex, boolean welcomeFlashing) { // fix duplicate menuIndex param
+    public void render(GameState gameState, Player player, Wolf wolf, long now, boolean wolfMoving,
+                       List<Tree> trees, double cameraX, double cameraY, int menuIndex, boolean welcomeFlashing) {
         if (gameState == GameState.WELCOME) {
             if (welcomeBackgroundImage.isError()) {
                 graphicsContext.setFill(Color.web("#2a3a2a"));
@@ -76,7 +75,7 @@ public class Renderer {
             if (welcomeFlashing) {
                 graphicsContext.setFill(Color.color(1, 1, 1, 0.18));
                 graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
-            }  // them flash 
+            }
 
             double panelX = 280;
             double panelY = 120;
@@ -159,53 +158,60 @@ public class Renderer {
             return;
         }
 
-        // Luon clear full canvas o gameplay states de tranh "bong ma" frame cu (welcome/guide).
+        // Gameplay: clear full canvas de tranh bong frame cu.
         graphicsContext.setFill(Color.web("#1b1b1b"));
         graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
 
+        // Bat dau world-space rendering.
+        // save() giu lai trang thai transform hien tai.
+        graphicsContext.save();
+        // scale() phong to toan bo world (map + player + wolf).
+        graphicsContext.scale(CAMERA_ZOOM, CAMERA_ZOOM);
+
+        // Luu y quan trong:
+        // cameraX/cameraY la world offset goc (chua zoom), vi vay KHONG duoc chia cho zoom.
+        // Cong thuc dung la: screen = zoom * (world - camera).
+        // Neu chia camera cho zoom se gay lech tam nhin va co the lam mat entity tren man hinh.
+        double renderCameraX = cameraX;
+        double renderCameraY = cameraY;
+
         if (mapRenderer != null) {
-            // Quan trong: ve cac layer duoi entity truoc (Grounds + Objects).
-            // Neu ve Foreground o day thi player/wolf se de len tan cay.
-            mapRenderer.renderBelowEntities(graphicsContext, cameraX, cameraY);
+            mapRenderer.renderBelowEntities(graphicsContext, renderCameraX, renderCameraY, now);
         } else {
-            // Fallback giu nguyen cach ve background cu de tranh vo game.
             if (gameBackgroundImage.isError()) {
                 graphicsContext.setFill(Color.BEIGE);
                 graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
             } else {
-                graphicsContext.drawImage(
-                        gameBackgroundImage,
-                        0, 0,
-                        GameConfig.WIDTH, GameConfig.HEIGHT
-                );
+                graphicsContext.drawImage(gameBackgroundImage, 0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
             }
         }
 
         for (Tree tree : trees) {
-            // Chi ve tree hard-code khi chua co map tiled.
             if (mapRenderer == null) {
-                tree.draw(graphicsContext,cameraX,cameraY);  // tu goij de ve cay
+                tree.draw(graphicsContext, renderCameraX, renderCameraY);
             }
         }
-        //4 dongf treen la ve cay
+
+        // Entity duoc ve sau layer duoi, truoc layer tren.
+        player.draw(graphicsContext, renderCameraX, renderCameraY);
+        if (wolf != null) {
+            wolf.draw(graphicsContext, renderCameraX, renderCameraY, now, wolfMoving, player);
+        }
+
+        if (mapRenderer != null) {
+            mapRenderer.renderAboveEntities(graphicsContext, renderCameraX, renderCameraY, now);
+        }
+
+        // Ket thuc world-space rendering, tra lai he toa do man hinh.
+        graphicsContext.restore();
+
+        // UI/debug text de o screen-space, khong bi zoom theo world.
         graphicsContext.setFill(Color.DARKGREEN);
         graphicsContext.fillText("State: " + gameState, 20, 30);
         graphicsContext.fillText("WASD: move", 20, 55);
         graphicsContext.fillText("J: take damage | K: heal", 20, 80);
 
-        // Entity duoc ve sau layer duoi, truoc layer tren.
-        // Muc tieu: khi vao vung tan cay, Foreground se che entity dung depth.
-        player.draw(graphicsContext,cameraX,cameraY);
-
-        wolf.draw(graphicsContext,cameraX,cameraY,now,wolfMoving,player);
-
-        if (mapRenderer != null) {
-            // Day la buoc tao hieu ung "nhan vat bi tan cay che".
-            // Foreground bat buoc ve sau player/wolf.
-            mapRenderer.renderAboveEntities(graphicsContext, cameraX, cameraY);
-        }
-
-        hud.render(graphicsContext,player);
+        hud.render(graphicsContext, player);
 
         if (gameState == GameState.GAME_OVER) {
             graphicsContext.setFill(Color.DARKRED);
@@ -215,6 +221,7 @@ public class Renderer {
             graphicsContext.fillText("The wolf caught you.", 380, 280);
             graphicsContext.fillText("Press R to restart.", 385, 310);
         }
+
         if (gameState == GameState.PAUSED) {
             graphicsContext.setFill(Color.color(0, 0, 0, 0.45));
             graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);

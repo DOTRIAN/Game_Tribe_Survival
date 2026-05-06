@@ -18,20 +18,20 @@ public class MapRenderer {
     // Cac layer o day thuong la:
     // - Grounds: nen dat/co/duong
     // - Objects: than cay/da/props o tam thap
-    public void renderBelowEntities(GraphicsContext gc, double cameraX, double cameraY) {
-        renderLayerByName(gc, "Grounds", cameraX, cameraY);
-        renderLayerByName(gc, "Objects", cameraX, cameraY);
+    public void renderBelowEntities(GraphicsContext gc, double cameraX, double cameraY, long now) {
+        renderLayerByName(gc, "Grounds", cameraX, cameraY, now);
+        renderLayerByName(gc, "Objects", cameraX, cameraY, now);
     }
 
     // Render cac layer nam TREN entity.
     // Ham nay duoc goi sau khi ve player/wolf de tao hieu ung bi che boi tan cay/mai nha.
     // Layer duoc dat o day la:
     // - Foreground: tan cay, mai, phan decor o cao do lon hon nhan vat
-    public void renderAboveEntities(GraphicsContext gc, double cameraX, double cameraY) {
-        renderLayerByName(gc, "Foreground", cameraX, cameraY);
+    public void renderAboveEntities(GraphicsContext gc, double cameraX, double cameraY, long now) {
+        renderLayerByName(gc, "Foreground", cameraX, cameraY, now);
     }
 
-    private void renderLayerByName(GraphicsContext gc, String layerName, double cameraX, double cameraY) {
+    private void renderLayerByName(GraphicsContext gc, String layerName, double cameraX, double cameraY, long now) {
         TileLayerData layer = mapData.findLayerByName(layerName);
         if (layer == null) {
             return;
@@ -63,6 +63,7 @@ public class MapRenderer {
                 }
 
                 int localId = gid - tileset.getFirstGid();
+                localId = tileset.resolveLocalIdForTime(localId, now);
                 int sourceX = (localId % tileset.getColumns()) * tileset.getTileWidth();
                 int sourceY = (localId / tileset.getColumns()) * tileset.getTileHeight();
                 // sourceX/sourceY: vi tri tile trong sprite sheet (toa do cat trong image nguon).

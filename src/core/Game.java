@@ -16,6 +16,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class Game {
+    // Phai dong bo voi CAMERA_ZOOM trong Renderer de camera center dung khi co zoom.
+    // Neu doi zoom ben Renderer, nho doi gia tri nay theo.
+    private static final double CAMERA_ZOOM = 1.5;
 
     private final GameLoop gameLoop;
     private final Renderer renderer;
@@ -26,8 +29,7 @@ public class Game {
     private final List<MapObjectData> mapCollisions;
     private GameState gameState;
 
-    private static final double PLAYER_START_X = 100;
-    private static final double PLAYER_START_Y = 100;
+    private static final boolean ENABLE_WOLF = false;
     private static final double ENEMY_START_X = 700;
     private static final double ENEMY_START_Y = 300;
     private static final long DAMAGE_COOLDOWN_NS = 500_000_000L;
@@ -41,6 +43,13 @@ public class Game {
     private boolean wolfMoving;
     private double cameraX;
     private double cameraY;
+    // Kich thuoc world thuc te dang dung cho movement/camera.
+    // Neu co map tiled thi lay theo pixel size cua map, neu khong thi fallback GameConfig.
+    private double worldWidth;
+    private double worldHeight;
+    // Vi tri spawn hien tai cua player (tinh theo center cua world thuc te).
+    private double playerStartX;
+    private double playerStartY;
     private int menuIndex;
     private MapData mapData;
 
@@ -51,11 +60,12 @@ public class Game {
 
     public Game(Stage stage) {
         this.inputHandler = new InputHandler();
-        this.player = new Player(PLAYER_START_X, PLAYER_START_Y, 32, 32, 4, 100);
+        // Spawn tam thoi; sau khi load map se reset lai vao dung center world thuc te.
+        this.player = new Player(100, 100, 48, 48, 1, 100);
         this.renderer = new Renderer(stage, inputHandler);
         this.gameLoop = new GameLoop(this);
         this.gameState = GameState.WELCOME;
-        this.wolf = new Wolf(1200, 500, 64, 64, 1);
+        this.wolf = ENABLE_WOLF ? new Wolf(1200, 500, 64, 64, 1) : null;
         this.lastDamageTime = 0;
         this.trees = new ArrayList<>();
         this.trees.add(new Tree(300, 220, 64, 64));
@@ -66,6 +76,10 @@ public class Game {
         this.trees.add(new Tree(1400, 700, 64, 64));
         this.cameraX = 0;
         this.cameraY = 0;
+        this.worldWidth = GameConfig.WORLD_WIDTH;
+        this.worldHeight = GameConfig.WORLD_HEIGHT;
+        this.playerStartX = 100;
+        this.playerStartY = 100;
         this.menuIndex = 0;
         this.welcomeFlashUntilNs = 0L;
         this.pendingWelcomeAction = -1;
@@ -82,6 +96,17 @@ public class Game {
         this.mapData = loadedMap;
         this.mapCollisions = loadedMap != null ? loadedMap.getCollisionObjects() : new ArrayList<>();
         this.renderer.setMapData(loadedMap);
+
+        // Neu load duoc map tiled: dung kich thuoc map pixel lam world boundary thuc te.
+        if (loadedMap != null) {
+            this.worldWidth = loadedMap.getPixelWidth();
+            this.worldHeight = loadedMap.getPixelHeight();
+        }
+
+        // Spawn player o GIUA world thuc te (uu tien map tiled 120x80 neu co).
+        recalculatePlayerStartAtWorldCenter();
+        player.reset(playerStartX, playerStartY);
+        updateCamera();
     }
 
     public void start() {
@@ -158,16 +183,21 @@ public class Game {
             double oldPlayerX = player.getX();
             double oldPlayerY = player.getY();
 
-            if (inputHandler.isPressed(KeyCode.A)) {
+            boolean moveLeft = inputHandler.isPressed(KeyCode.A);
+            boolean moveRight = inputHandler.isPressed(KeyCode.D);
+            boolean moveUp = inputHandler.isPressed(KeyCode.W);
+            boolean moveDown = inputHandler.isPressed(KeyCode.S);
+
+            if (moveLeft) {
                 player.moveLeft();
             }
-            if (inputHandler.isPressed(KeyCode.D)) {
+            if (moveRight) {
                 player.moveRight();
             }
-            if (inputHandler.isPressed(KeyCode.W)) {
+            if (moveUp) {
                 player.moveUp();
             }
-            if (inputHandler.isPressed(KeyCode.S)) {
+            if (moveDown) {
                 player.moveDown();
             }
             if (inputHandler.isPressed(KeyCode.J)) {
@@ -177,21 +207,27 @@ public class Game {
                 player.heal(1);
             }
 
-            player.clampPosition(0, 0, GameConfig.WORLD_WIDTH, GameConfig.WORLD_HEIGHT);
+            player.clampPosition(0, 0, worldWidth, worldHeight);
 
-            double oldWolfX = wolf.getX();
-            double oldWolfY = wolf.getY();
-
-            wolf.moveToward(player);
-            wolf.clampPosition(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
+            double oldWolfX = 0;
+            double oldWolfY = 0;
+            if (wolf != null) {
+                oldWolfX = wolf.getX();
+                oldWolfY = wolf.getY();
+                wolf.moveToward(player);
+                wolf.clampPosition(0, 0, worldWidth, worldHeight);
+            }
 
             if (isPlayerCollidingWithAnyTree() || isPlayerCollidingWithMapCollision()) {
                 player.setPosition(oldPlayerX, oldPlayerY);
             }
 
-            wolfMoving = oldWolfX != wolf.getX() || oldWolfY != wolf.getY();
+            boolean playerMoving = oldPlayerX != player.getX() || oldPlayerY != player.getY();
+            player.updateAnimation(now, playerMoving, moveUp, moveDown, moveLeft, moveRight);
 
-            if (isColliding() && now - lastDamageTime >= DAMAGE_COOLDOWN_NS) {
+            wolfMoving = wolf != null && (oldWolfX != wolf.getX() || oldWolfY != wolf.getY());
+
+            if (wolf != null && isColliding() && now - lastDamageTime >= DAMAGE_COOLDOWN_NS) {
                 player.takeDamage(1);
                 lastDamageTime = now;
             }
@@ -207,8 +243,15 @@ public class Game {
     }
 
     private void updateCamera() {
-        cameraX = player.getX() + player.getWidth() / 2 - GameConfig.WIDTH / 2;
-        cameraY = player.getY() + player.getHeight() / 2 - GameConfig.HEIGHT / 2;
+        // Khi zoom > 1, viewport world thuc te nho hon man hinh.
+        // Vi vay tam camera phai dua tren "viewport world sau zoom":
+        // viewWorldWidth  = screenWidth  / zoom
+        // viewWorldHeight = screenHeight / zoom
+        double viewWorldWidth = GameConfig.WIDTH / CAMERA_ZOOM;
+        double viewWorldHeight = GameConfig.HEIGHT / CAMERA_ZOOM;
+
+        cameraX = player.getX() + player.getWidth() / 2 - viewWorldWidth / 2;
+        cameraY = player.getY() + player.getHeight() / 2 - viewWorldHeight / 2;
 
         if (cameraX < 0) {
             cameraX = 0;
@@ -217,8 +260,17 @@ public class Game {
             cameraY = 0;
         }
 
-        double maxCameraX = GameConfig.WORLD_WIDTH - GameConfig.WIDTH;
-        double maxCameraY = GameConfig.WORLD_HEIGHT - GameConfig.HEIGHT;
+        // Camera phai clamp theo world thuc te (map tiled neu co),
+        // neu khong se sinh ra "ban do ao" va gioi han di chuyen sai.
+        double maxCameraX = worldWidth - viewWorldWidth;
+        double maxCameraY = worldHeight - viewWorldHeight;
+
+        if (maxCameraX < 0) {
+            maxCameraX = 0;
+        }
+        if (maxCameraY < 0) {
+            maxCameraY = 0;
+        }
 
         if (cameraX > maxCameraX) {
             cameraX = maxCameraX;
@@ -246,6 +298,9 @@ public class Game {
     }
 
     private boolean isColliding() {
+        if (wolf == null) {
+            return false;
+        }
         return player.getX() < wolf.getX() + wolf.getWidth()
                 && player.getX() + player.getWidth() > wolf.getX()
                 && player.getY() < wolf.getY() + wolf.getHeight()
@@ -253,15 +308,27 @@ public class Game {
     }
 
     private void restartGame() {
-        player.reset(PLAYER_START_X, PLAYER_START_Y);
-        wolf.reset(ENEMY_START_X, ENEMY_START_Y);
+        // Moi lan vao game/reset, spawn dung giua world hien tai.
+        recalculatePlayerStartAtWorldCenter();
+        player.reset(playerStartX, playerStartY);
+        if (wolf != null) {
+            wolf.reset(ENEMY_START_X, ENEMY_START_Y);
+        }
         gameState = GameState.PLAYING;
         menuIndex = 0;
         pendingWelcomeAction = -1; // dam bao khong con action cho tu menu
         lastDamageTime = 0;
         wolfMoving = false;
-        cameraX = 0;
-        cameraY = 0;
+        // Update camera ngay luc reset de frame dau tien vao game da focus dung vao player.
+        updateCamera();
+    }
+
+    private void recalculatePlayerStartAtWorldCenter() {
+        // Center cua map/world tinh theo pixel:
+        // centerX = worldWidth / 2, centerY = worldHeight / 2
+        // Vi player co kich thuoc rieng, can tru di nua width/height de dat tam player vao giua.
+        playerStartX = worldWidth / 2 - player.getWidth() / 2;
+        playerStartY = worldHeight / 2 - player.getHeight() / 2;
     }
 
     public boolean isWolfMoving() {
@@ -278,11 +345,16 @@ public class Game {
             return false;
         }
 
+        double px = getPlayerCollisionX();
+        double py = getPlayerCollisionY();
+        double pw = getPlayerCollisionWidth();
+        double ph = getPlayerCollisionHeight();
+
         for (Tree tree : trees) {
-            boolean colliding = player.getX() < tree.getX() + tree.getWidth()
-                    && player.getX() + player.getWidth() > tree.getX()
-                    && player.getY() < tree.getY() + tree.getHeight()
-                    && player.getY() + player.getHeight() > tree.getY();
+            boolean colliding = px < tree.getX() + tree.getWidth()
+                    && px + pw > tree.getX()
+                    && py < tree.getY() + tree.getHeight()
+                    && py + ph > tree.getY();
 
             if (colliding) {
                 return true;
@@ -296,10 +368,10 @@ public class Game {
             return false;
         }
 
-        double px = player.getX();
-        double py = player.getY();
-        double pw = player.getWidth();
-        double ph = player.getHeight();
+        double px = getPlayerCollisionX();
+        double py = getPlayerCollisionY();
+        double pw = getPlayerCollisionWidth();
+        double ph = getPlayerCollisionHeight();
 
         for (MapObjectData object : mapCollisions) {
             // Chi check object dung vai tro collision.
@@ -311,5 +383,23 @@ public class Game {
             }
         }
         return false;
+    }
+
+    private double getPlayerCollisionX() {
+        // Thu nho hitbox ngang de sprite 48x48 khong bi block qua som.
+        return player.getX() + player.getWidth() * 0.22;
+    }
+
+    private double getPlayerCollisionY() {
+        // Day hitbox xuong duoi de uu tien phan "chan" va cham world object.
+        return player.getY() + player.getHeight() * 0.30;
+    }
+
+    private double getPlayerCollisionWidth() {
+        return player.getWidth() * 0.56;
+    }
+
+    private double getPlayerCollisionHeight() {
+        return player.getHeight() * 0.62;
     }
 }
