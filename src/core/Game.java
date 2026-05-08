@@ -39,6 +39,14 @@ public class Game {
     private static final int MENU_EXIT = 2;
     private static final int MENU_COUNT = 3;
 
+    // ===== Mouse Hitbox cho menu WELCOME =====
+    // Cac gia tri nay map 1-1 voi toa do ve button trong Renderer.
+    private static final double MENU_BUTTON_X = 350;
+    private static final double MENU_BUTTON_Y_START = 246; // itemY - 24 voi itemY ban dau = 270
+    private static final double MENU_BUTTON_WIDTH = 260;
+    private static final double MENU_BUTTON_HEIGHT = 42;
+    private static final double MENU_BUTTON_GAP = 58;
+
     private long lastDamageTime;
     private boolean wolfMoving;
     private double cameraX;
@@ -57,6 +65,12 @@ public class Game {
     private static final long WELCOME_FLASH_DURATION_NS = 120_000_000L; // flash nhe khi enter o Welcome
     private static final long WELCOME_TRANSITION_DELAY_NS = 220_000_000L; // tre de thay duoc hieu ung chuyen man
     private int pendingWelcomeAction; // -1: khong co action dang cho
+
+    // ===== Name Input Config =====
+    // Gioi han do dai ten de tranh ten qua dai de vo UI khi ve tren dau player.
+    private static final int MAX_PLAYER_NAME_LENGTH = 14;
+    // Buffer tam trong man hinh nhap ten.
+    private final StringBuilder playerNameBuffer;
 
     public Game(Stage stage) {
         this.inputHandler = new InputHandler();
@@ -83,6 +97,7 @@ public class Game {
         this.menuIndex = 0;
         this.welcomeFlashUntilNs = 0L;
         this.pendingWelcomeAction = -1;
+        this.playerNameBuffer = new StringBuilder("Player");
 
         MapData loadedMap = null;
         try {
@@ -124,6 +139,10 @@ public class Game {
         }
 
         if (!skipGameplay && gameState == GameState.WELCOME) {
+            // Ho tro hover + click chuot trong WELCOME.
+            // Hover se dong bo menuIndex de highlight dung item dang tro chuot.
+            updateWelcomeMenuHoverByMouse();
+
             if (pendingWelcomeAction == -1) { // chi cho di chuyen menu khi khong dang transition
                 if (inputHandler.isJustPressed(KeyCode.UP) || inputHandler.isJustPressed(KeyCode.W)) {
                     menuIndex = (menuIndex - 1 + MENU_COUNT) % MENU_COUNT;
@@ -132,6 +151,17 @@ public class Game {
                     menuIndex = (menuIndex + 1) % MENU_COUNT;
                 }
             }
+
+            // Click trai: trigger hanh dong giong ENTER tren item dang hover/chon.
+            if (pendingWelcomeAction == -1 && inputHandler.isMouseLeftJustClicked()) {
+                int clickedIndex = findWelcomeMenuIndexAt(inputHandler.getMouseX(), inputHandler.getMouseY());
+                if (clickedIndex != -1) {
+                    menuIndex = clickedIndex;
+                    welcomeFlashUntilNs = now + WELCOME_FLASH_DURATION_NS;
+                    pendingWelcomeAction = menuIndex;
+                }
+            }
+
             if (inputHandler.isJustPressed(KeyCode.H)) {
                 gameState = GameState.GUIDE;
             } else if (inputHandler.isJustPressed(KeyCode.ENTER)) {
@@ -142,8 +172,9 @@ public class Game {
             long transitionAtNs = welcomeFlashUntilNs + WELCOME_TRANSITION_DELAY_NS; // moc thoi gian duoc phep switch
             if (pendingWelcomeAction != -1 && now >= transitionAtNs) {
                 if (pendingWelcomeAction == MENU_PLAY) {
-                    restartGame();
-                    gameState = GameState.PLAYING;
+                    // Chuyen vao trang thai nhap ten thay vi vao game ngay.
+                    // restartGame se duoc goi sau khi nguoi choi bam ENTER xac nhan ten.
+                    gameState = GameState.NAME_INPUT;
                 } else if (pendingWelcomeAction == MENU_GUIDE) {
                     gameState = GameState.GUIDE;
                 } else if (pendingWelcomeAction == MENU_EXIT) {
@@ -151,6 +182,45 @@ public class Game {
                 }
                 pendingWelcomeAction = -1; // reset action sau khi xu ly
             }
+            skipGameplay = true;
+        }
+
+        if (!skipGameplay && gameState == GameState.NAME_INPUT) {
+            // ESC: quay lai menu chinh.
+            if (inputHandler.isJustPressed(KeyCode.ESCAPE)) {
+                gameState = GameState.WELCOME;
+                pendingWelcomeAction = -1;
+                skipGameplay = true;
+            }
+
+            // BACKSPACE: xoa ky tu cuoi cung trong buffer.
+            if (!skipGameplay && inputHandler.isJustPressed(KeyCode.BACK_SPACE) && playerNameBuffer.length() > 0) {
+                playerNameBuffer.deleteCharAt(playerNameBuffer.length() - 1);
+            }
+
+            // SPACE: cho phep chen 1 khoang trang (nhung khong de space o dau ten).
+            if (!skipGameplay && inputHandler.isJustPressed(KeyCode.SPACE)
+                    && playerNameBuffer.length() < MAX_PLAYER_NAME_LENGTH
+                    && playerNameBuffer.length() > 0
+                    && playerNameBuffer.charAt(playerNameBuffer.length() - 1) != ' ') {
+                playerNameBuffer.append(' ');
+            }
+
+            // Nhan ky tu text tu InputHandler (onKeyTyped):
+            // - ho tro on dinh cho ca chu va so
+            // - khong phu thuoc layout ban phim (US/VN, numpad,...)
+            if (!skipGameplay) {
+                appendTypedCharacters();
+            }
+
+            // ENTER: xac nhan ten va bat dau game.
+            if (!skipGameplay && inputHandler.isJustPressed(KeyCode.ENTER)) {
+                String normalizedName = normalizePlayerName(playerNameBuffer.toString());
+                player.setPlayerName(normalizedName);
+                restartGame();
+                gameState = GameState.PLAYING;
+            }
+
             skipGameplay = true;
         }
 
@@ -282,7 +352,20 @@ public class Game {
 
     public void render(long now) {
         boolean welcomeFlashing = now < welcomeFlashUntilNs;
-        renderer.render(gameState, player, wolf, now, wolfMoving, trees, cameraX, cameraY, menuIndex, welcomeFlashing);
+        renderer.render(
+                gameState,
+                player,
+                wolf,
+                now,
+                wolfMoving,
+                trees,
+                cameraX,
+                cameraY,
+                menuIndex,
+                welcomeFlashing,
+                playerNameBuffer.toString(),
+                MAX_PLAYER_NAME_LENGTH
+        );
     }
 
     public GameState getGameState() {
@@ -401,5 +484,124 @@ public class Game {
 
     private double getPlayerCollisionHeight() {
         return player.getHeight() * 0.62;
+    }
+
+    // Duyet A..Z va append ky tu vua bam.
+    // Cac phim duoc luu theo enum KeyCode.A ... KeyCode.Z.
+    private void appendLetterFromKeyboard() {
+        if (playerNameBuffer.length() >= MAX_PLAYER_NAME_LENGTH) {
+            return;
+        }
+
+        for (char c = 'A'; c <= 'Z'; c++) {
+            KeyCode code = KeyCode.getKeyCode(String.valueOf(c));
+            if (code != null && inputHandler.isJustPressed(code)) {
+                playerNameBuffer.append(c);
+                return; // Moi frame chi them 1 ky tu de input on dinh.
+            }
+        }
+    }
+
+    // Duyet 0..9 va append so vao ten.
+    private void appendDigitFromKeyboard() {
+        if (playerNameBuffer.length() >= MAX_PLAYER_NAME_LENGTH) {
+            return;
+        }
+
+        // Ho tro day du 2 cum phim so:
+        // 1) Hang so tren cung ban phim: DIGIT0..DIGIT9
+        // 2) Cum numpad: NUMPAD0..NUMPAD9
+        // Ly do bo sung: tuy layout may, nguoi dung co the bam numpad
+        // va neu chi bat DIGIT thi se co cam giac "khong nhap duoc so".
+        for (int d = 0; d <= 9; d++) {
+            KeyCode digitCode = KeyCode.getKeyCode("DIGIT" + d);
+            KeyCode numpadCode = KeyCode.getKeyCode("NUMPAD" + d);
+
+            boolean digitPressed = digitCode != null && inputHandler.isJustPressed(digitCode);
+            boolean numpadPressed = numpadCode != null && inputHandler.isJustPressed(numpadCode);
+
+            if (digitPressed || numpadPressed) {
+                playerNameBuffer.append(d);
+                return;
+            }
+        }
+    }
+
+    // Chuan hoa ten truoc khi save vao player:
+    // - trim bo khoang trang dau/cuoi
+    // - neu rong thi fallback "Player"
+    private String normalizePlayerName(String rawName) {
+        if (rawName == null) {
+            return "Player";
+        }
+        String trimmed = rawName.trim();
+        if (trimmed.isEmpty()) {
+            return "Player";
+        }
+        if (trimmed.length() > MAX_PLAYER_NAME_LENGTH) {
+            return trimmed.substring(0, MAX_PLAYER_NAME_LENGTH);
+        }
+        return trimmed;
+    }
+
+    // Xu ly ky tu text da duoc nhap trong frame hien tai.
+    // Chi cho phep: chu cai, so va dau cach.
+    private void appendTypedCharacters() {
+        if (playerNameBuffer.length() >= MAX_PLAYER_NAME_LENGTH) {
+            return;
+        }
+
+        String typed = inputHandler.consumeTypedCharacters();
+        if (typed == null || typed.isEmpty()) {
+            return;
+        }
+
+        for (int i = 0; i < typed.length(); i++) {
+            if (playerNameBuffer.length() >= MAX_PLAYER_NAME_LENGTH) {
+                break;
+            }
+
+            char ch = typed.charAt(i);
+
+            // Bo qua ky tu dieu khien (Enter, Backspace, ...)
+            if (Character.isISOControl(ch)) {
+                continue;
+            }
+
+            // Cho phep chu cai va so.
+            if (Character.isLetterOrDigit(ch)) {
+                playerNameBuffer.append(Character.toUpperCase(ch));
+                continue;
+            }
+
+            // Cho phep 1 dau cach, nhung khong dat o dau ten va khong lap lai lien tiep.
+            if (ch == ' '
+                    && playerNameBuffer.length() > 0
+                    && playerNameBuffer.charAt(playerNameBuffer.length() - 1) != ' ') {
+                playerNameBuffer.append(' ');
+            }
+        }
+    }
+
+    // Cap nhat item menu dang duoc hover boi chuot.
+    private void updateWelcomeMenuHoverByMouse() {
+        int hoveredIndex = findWelcomeMenuIndexAt(inputHandler.getMouseX(), inputHandler.getMouseY());
+        if (hoveredIndex != -1 && pendingWelcomeAction == -1) {
+            menuIndex = hoveredIndex;
+        }
+    }
+
+    // Tra ve index menu neu diem (mx,my) nam trong 1 button WELCOME.
+    // -1 nghia la chuot dang ngoai vung button.
+    private int findWelcomeMenuIndexAt(double mx, double my) {
+        for (int i = 0; i < MENU_COUNT; i++) {
+            double top = MENU_BUTTON_Y_START + i * MENU_BUTTON_GAP;
+            boolean insideX = mx >= MENU_BUTTON_X && mx <= MENU_BUTTON_X + MENU_BUTTON_WIDTH;
+            boolean insideY = my >= top && my <= top + MENU_BUTTON_HEIGHT;
+            if (insideX && insideY) {
+                return i;
+            }
+        }
+        return -1;
     }
 }

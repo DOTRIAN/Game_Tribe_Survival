@@ -2,30 +2,37 @@ package input;
 
 import javafx.scene.Scene;
 import javafx.scene.input.KeyCode;
+import javafx.scene.input.MouseButton;
 
-import java.util.HashSet; // 1 class cụ thể để cài đặt set
-import java.util.Set; // 1 kiểu tập hợp nơi luu nhiều phần tử không trùng lặp
-
-
+import java.util.HashSet;
+import java.util.Set;
 
 public class InputHandler {
 
     private final Set<KeyCode> pressedKeys;
-    // Sett<Keycode>: 1 tapj hop cac phan tu kieu Keycode
-    //pressedKeys: ten bien, cac phim hien dang duoc nhan
-    //Neu chi de la Keycode thi chi nhan duoc 1 phim tai 1 thoi diem
     private final Set<KeyCode> justPressedKeys;
+    // Buffer ky tu text vua duoc go (dung cho man nhap ten).
+    private final StringBuilder typedCharacters;
+
+    // Du lieu chuot cho menu UI screen-space.
+    private double mouseX;
+    private double mouseY;
+    private boolean mouseLeftJustClicked;
 
     public InputHandler() {
         this.pressedKeys = new HashSet<>();
         this.justPressedKeys = new HashSet<>();
+        this.typedCharacters = new StringBuilder();
+        this.mouseX = 0;
+        this.mouseY = 0;
+        this.mouseLeftJustClicked = false;
     }
 
-    public void attach(Scene scene) {   // gan InpuHandler vao Scene
+    public void attach(Scene scene) {
         scene.setOnKeyPressed(event -> {
             KeyCode code = event.getCode();
             if (!pressedKeys.contains(code)) {
-                justPressedKeys.add(code);   // chỉ thêm khi vừa nhấn xuống lần đầu
+                justPressedKeys.add(code);
             }
             pressedKeys.add(code);
         });
@@ -35,29 +42,67 @@ public class InputHandler {
             pressedKeys.remove(code);
             justPressedKeys.remove(code);
         });
-        // scene.setOnKeyPressed(...) : Dky 1 ham xu ly khi phim dc nhan xuong(hoac khi userr nhan phim thi hay xu ly doan code nay)
-        //event la doi tuong su kien ban phim
-        // chua tthong tin ve lan bam phim do
-        // event.geCode() lấy ra mã phím vừa nhấn
-        //pressedKeys.add(..) : thêm phims đó vào tập hợp pressedKeys
-        //scene.setOnKeyReleased(...) đky hàm xư lý khi phím được thả ra
-        //event.getcode() lấy mã phím vừa thả
-        //pressedKeys.remove: xóa phím đó khỏi tập hợp
+
+        // onKeyTyped cho input text on dinh hon keycode (chu, so, space...).
+        scene.setOnKeyTyped(event -> {
+            String ch = event.getCharacter();
+            if (ch != null && !ch.isEmpty()) {
+                typedCharacters.append(ch);
+            }
+        });
+
+        // Cap nhat vi tri chuot cho hover menu.
+        scene.setOnMouseMoved(event -> {
+            mouseX = event.getX();
+            mouseY = event.getY();
+        });
+        scene.setOnMouseDragged(event -> {
+            mouseX = event.getX();
+            mouseY = event.getY();
+        });
+
+        // Click trai 1-lan/frame de xu ly chon menu.
+        scene.setOnMouseClicked(event -> {
+            mouseX = event.getX();
+            mouseY = event.getY();
+            if (event.getButton() == MouseButton.PRIMARY) {
+                mouseLeftJustClicked = true;
+            }
+        });
     }
 
     public void update() {
-        // Skeleton: buoc sau doc pressedKeys de dieu khien player.
-        justPressedKeys.clear(); // mỗi frame reset "vừa nhấn"
+        justPressedKeys.clear();
+        mouseLeftJustClicked = false;
     }
 
     public boolean isPressed(KeyCode keyCode) {
-        return pressedKeys.contains(keyCode);  // ktra trong tập hợp pressedKeys có phần tử đó ko
-    }  // hàm check xem phím  đó có đang được nhấn ko
+        return pressedKeys.contains(keyCode);
+    }
 
     public void clearPressedKeys() {
         pressedKeys.clear();
     }
+
     public boolean isJustPressed(KeyCode keyCode) {
         return justPressedKeys.contains(keyCode);
+    }
+
+    public String consumeTypedCharacters() {
+        String value = typedCharacters.toString();
+        typedCharacters.setLength(0);
+        return value;
+    }
+
+    public double getMouseX() {
+        return mouseX;
+    }
+
+    public double getMouseY() {
+        return mouseY;
+    }
+
+    public boolean isMouseLeftJustClicked() {
+        return mouseLeftJustClicked;
     }
 }

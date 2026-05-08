@@ -14,6 +14,7 @@ import javafx.scene.layout.StackPane;
 import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
+import javafx.scene.text.Text;
 import javafx.stage.Stage;
 import map.MapData;
 import map.MapRenderer;
@@ -61,7 +62,8 @@ public class Renderer {
     }
 
     public void render(GameState gameState, Player player, Wolf wolf, long now, boolean wolfMoving,
-                       List<Tree> trees, double cameraX, double cameraY, int menuIndex, boolean welcomeFlashing) {
+                       List<Tree> trees, double cameraX, double cameraY, int menuIndex, boolean welcomeFlashing,
+                       String playerNameDraft, int maxNameLength) {
         if (gameState == GameState.WELCOME) {
             if (welcomeBackgroundImage.isError()) {
                 graphicsContext.setFill(Color.web("#2a3a2a"));
@@ -158,6 +160,60 @@ public class Renderer {
             return;
         }
 
+        if (gameState == GameState.NAME_INPUT) {
+            // Man hinh nhap ten:
+            // - su dung nen menu de giu tinh dong bo voi flow WELCOME
+            // - cho nguoi choi xem ten dang go (draft)
+            // - ENTER xac nhan, ESC quay lai menu
+            if (welcomeBackgroundImage.isError()) {
+                graphicsContext.setFill(Color.web("#2a3a2a"));
+                graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
+            } else {
+                graphicsContext.drawImage(welcomeBackgroundImage, 0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
+            }
+
+            graphicsContext.setFill(Color.color(0, 0, 0, 0.55));
+            graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
+
+            double panelX = 220;
+            double panelY = 140;
+            double panelW = 520;
+            double panelH = 240;
+            graphicsContext.setFill(Color.color(0.95, 0.92, 0.78, 0.93));
+            graphicsContext.fillRoundRect(panelX, panelY, panelW, panelH, 20, 20);
+            graphicsContext.setStroke(Color.web("#5b4a2e"));
+            graphicsContext.setLineWidth(3);
+            graphicsContext.strokeRoundRect(panelX, panelY, panelW, panelH, 20, 20);
+
+            graphicsContext.setFill(Color.web("#2f2618"));
+            // Tang tieu de de de doc hon.
+            graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 36));
+            graphicsContext.fillText("ENTER NAME", 360, 192);
+
+            // Input box.
+            double boxX = 280;
+            double boxY = 220;
+            double boxW = 400;
+            double boxH = 52;
+            graphicsContext.setFill(Color.web("#fff8e8"));
+            graphicsContext.fillRoundRect(boxX, boxY, boxW, boxH, 10, 10);
+            graphicsContext.setStroke(Color.web("#6f5a36"));
+            graphicsContext.setLineWidth(2);
+            graphicsContext.strokeRoundRect(boxX, boxY, boxW, boxH, 10, 10);
+
+            String shownName = playerNameDraft == null ? "" : playerNameDraft;
+            graphicsContext.setFill(Color.web("#2f2618"));
+            // Tang size text nhap ten de nguoi choi nhin ro ky tu dang go.
+            graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 30));
+            graphicsContext.fillText(shownName, boxX + 14, boxY + 34);
+
+            graphicsContext.setFont(Font.font("Georgia", FontWeight.NORMAL, 20));
+            graphicsContext.fillText("Length: " + shownName.length() + "/" + maxNameLength, boxX + 14, boxY + 74);
+            graphicsContext.fillText("ENTER: Confirm", 285, 338);
+            graphicsContext.fillText("ESC: Back", 520, 338);
+            return;
+        }
+
         // Gameplay: clear full canvas de tranh bong frame cu.
         graphicsContext.setFill(Color.web("#1b1b1b"));
         graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
@@ -205,11 +261,12 @@ public class Renderer {
         // Ket thuc world-space rendering, tra lai he toa do man hinh.
         graphicsContext.restore();
 
-        // UI/debug text de o screen-space, khong bi zoom theo world.
-        graphicsContext.setFill(Color.DARKGREEN);
-        graphicsContext.fillText("State: " + gameState, 20, 30);
-        graphicsContext.fillText("WASD: move", 20, 55);
-        graphicsContext.fillText("J: take damage | K: heal", 20, 80);
+        // Da an toan bo text debug/hint cu de HUD gon hon.
+        // Neu can bat lai, chi can bo comment cac dong duoi:
+        // graphicsContext.setFill(Color.DARKGREEN);
+        // graphicsContext.fillText("State: " + gameState, 20, 30);
+        // graphicsContext.fillText("WASD: move", 20, 55);
+        // graphicsContext.fillText("J: take damage | K: heal", 20, 80);
 
         hud.render(graphicsContext, player);
 
@@ -234,5 +291,13 @@ public class Renderer {
             graphicsContext.fillText("Press P to Resume", 360, 280);
             graphicsContext.fillText("Press ESC to Menu", 355, 315);
         }
+    }
+
+    // Ham helper do text width theo font hien tai cua graphics context.
+    // Hien tai dang du phong cho canh chinh text dong trong cac UI tiep theo.
+    private double measureTextWidth(GraphicsContext graphicsContext, String text) {
+        Text helper = new Text(text);
+        helper.setFont(graphicsContext.getFont());
+        return helper.getLayoutBounds().getWidth();
     }
 }

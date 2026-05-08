@@ -5,6 +5,9 @@ import animation.SpriteSheetLoader;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.image.Image;
 import javafx.scene.paint.Color;
+import javafx.scene.text.Font;
+import javafx.scene.text.FontWeight;
+import javafx.scene.text.Text;
 
 public class Player {
     private enum FacingDirection {
@@ -31,6 +34,8 @@ public class Player {
     private FacingDirection facingDirection;
     private boolean facingRight;
     private Image currentFrame;
+    // Ten hien thi tren dau nhan vat khi render trong world.
+    private String playerName;
 
     public Player(double x, double y, double width, double height, double speed, int maxHp) {
         this.x = x;
@@ -93,6 +98,7 @@ public class Player {
         this.facingDirection = FacingDirection.DOWN;
         this.facingRight = true;
         this.currentFrame = idleDownAnimation.getCurrentFrame();
+        this.playerName = "Player";
     }
 
     public void moveLeft() {
@@ -186,6 +192,17 @@ public class Player {
         this.y = y;
     }
 
+    // Getter/Setter ten nhan vat:
+    // - Ten duoc validate ben Game (do ngu canh nhap ten o menu nam ben Game).
+    // - Player chi dong vai tro luu du lieu + expose cho render.
+    public String getPlayerName() {
+        return playerName;
+    }
+
+    public void setPlayerName(String playerName) {
+        this.playerName = playerName;
+    }
+
     public void updateAnimation(long now, boolean moving, boolean moveUp, boolean moveDown, boolean moveLeft, boolean moveRight) {
         if (moveLeft || moveRight) {
             facingDirection = FacingDirection.SIDE;
@@ -239,9 +256,49 @@ public class Player {
             graphicsContext.scale(-1, 1);
             graphicsContext.drawImage(currentFrame, 0, 0, width, height);
             graphicsContext.restore();
+        } else {
+            graphicsContext.drawImage(currentFrame, screenX, screenY, width, height);
+        }
+
+        // Ve ten nhan vat o phia tren dau sprite.
+        // Dat sau khi ve player de chac chan ten nam tren layer entity.
+        drawPlayerName(graphicsContext, screenX, screenY);
+    }
+
+    private void drawPlayerName(GraphicsContext graphicsContext, double screenX, double screenY) {
+        // Neu ten null/blank thi khong ve gi de tranh tao rac UI.
+        if (playerName == null || playerName.trim().isEmpty()) {
             return;
         }
 
-        graphicsContext.drawImage(currentFrame, screenX, screenY, width, height);
+        String visibleName = playerName.trim();
+
+        // Luu state hien tai de khong lam anh huong font/mau cua cac phan render khac.
+        graphicsContext.save();
+        // Giam nhe size ten theo yeu cau de khong che gameplay.
+        graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 8));
+
+        // Tinh canh giua ten theo be ngang sprite.
+        double nameWidth = measureTextWidth(graphicsContext, visibleName);
+        double textX = screenX + (width - nameWidth) / 2;
+        // Day ten len cao hon mot chut de tranh sat dau sprite.
+        double textY = screenY - 0.1;
+
+        // Ve stroke den truoc de ten doc ro tren nen sang/toi bat ky.
+        graphicsContext.setStroke(Color.color(0, 0, 0, 0.8));
+        graphicsContext.strokeText(visibleName, textX, textY);
+
+        // Ve fill sang ben trong.
+        graphicsContext.setFill(Color.color(1, 1, 1, 0.95));
+        graphicsContext.fillText(visibleName, textX, textY);
+
+        graphicsContext.restore();
+    }
+
+    // Ham helper do rong text theo font hien tai cua graphics context.
+    private double measureTextWidth(GraphicsContext graphicsContext, String text) {
+        Text helper = new Text(text);
+        helper.setFont(graphicsContext.getFont());
+        return helper.getLayoutBounds().getWidth();
     }
 }
