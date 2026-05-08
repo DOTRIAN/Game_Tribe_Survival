@@ -61,7 +61,7 @@ public class Game {
     public Game(Stage stage) {
         this.inputHandler = new InputHandler();
         // Spawn tam thoi; sau khi load map se reset lai vao dung center world thuc te.
-        this.player = new Player(100, 100, 48, 48, 1, 100);
+        this.player = new Player(100, 100, 58, 58, 1, 100);
         this.renderer = new Renderer(stage, inputHandler);
         this.gameLoop = new GameLoop(this);
         this.gameState = GameState.WELCOME;
