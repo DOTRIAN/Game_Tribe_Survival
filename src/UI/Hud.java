@@ -5,8 +5,6 @@ import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.paint.Color;
 import javafx.scene.text.Text;
 
-
-
 public class Hud {
     // ===== HUD Layout Config =====
     // Toa do goc trai tren cua khung HUD.
@@ -96,6 +94,5 @@ public class Hud {
         helper.setFont(graphicsContext.getFont());
         return helper.getLayoutBounds().getWidth();
     }
-
 
 }
