@@ -30,4 +30,14 @@ public class SpriteAnimation {
     public Image getCurrentFrame() {
         return frames[currentFrameIndex];
     }
+
+    // Reset animation ve frame dau, dung cho state transition (vd: bat dau slash moi).
+    public void reset() {
+        currentFrameIndex = 0;
+        lastFrameTime = 0;
+    }
+
+    public int getFrameCount() {
+        return frames.length;
+    }
 }

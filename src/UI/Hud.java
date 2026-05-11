@@ -5,6 +5,8 @@ import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.paint.Color;
 import javafx.scene.text.Text;
 
+import java.util.Map;
+
 public class Hud {
     // ===== HUD Layout Config =====
     // Toa do goc trai tren cua khung HUD.
@@ -13,6 +15,11 @@ public class Hud {
     // Thu nho panel so voi ban truoc de tong the gon hon.
     private static final double PANEL_WIDTH = 210;
     private static final double PANEL_HEIGHT = 48;
+    // Panel ben phai de hien thi tai nguyen da thu thap.
+    private static final double RESOURCE_PANEL_X = 730;
+    private static final double RESOURCE_PANEL_Y = 16;
+    private static final double RESOURCE_PANEL_WIDTH = 214;
+    private static final double RESOURCE_PANEL_HEIGHT = 132;
 
     // Vi tri va kich thuoc thanh HP nam ben trong panel.
     // Gia tri nay duoc tinh theo PANEL_* de de canh chinh dong bo.
@@ -33,7 +40,7 @@ public class Hud {
     // Dang dat false nen se KHONG hien thi Player X/Y.
     private static final boolean SHOW_COORDINATES = false;
 
-    public void render(GraphicsContext graphicsContext, Player player) {
+    public void render(GraphicsContext graphicsContext, Player player, Map<String, Integer> collectedResources) {
         // ===== 1) Ve nen panel HUD =====
         // Mau den trong suot nhe de tach HUD khoi background map.
         graphicsContext.setFill(Color.color(0, 0, 0, 0.35));
@@ -84,6 +91,37 @@ public class Hud {
             graphicsContext.setFill(Color.BLACK);
             graphicsContext.fillText("Player X: " + player.getX(), 20, 110);
             graphicsContext.fillText("Player Y: " + player.getY(), 20, 135);
+        }
+
+        // ===== 7) Resource text panel =====
+        graphicsContext.setFill(Color.color(0, 0, 0, 0.35));
+        graphicsContext.fillRoundRect(RESOURCE_PANEL_X, RESOURCE_PANEL_Y, RESOURCE_PANEL_WIDTH, RESOURCE_PANEL_HEIGHT, PANEL_ARC, PANEL_ARC);
+        graphicsContext.setStroke(Color.color(1, 1, 1, 0.3));
+        graphicsContext.strokeRoundRect(RESOURCE_PANEL_X, RESOURCE_PANEL_Y, RESOURCE_PANEL_WIDTH, RESOURCE_PANEL_HEIGHT, PANEL_ARC, PANEL_ARC);
+
+        graphicsContext.setFill(Color.web("#f3f3f3"));
+        graphicsContext.fillText("Collected", RESOURCE_PANEL_X + 12, RESOURCE_PANEL_Y + 18);
+
+        // Hien thi cac tai nguyen co trong kho tam thoi.
+        // Hien tai dung text; sau nay co the doi thanh icon pixel + so.
+        double lineY = RESOURCE_PANEL_Y + 38;
+        if (collectedResources == null || collectedResources.isEmpty()) {
+            graphicsContext.fillText("wood: 0", RESOURCE_PANEL_X + 12, lineY);
+            graphicsContext.fillText("stone: 0", RESOURCE_PANEL_X + 12, lineY + 18);
+            graphicsContext.fillText("fiber: 0", RESOURCE_PANEL_X + 12, lineY + 36);
+            graphicsContext.fillText("carrot: 0", RESOURCE_PANEL_X + 12, lineY + 54);
+            return;
+        }
+
+        // In toan bo entry hien co.
+        int printed = 0;
+        for (Map.Entry<String, Integer> entry : collectedResources.entrySet()) {
+            if (printed >= 5) {
+                break;
+            }
+            String line = entry.getKey() + ": " + entry.getValue();
+            graphicsContext.fillText(line, RESOURCE_PANEL_X + 12, lineY + printed * 18);
+            printed++;
         }
     }
 

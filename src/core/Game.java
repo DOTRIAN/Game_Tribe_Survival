@@ -10,10 +10,15 @@ import javafx.stage.Stage;
 import map.MapData;
 import map.MapObjectData;
 import map.TiledMapLoader;
+import system.resource.DropResult;
+import system.resource.ResourceContractValidator;
+import system.resource.ResourceManager;
 import ui.Renderer;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 public class Game {
     // Phai dong bo voi CAMERA_ZOOM trong Renderer de camera center dung khi co zoom.
@@ -27,6 +32,10 @@ public class Game {
     private final Wolf wolf;
     private final List<Tree> trees;
     private final List<MapObjectData> mapCollisions;
+    private final ResourceManager resourceManager;
+    private final DayNightCycle dayNightCycle;
+    // Tai nguyen nguoi choi da thu thap (hien thi HUD text tam thoi).
+    private final Map<String, Integer> collectedResources;
     private GameState gameState;
 
     private static final boolean ENABLE_WOLF = false;
@@ -98,6 +107,9 @@ public class Game {
         this.welcomeFlashUntilNs = 0L;
         this.pendingWelcomeAction = -1;
         this.playerNameBuffer = new StringBuilder("Player");
+        this.resourceManager = new ResourceManager();
+        this.dayNightCycle = new DayNightCycle();
+        this.collectedResources = new LinkedHashMap<>();
 
         MapData loadedMap = null;
         try {
@@ -110,6 +122,14 @@ public class Game {
 
         this.mapData = loadedMap;
         this.mapCollisions = loadedMap != null ? loadedMap.getCollisionObjects() : new ArrayList<>();
+        this.resourceManager.loadFromMapObjects(this.mapCollisions);
+        List<String> contractErrors = new ResourceContractValidator().validate(this.mapCollisions);
+        if (!contractErrors.isEmpty()) {
+            System.out.println("=== Resource contract warnings ===");
+            for (String error : contractErrors) {
+                System.out.println(error);
+            }
+        }
         this.renderer.setMapData(loadedMap);
 
         // Neu load duoc map tiled: dung kich thuoc map pixel lam world boundary thuc te.
@@ -122,6 +142,7 @@ public class Game {
         recalculatePlayerStartAtWorldCenter();
         player.reset(playerStartX, playerStartY);
         updateCamera();
+        dayNightCycle.reset(System.nanoTime());
     }
 
     public void start() {
@@ -253,10 +274,10 @@ public class Game {
             double oldPlayerX = player.getX();
             double oldPlayerY = player.getY();
 
-            boolean moveLeft = inputHandler.isPressed(KeyCode.A);
-            boolean moveRight = inputHandler.isPressed(KeyCode.D);
-            boolean moveUp = inputHandler.isPressed(KeyCode.W);
-            boolean moveDown = inputHandler.isPressed(KeyCode.S);
+            boolean moveLeft = !player.isAttacking() && inputHandler.isPressed(KeyCode.A);
+            boolean moveRight = !player.isAttacking() && inputHandler.isPressed(KeyCode.D);
+            boolean moveUp = !player.isAttacking() && inputHandler.isPressed(KeyCode.W);
+            boolean moveDown = !player.isAttacking() && inputHandler.isPressed(KeyCode.S);
 
             if (moveLeft) {
                 player.moveLeft();
@@ -276,6 +297,15 @@ public class Game {
             if (inputHandler.isPressed(KeyCode.K)) {
                 player.heal(1);
             }
+
+            // Trigger attack bang click trai CHUOT hoac phim F (giu F de test nhanh khi can).
+            boolean attackTriggered = inputHandler.isMouseLeftJustClicked() || inputHandler.isJustPressed(KeyCode.F);
+            if (attackTriggered) {
+                performPlayerAttack(now);
+            }
+
+            // Update resource runtime (respawn neu du dieu kien).
+            resourceManager.update(now);
 
             player.clampPosition(0, 0, worldWidth, worldHeight);
 
@@ -364,7 +394,12 @@ public class Game {
                 menuIndex,
                 welcomeFlashing,
                 playerNameBuffer.toString(),
-                MAX_PLAYER_NAME_LENGTH
+                MAX_PLAYER_NAME_LENGTH,
+                resourceManager.getAllResources(),
+                collectedResources,
+                dayNightCycle.getDarknessAlpha(now),
+                dayNightCycle.isNight(now),
+                dayNightCycle.getPhaseName(now)
         );
     }
 
@@ -404,6 +439,7 @@ public class Game {
         wolfMoving = false;
         // Update camera ngay luc reset de frame dau tien vao game da focus dung vao player.
         updateCamera();
+        dayNightCycle.reset(System.nanoTime());
     }
 
     private void recalculatePlayerStartAtWorldCenter() {
@@ -459,6 +495,12 @@ public class Game {
         for (MapObjectData object : mapCollisions) {
             // Chi check object dung vai tro collision.
             if (!"Collision".equalsIgnoreCase(object.getType())) {
+                continue;
+            }
+
+            // Neu object nay la resource va da bi pha thi bo qua collision,
+            // giup player di xuyen qua sau khi "chat/dao" xong.
+            if (isResourceObject(object) && !isResourceAlive(object.getId())) {
                 continue;
             }
             if (object.intersects(px, py, pw, ph)) {
@@ -603,5 +645,65 @@ public class Game {
             }
         }
         return -1;
+    }
+
+    // Xu ly 1 lan tan cong cua player:
+    // 1) Bat state slash animation
+    // 2) Lay hitbox tan cong theo huong nhan vat
+    // 3) Apply damage len resource dau tien giao hitbox
+    // 4) Neu resource vo -> nhan drop vao kho thu thap tam thoi
+    private void performPlayerAttack(long now) {
+        if (!player.startAttack(now)) {
+            return;
+        }
+
+        double[] attackBox = player.buildAttackHitbox();
+        DropResult dropResult = resourceManager.hitFirstResourceIntersecting(
+                attackBox[0],
+                attackBox[1],
+                attackBox[2],
+                attackBox[3],
+                1,
+                now
+        );
+
+        if (dropResult == null) {
+            System.out.println("[Resource] Attack landed, no resource destroyed.");
+            return;
+        }
+
+        addCollectedItem(dropResult.getItemId(), dropResult.getAmount());
+        System.out.println("[Resource] Destroyed -> drop " + dropResult.getItemId() + " x" + dropResult.getAmount());
+    }
+
+    private void addCollectedItem(String itemId, int amount) {
+        if (itemId == null || itemId.isBlank() || amount <= 0) {
+            return;
+        }
+        int oldAmount = collectedResources.getOrDefault(itemId, 0);
+        collectedResources.put(itemId, oldAmount + amount);
+    }
+
+    // Detect object co schema resource theo contract/property map.
+    private boolean isResourceObject(MapObjectData object) {
+        if (object == null || object.getProperties() == null) {
+            return false;
+        }
+        String kind = object.getProperties().get("kind");
+        String dropItem = object.getProperties().get("dropItem");
+        String maxHp = object.getProperties().get("maxHp");
+        String hpLegacy = object.getProperties().get("hp");
+        return hasText(kind) || hasText(dropItem) || hasText(maxHp) || hasText(hpLegacy);
+    }
+
+    private boolean isResourceAlive(int objectId) {
+        if (resourceManager.getResourceById(objectId) == null) {
+            return true;
+        }
+        return resourceManager.getResourceById(objectId).isAlive();
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
     }
 }

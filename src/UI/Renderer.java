@@ -9,17 +9,23 @@ import input.InputHandler;
 import javafx.scene.Scene;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
+import javafx.scene.effect.BlendMode;
 import javafx.scene.image.Image;
 import javafx.scene.layout.StackPane;
 import javafx.scene.paint.Color;
+import javafx.scene.paint.CycleMethod;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import javafx.scene.text.Text;
+import javafx.scene.paint.RadialGradient;
+import javafx.scene.paint.Stop;
 import javafx.stage.Stage;
 import map.MapData;
 import map.MapRenderer;
+import system.resource.ResourceNode;
 
 import java.util.List;
+import java.util.Map;
 
 public class Renderer {
     // Zoom camera cho gameplay:
@@ -63,7 +69,9 @@ public class Renderer {
 
     public void render(GameState gameState, Player player, Wolf wolf, long now, boolean wolfMoving,
                        List<Tree> trees, double cameraX, double cameraY, int menuIndex, boolean welcomeFlashing,
-                       String playerNameDraft, int maxNameLength) {
+                       String playerNameDraft, int maxNameLength,
+                       List<ResourceNode> allResources, Map<String, Integer> collectedResources,
+                       double darknessAlpha, boolean isNight, String dayNightPhase) {
         if (gameState == GameState.WELCOME) {
             if (welcomeBackgroundImage.isError()) {
                 graphicsContext.setFill(Color.web("#2a3a2a"));
@@ -232,6 +240,8 @@ public class Renderer {
         double renderCameraY = cameraY;
 
         if (mapRenderer != null) {
+            // Dong bo danh sach resource de renderer co the an tile object/foreground cua node da bi pha.
+            mapRenderer.setResources(allResources);
             mapRenderer.renderBelowEntities(graphicsContext, renderCameraX, renderCameraY, now);
         } else {
             if (gameBackgroundImage.isError()) {
@@ -261,6 +271,16 @@ public class Renderer {
         // Ket thuc world-space rendering, tra lai he toa do man hinh.
         graphicsContext.restore();
 
+        // ===== Day/Night overlay + local lights =====
+        // - Ve sau world de toi toan canh.
+        // - Ve truoc HUD de HUD van de doc.
+        renderNightOverlayAndLights(player, cameraX, cameraY, darknessAlpha, isNight);
+
+        // Debug text nho: giup test nhanh chu ky day/night khi can.
+        graphicsContext.setFill(Color.color(1, 1, 1, 0.85));
+        graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 12));
+        graphicsContext.fillText("Light: " + dayNightPhase + " alpha=" + String.format("%.2f", darknessAlpha), 14, 532);
+
         // Da an toan bo text debug/hint cu de HUD gon hon.
         // Neu can bat lai, chi can bo comment cac dong duoi:
         // graphicsContext.setFill(Color.DARKGREEN);
@@ -268,7 +288,7 @@ public class Renderer {
         // graphicsContext.fillText("WASD: move", 20, 55);
         // graphicsContext.fillText("J: take damage | K: heal", 20, 80);
 
-        hud.render(graphicsContext, player);
+        hud.render(graphicsContext, player, collectedResources);
 
         if (gameState == GameState.GAME_OVER) {
             graphicsContext.setFill(Color.DARKRED);
@@ -291,6 +311,69 @@ public class Renderer {
             graphicsContext.fillText("Press P to Resume", 360, 280);
             graphicsContext.fillText("Press ESC to Menu", 355, 315);
         }
+    }
+
+    /**
+     * renderNightOverlayAndLights:
+     * - Mo phong "troi toi dan" bang lop den alpha.
+     * - Tao "vung sang" bang hieu ung radial light (kieu duc lo, nhung than thien Canvas JavaFX).
+     * - Vung sang hien tai:
+     *   1) Quanh player (de gameplay khong bi mu)
+     *   2) 1 diem lua tinh tren map (tam thoi, co the doi sang object light sau)
+     */
+    private void renderNightOverlayAndLights(Player player, double cameraX, double cameraY, double darknessAlpha, boolean isNight) {
+        if (darknessAlpha <= 0.001) {
+            return;
+        }
+
+        // 1) Phu lop toi toan man hinh.
+        graphicsContext.setGlobalBlendMode(BlendMode.SRC_OVER);
+        graphicsContext.setFill(Color.color(0, 0, 0, darknessAlpha));
+        graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
+
+        // 2) Ve vung sang bo sung bang blend SCREEN de "day lui" bong toi.
+        graphicsContext.save();
+        graphicsContext.setGlobalBlendMode(BlendMode.SCREEN);
+
+        // Vung sang quanh player:
+        // - Ban dem radius nho hon de tao cam giac gioi han tam nhin.
+        // - Luc dusk/dawn van co sang nhe cho de chiu.
+        double playerWorldX = player.getX() + player.getWidth() / 2.0;
+        double playerWorldY = player.getY() + player.getHeight() / 2.0;
+        double playerScreenX = (playerWorldX - cameraX) * CAMERA_ZOOM;
+        double playerScreenY = (playerWorldY - cameraY) * CAMERA_ZOOM;
+        double playerLightRadius = isNight ? 120 : 170;
+        drawRadialLight(playerScreenX, playerScreenY, playerLightRadius, Color.color(1.0, 0.96, 0.86, 0.58));
+
+        // Bonfire light tam thoi:
+        // - Dung toa do world hard-code theo map hien tai de co "dom lua sang".
+        // - Sau nay nen doi sang object light trong map de map artist tu quan ly.
+        double bonfireWorldX = 1060;
+        double bonfireWorldY = 520;
+        double bonfireScreenX = (bonfireWorldX - cameraX) * CAMERA_ZOOM;
+        double bonfireScreenY = (bonfireWorldY - cameraY) * CAMERA_ZOOM;
+        drawRadialLight(bonfireScreenX, bonfireScreenY, 180, Color.color(1.0, 0.80, 0.40, 0.62));
+
+        graphicsContext.restore();
+        graphicsContext.setGlobalBlendMode(BlendMode.SRC_OVER);
+    }
+
+    // Ve 1 radial light tam x,y ban kinh radius.
+    private void drawRadialLight(double x, double y, double radius, Color centerColor) {
+        RadialGradient gradient = new RadialGradient(
+                0,
+                0,
+                x,
+                y,
+                radius,
+                false,
+                CycleMethod.NO_CYCLE,
+                new Stop(0.0, centerColor),
+                new Stop(0.55, Color.color(centerColor.getRed(), centerColor.getGreen(), centerColor.getBlue(), centerColor.getOpacity() * 0.36)),
+                new Stop(1.0, Color.color(0, 0, 0, 0.0))
+        );
+        graphicsContext.setFill(gradient);
+        graphicsContext.fillOval(x - radius, y - radius, radius * 2, radius * 2);
     }
 
     // Ham helper do text width theo font hien tai cua graphics context.
