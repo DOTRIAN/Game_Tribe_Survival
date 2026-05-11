@@ -1,9 +1,9 @@
 {
-    "activeFile": "assets/maps/TreeSize04.tsx",
+    "activeFile": "assets/maps/mapdemo.tmx",
     "expandedProjectPaths": [
+        ".",
         "assets",
-        "assets/maps",
-        "."
+        "assets/maps"
     ],
     "fileStates": {
         "C:/Program Files/Tiled/examples/desert.tmx": {
@@ -127,10 +127,10 @@
                 2
             ],
             "scale": 1.5,
-            "selectedLayer": 2,
+            "selectedLayer": 3,
             "viewCenter": {
-                "x": 821.6666666666665,
-                "y": 651.3333333333333
+                "x": 821.3333333333333,
+                "y": 479.3333333333333
             }
         }
     },
@@ -153,12 +153,12 @@
     "project": "tainguyenmap.tiled-project",
     "property.type": "string",
     "recentFiles": [
-        "assets/maps/mapdemo.tmx",
-        "assets/maps/floors.tsx",
-        "assets/maps/Wall_Tiles.tsx",
-        "assets/maps/Rocks.tsx",
         "assets/maps/TreeSize02.tsx",
         "assets/maps/TreeSize04.tsx",
+        "assets/maps/Rocks.tsx",
+        "assets/maps/Wall_Tiles.tsx",
+        "assets/maps/floors.tsx",
+        "assets/maps/mapdemo.tmx",
         "C:/Program Files/Tiled/examples/orthogonal-outside.tmx",
         "C:/Program Files/Tiled/examples/isometric_grass_and_water.tmx",
         "C:/Program Files/Tiled/examples/sewer_automap/rule_001.tmx",
