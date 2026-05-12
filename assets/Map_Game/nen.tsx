@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<tileset version="1.10" tiledversion="1.12.1" name="tileset" tilewidth="16" tileheight="16" tilecount="256" columns="16">
- <image source="gentle sheets/gentle forest v01.png" width="256" height="256"/>
+<tileset version="1.10" tiledversion="1.12.1" name="nen" tilewidth="16" tileheight="16" tilecount="256" columns="16">
+ <image source="gentle_sheets/gentle forest v01.png" width="256" height="256"/>
  <tile id="11">
   <properties>
    <property name="tree" value="on"/>
@@ -114,7 +114,7 @@
  <tile id="77">
   <properties>
    <property name="Collision" value="on"/>
-   <property name="Hp" type="int" value="5"/>
+   <property name="Hp" type="int" value="10"/>
    <property name="tree" value="on"/>
   </properties>
  </tile>
@@ -153,7 +153,7 @@
  <tile id="93">
   <properties>
    <property name="Collision" value="on"/>
-   <property name="Hp" type="int" value="5"/>
+   <property name="Hp" type="int" value="10"/>
    <property name="tree" value="on"/>
   </properties>
  </tile>
@@ -177,11 +177,6 @@
   <properties>
    <property name="stone" value="on"/>
    <property name="stone_Hp" type="int" value="10"/>
-  </properties>
- </tile>
- <tile id="145">
-  <properties>
-   <property name="da" value="on"/>
   </properties>
  </tile>
 </tileset>
