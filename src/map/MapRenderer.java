@@ -3,14 +3,27 @@ package map;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.image.Image;
 import javafx.scene.paint.Color;
+import system.resource.ResourceNode;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class MapRenderer {
     private final MapData mapData;
+    private List<ResourceNode> resources;
 
     public MapRenderer(MapData mapData) {
         this.mapData = mapData;
+        this.resources = new ArrayList<>();
+    }
+
+    // Nhan danh sach resource runtime tu Renderer/Game moi frame.
+    public void setResources(List<ResourceNode> resources) {
+        if (resources == null) {
+            this.resources = new ArrayList<>();
+            return;
+        }
+        this.resources = resources;
     }
 
     // Render cac layer nam DUOI entity.
@@ -19,8 +32,8 @@ public class MapRenderer {
     // - Grounds: nen dat/co/duong
     // - Objects: than cay/da/props o tam thap
     public void renderBelowEntities(GraphicsContext gc, double cameraX, double cameraY, long now) {
-        renderLayerByName(gc, "Grounds", cameraX, cameraY, now);
-        renderLayerByName(gc, "Objects", cameraX, cameraY, now);
+        renderLayerByName(gc, "Grounds", cameraX, cameraY, now, false);
+        renderLayerByName(gc, "Objects", cameraX, cameraY, now, true);
     }
 
     // Render cac layer nam TREN entity.
@@ -28,10 +41,10 @@ public class MapRenderer {
     // Layer duoc dat o day la:
     // - Foreground: tan cay, mai, phan decor o cao do lon hon nhan vat
     public void renderAboveEntities(GraphicsContext gc, double cameraX, double cameraY, long now) {
-        renderLayerByName(gc, "Foreground", cameraX, cameraY, now);
+        renderLayerByName(gc, "Foreground", cameraX, cameraY, now, true);
     }
 
-    private void renderLayerByName(GraphicsContext gc, String layerName, double cameraX, double cameraY, long now) {
+    private void renderLayerByName(GraphicsContext gc, String layerName, double cameraX, double cameraY, long now, boolean hideDestroyedResourceTiles) {
         TileLayerData layer = mapData.findLayerByName(layerName);
         if (layer == null) {
             return;
@@ -47,6 +60,16 @@ public class MapRenderer {
                 if (gid == 0) {
                     // gid = 0 nghia la o trong, bo qua de tiet kiem draw call.
                     continue;
+                }
+
+                // Khi resource bi pha, an tile o layer Objects/Foreground giao voi hitbox cua resource do.
+                // Muc tieu: "bien mat" tam thoi resource de thay duoc ket qua chat/dao.
+                if (hideDestroyedResourceTiles) {
+                    double tileWorldX = x * tileW;
+                    double tileWorldY = y * tileH;
+                    if (intersectsDestroyedResource(tileWorldX, tileWorldY, tileW, tileH)) {
+                        continue;
+                    }
                 }
 
                 TilesetData tileset = findTilesetForGid(gid);
@@ -88,5 +111,21 @@ public class MapRenderer {
             }
         }
         return chosen;
+    }
+
+    private boolean intersectsDestroyedResource(double tileX, double tileY, double tileW, double tileH) {
+        for (ResourceNode resource : resources) {
+            if (resource == null || resource.isAlive()) {
+                continue;
+            }
+            boolean hit = resource.getX() < tileX + tileW
+                    && resource.getX() + resource.getWidth() > tileX
+                    && resource.getY() < tileY + tileH
+                    && resource.getY() + resource.getHeight() > tileY;
+            if (hit) {
+                return true;
+            }
+        }
+        return false;
     }
 }

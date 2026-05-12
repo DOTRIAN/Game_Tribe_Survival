@@ -1,62 +1,148 @@
-OK, đây là bộ naming gọn và đủ để scale sau này.
-Tile Layers (render)
-1.
-Ground
-2.
-Ground_Detail
-3.
-Objects_Low  (gốc/thân thấp, vật nằm dưới player)
-4.
-Objects_High (tán/mái, vẽ đè player)
-5.
-Deco (trang trí thuần ảnh, không logic)
-Object Layers (logic)
-1.
-Collision (block tĩnh thuần va chạm)
-2.
-Resource (tree/rock/ore có hp, drop)
-3.
-Spawn_Player (điểm spawn người chơi)
-4.
-Spawn_Enemy (điểm spawn quái)
-5.
-Trigger (vùng sự kiện: chuyển map, cutscene, quest)
-6.
-Interactable (rương, cần gạt, NPC point)
-7.
-NavBlock (nếu sau này tách collision cho AI pathfinding)
-Naming rule nên giữ cố định
-•
-Layer: Pascal/Snake nhất quán, khuyên Pascal_Case như trên.
-•
-Object type: enum rõ ràng, ví dụ tree, rock, ore, portal, quest_trigger.
-•
-Property chung:
-◦
-id (string key duy nhất)
-◦
-block (bool)
-◦
-hp (int)
-◦
-dropItem (string)
-◦
-respawnSec (float/int)
-Render order khuyên dùng Ground -> Ground_Detail -> Objects_Low -> Player/Enemy -> Objects_High -> UI
-Nếu bạn muốn, mình có thể đưa luôn một “preset chuẩn” cho 3 object type đầu tiên (tree, rock, ore) để bạn copy vào Tiled template.
+# MAP CONTRACT (Tiled <-> Java)
+Version: 1.0  
+Applies to: `mapdemo.tmx` and all future maps
 
-Grounds / Objects / Foreground giữ nguyên như hiện tại (đúng).
-2.
-Collisions hiện bạn đang nhét luôn logic resource cũng OK tạm thời.
-3.
-Layer Emoji nên đổi tên thành Resources (hoặc Interactable) để đúng nghĩa.
-Khuyến nghị thực tế:
-•
-Ngắn hạn (để kịp tiến độ): giữ Collisions như cũ, chỉ đổi Emoji thành tên rõ nghĩa.
-•
-Trung hạn (khi làm phá cây/đá):
-◦
-Collisions: blocker tĩnh (tường, nhà, vật cản không phá).
-◦
-Resources: cây/đá có hp, dropItem, block.
-Như vậy bạn vẫn bê/copy object nhanh như ý, mà code sau này sạch hơn.
+## 1) Mục tiêu
+Tài liệu này là **hợp đồng dữ liệu** giữa:
+- Người vẽ map trên Tiled
+- Người code Java (load map, collision, resource, drop)
+
+Mục tiêu: hai bên làm độc lập nhưng dữ liệu luôn đọc được, không phải sửa tay nhiều trong code.
+
+---
+
+## 2) Layer chuẩn bắt buộc
+
+## 2.1 Tile Layers
+1. `Grounds`
+- Chỉ chứa nền (đất, cỏ, đường, sàn)
+- Không chứa logic gameplay
+
+2. `Objects`
+- Chứa vật thể thấp (prop thấp, phần thân thấp)
+- Chủ yếu phục vụ render
+
+3. `Foreground`
+- Chứa phần cần che player (tán cây, mái nhà, vật thể cao)
+- Chỉ render overlay, không dùng để collision
+
+## 2.2 Object Layers
+4. `Collisions`
+- Chỉ chứa object chặn đường tĩnh
+- Ví dụ: tường, mép nhà, đá không tương tác
+- Không chứa `dropItem`, `maxHp`
+
+5. `Resources`
+- Chứa object tài nguyên có tương tác
+- Ví dụ: cây, đá, cỏ, rau
+- Có HP và drop item
+
+---
+
+## 3) Schema object cho layer `Resources` (BẮT BUỘC)
+
+Mỗi object trong `Resources` phải có:
+
+- `class` (hoặc `type`): `Resource`
+- `kind` (string, bắt buộc)  
+  Ví dụ: `tree_oak`, `rock_small`, `grass`, `vegetable_carrot`
+- `maxHp` (int, bắt buộc)  
+  HP khởi tạo của resource
+- `dropItem` (string, bắt buộc)  
+  Ví dụ: `wood`, `stone`, `fiber`, `carrot`
+
+Thuộc tính optional:
+- `dropMin` (int, mặc định `1`)
+- `dropMax` (int, mặc định `dropMin`)
+- `respawnSec` (int, mặc định `-1`, nghĩa là không hồi)
+
+### Ví dụ object hợp lệ
+- `class=Resource`
+- `kind=tree_oak`
+- `maxHp=5`
+- `dropItem=wood`
+- `dropMin=1`
+- `dropMax=3`
+- `respawnSec=120`
+
+---
+
+## 4) Schema object cho layer `Collisions`
+
+Mỗi object trong `Collisions`:
+- `class` (hoặc `type`): `Collision`
+- Dùng shape đơn giản: Rectangle hoặc Ellipse
+- Không set `dropItem`, `maxHp`, `dropMin`, `dropMax`
+
+---
+
+## 5) Quy ước đặt tên / dữ liệu
+
+1. Các key property dùng đúng chữ hoa/thường:
+- `kind`
+- `maxHp`
+- `dropItem`
+- `dropMin`
+- `dropMax`
+- `respawnSec`
+
+2. Giá trị string dùng:
+- `snake_case`
+- Không dấu
+- Không khoảng trắng
+- Ví dụ: `tree_oak`, `stone_resource`
+
+3. Không dùng `name` để code phân loại gameplay
+- `name` chỉ để con người đọc trong Tiled
+- Code sẽ đọc bằng `kind`
+
+---
+
+## 6) Quy tắc cây có gốc + tán
+
+- Gốc cây (hitbox gameplay): đặt object ở layer `Resources`
+- Tán cây (che player): vẽ tile ở layer `Foreground`
+
+Lý do:
+- Va chạm + chặt cây xử lý bằng object resource
+- Hiệu ứng che lớp xử lý bằng foreground render
+
+---
+
+## 7) Ranh giới trách nhiệm
+
+## Bên map
+- Đảm bảo đúng tên layer
+- Đảm bảo object resource có đủ property bắt buộc
+- Không trộn resource vào `Collisions`
+
+## Bên code
+- Parse theo schema này
+- Validate dữ liệu thiếu/sai và log object id bị lỗi
+- Dùng default cho field optional
+
+---
+
+## 8) Checklist nghiệm thu map trước khi bàn giao
+
+1. Có đủ layer: `Grounds`, `Objects`, `Foreground`, `Collisions`, `Resources`
+2. Mọi object trong `Resources` có đủ: `kind`, `maxHp`, `dropItem`
+3. Nếu có `dropMin/dropMax` thì `dropMin <= dropMax`
+4. Không có object resource đặt nhầm trong `Collisions`
+5. Không typo key (ví dụ `dropitem`, `hp`, `maxhp`)
+
+---
+
+## 9) Ví dụ lỗi thường gặp (cần tránh)
+
+- Đặt `hp` thay vì `maxHp`
+- Đặt `dropitem` thay vì `dropItem`
+- Để `kind="Tree Oak"` (có khoảng trắng/chữ hoa)
+- Vẽ tán cây ở `Objects` thay vì `Foreground`
+- Đặt object tài nguyên trong layer `Collisions`
+
+---
+
+## 10) Chính sách thay đổi contract
+- Mọi thay đổi key/layer phải báo trước cho cả team
+- Chỉ tăng version khi thay đổi schema (ví dụ 1.0 -> 1.1)
