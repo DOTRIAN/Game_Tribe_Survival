@@ -1,0 +1,37 @@
+-CÁC THUỘC TÍNH CHI TIẾT (PROPERTIES)
+Vì bạn không dùng Object Layer, toàn bộ logic va chạm và tương tác sẽ được lấy trực tiếp từ Tile Properties trong Tileset. Khi nhân vật di chuyển đến tọa độ (x, y), bạn chỉ cần kiểm tra xem Tile tại đó có các "nhãn" sau không:
+
+1. Nhóm Đối Tượng: Cây Cối (Tree Object)
+Nhóm này vừa là vật cản, vừa có thể tương tác (chặt hạ).
+
+Dấu hiệu (Properties): Có nhãn tree: on.
+
+Thuộc tính đi kèm: * Collision: on (Ngăn di chuyển).
+
+Hp: 5 (Máu của cây).
+
+Logic JavaFX: Khi nhân vật va chạm, kiểm tra nếu Hp > 0 thì chặn lại. Nếu người chơi thực hiện hành động chặt, trừ Hp. Khi Hp == 0, đổi hình ảnh Tile thành gốc cây hoặc cỏ.
+
+2. Nhóm Đối Tượng: Đá (Stone Object)
+Dùng để định danh các khối đá cứng, không cho đi qua.
+
+Dấu hiệu (Properties): Có nhãn stone: on.
+
+Thuộc tính đi kèm: * Collision: on (Vật cản cứng).
+
+stone_Hp: 10 (Độ bền).
+
+Logic JavaFX: Định danh đây là tài nguyên đá. Nhân vật không thể đi vào ô này. Dùng để xử lý va chạm vật lý cứng.
+
+3. Nhóm Đối Tượng: Địa Hình Cứng (Da Object)
+Dùng để định danh các loại địa hình đặc biệt (như nền đá đúc, vách đá) và cũng không cho phép đi qua.
+
+Dấu hiệu (Properties): Có nhãn da: on.
+
+Thuộc tính đi kèm:
+
+Collision: on (Vật cản cứng).
+
+Logic JavaFX: Tương tự như stone, nhưng có thể dùng để phân biệt âm thanh va chạm khác nhau hoặc rơi ra loại nguyên liệu khác khi bị phá hủy (nếu có logic phá địa hình).
+-Cách xử lý cây:
+Tạo một class TreeCluster (hoặc TreeGroup) chứa: Vị trí gốc cây (Tree object, có HP). Danh sách các tile (tọa độ, tileId) thuộc về cây đó (bao gồm cả tán). Khi load map, gom các tile liền kề thành một cluster, gốc là tileId == 95. Khi vẽ, nếu gốc còn sống thì vẽ toàn bộ tile trong cluster, nếu gốc chết thì không vẽ gì.
