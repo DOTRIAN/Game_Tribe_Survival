@@ -8,7 +8,7 @@
             "selectedLayer": 1,
             "viewCenter": {
                 "x": 1016,
-                "y": 757
+                "y": 691
             }
         },
         "nen.tsx": {
@@ -27,7 +27,7 @@
         "nen.tsx"
     ],
     "project": "untitled.tiled-project",
-    "property.type": "int",
+    "property.type": "string",
     "recentFiles": [
         "map.tmx",
         "nen.tsx"

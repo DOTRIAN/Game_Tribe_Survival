@@ -130,13 +130,13 @@
  </tile>
  <tile id="86">
   <properties>
-   <property name="stone" value="on"/>
+   <property name="Collision" value="on"/>
    <property name="stone_Hp" type="int" value="10"/>
   </properties>
  </tile>
  <tile id="87">
   <properties>
-   <property name="stone" value="on"/>
+   <property name="Collision" value="on"/>
    <property name="stone_Hp" type="int" value="10"/>
   </properties>
  </tile>
@@ -169,13 +169,13 @@
  </tile>
  <tile id="102">
   <properties>
-   <property name="stone" value="on"/>
+   <property name="Collision" value="on"/>
    <property name="stone_Hp" type="int" value="10"/>
   </properties>
  </tile>
  <tile id="103">
   <properties>
-   <property name="stone" value="on"/>
+   <property name="Collision" value="on"/>
    <property name="stone_Hp" type="int" value="10"/>
   </properties>
  </tile>
