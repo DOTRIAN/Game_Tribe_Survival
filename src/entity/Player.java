@@ -15,6 +15,10 @@ public class Player {
         SIDE,
         UP
     }
+    public enum AttackAnimationType {
+        HIT,
+        SLICE
+    }
 
     private double x;
     private double y;
@@ -23,6 +27,17 @@ public class Player {
     private double speed;
     private int hp;
     private int maxHp;
+    // Nang luong dung cho movement/skill.
+    private double energy;
+    private double maxEnergy;
+    // Tien trinh phat trien nhan vat.
+    private int level;
+    private int experience;
+    private int experienceToNextLevel;
+    // Hieu ung level-up (popup text + mui ten) de tao feedback manh cho nguoi choi.
+    private long levelUpEffectStartedAtNs;
+    private long levelUpEffectDurationNs;
+    private int lastLeveledUpTo;
 
     private final SpriteAnimation idleDownAnimation;
     private final SpriteAnimation idleSideAnimation;
@@ -33,6 +48,9 @@ public class Player {
     private final SpriteAnimation sliceDownAnimation;
     private final SpriteAnimation sliceSideAnimation;
     private final SpriteAnimation sliceUpAnimation;
+    private final SpriteAnimation hitDownAnimation;
+    private final SpriteAnimation hitSideAnimation;
+    private final SpriteAnimation hitUpAnimation;
 
     private FacingDirection facingDirection;
     private boolean facingRight;
@@ -43,6 +61,7 @@ public class Player {
     private boolean attacking;
     private long attackStartedAtNs;
     private long attackDurationNs;
+    private AttackAnimationType currentAttackType;
 
     public Player(double x, double y, double width, double height, double speed, int maxHp) {
         this.x = x;
@@ -52,6 +71,14 @@ public class Player {
         this.speed = speed;
         this.maxHp = maxHp;
         this.hp = maxHp;
+        this.maxEnergy = 100;
+        this.energy = maxEnergy;
+        this.level = 1;
+        this.experience = 0;
+        this.experienceToNextLevel = 10;
+        this.levelUpEffectStartedAtNs = -1L;
+        this.levelUpEffectDurationNs = 2_200_000_000L;
+        this.lastLeveledUpTo = 1;
 
         this.idleDownAnimation = new SpriteAnimation(
                 SpriteSheetLoader.loadGrid(
@@ -104,7 +131,7 @@ public class Player {
         this.sliceDownAnimation = new SpriteAnimation(
                 SpriteSheetLoader.loadGrid(
                         "file:assets/tilesets/Pixel Crawler - Free Pack/Entities/Characters/Body_A/Animations/Slice_Base/Slice_Down-Sheet.png",
-                        6,
+                        8,
                         1
                 ),
                 80_000_000L
@@ -112,7 +139,7 @@ public class Player {
         this.sliceSideAnimation = new SpriteAnimation(
                 SpriteSheetLoader.loadGrid(
                         "file:assets/tilesets/Pixel Crawler - Free Pack/Entities/Characters/Body_A/Animations/Slice_Base/Slice_Side-Sheet.png",
-                        6,
+                        8,
                         1
                 ),
                 80_000_000L
@@ -120,10 +147,34 @@ public class Player {
         this.sliceUpAnimation = new SpriteAnimation(
                 SpriteSheetLoader.loadGrid(
                         "file:assets/tilesets/Pixel Crawler - Free Pack/Entities/Characters/Body_A/Animations/Slice_Base/Slice_Up-Sheet.png",
-                        6,
+                        8,
                         1
                 ),
                 80_000_000L
+        );
+        this.hitDownAnimation = new SpriteAnimation(
+                SpriteSheetLoader.loadGrid(
+                        "file:assets/tilesets/Pixel Crawler - Free Pack/Entities/Characters/Body_A/Animations/Hit_Base/Hit_Down-Sheet.png",
+                        4,
+                        1
+                ),
+                90_000_000L
+        );
+        this.hitSideAnimation = new SpriteAnimation(
+                SpriteSheetLoader.loadGrid(
+                        "file:assets/tilesets/Pixel Crawler - Free Pack/Entities/Characters/Body_A/Animations/Hit_Base/Hit_Side-Sheet.png",
+                        4,
+                        1
+                ),
+                90_000_000L
+        );
+        this.hitUpAnimation = new SpriteAnimation(
+                SpriteSheetLoader.loadGrid(
+                        "file:assets/tilesets/Pixel Crawler - Free Pack/Entities/Characters/Body_A/Animations/Hit_Base/Hit_Up-Sheet.png",
+                        4,
+                        1
+                ),
+                90_000_000L
         );
 
         this.facingDirection = FacingDirection.DOWN;
@@ -132,8 +183,8 @@ public class Player {
         this.playerName = "Player";
         this.attacking = false;
         this.attackStartedAtNs = 0L;
-        // Slice co 6 frame * 80ms = 480ms de chay tron ven 1 cycle chem.
-        this.attackDurationNs = 480_000_000L;
+        this.attackDurationNs = 360_000_000L;
+        this.currentAttackType = AttackAnimationType.HIT;
     }
 
     public void moveLeft() {
@@ -198,6 +249,43 @@ public class Player {
         return maxHp;
     }
 
+    public double getEnergy() {
+        return energy;
+    }
+
+    public double getMaxEnergy() {
+        return maxEnergy;
+    }
+
+    public int getLevel() {
+        return level;
+    }
+
+    public int getExperience() {
+        return experience;
+    }
+
+    public int getExperienceToNextLevel() {
+        return experienceToNextLevel;
+    }
+
+    public boolean isLevelUpEffectActive(long nowNs) {
+        return levelUpEffectStartedAtNs >= 0
+                && nowNs - levelUpEffectStartedAtNs <= levelUpEffectDurationNs;
+    }
+
+    public double getLevelUpEffectProgress(long nowNs) {
+        if (!isLevelUpEffectActive(nowNs)) {
+            return 1.0;
+        }
+        double elapsed = (double) (nowNs - levelUpEffectStartedAtNs);
+        return Math.max(0, Math.min(1, elapsed / levelUpEffectDurationNs));
+    }
+
+    public int getLastLeveledUpTo() {
+        return lastLeveledUpTo;
+    }
+
     public void takeDamage(int amount) {
         hp -= amount;
         if (hp < 0) {
@@ -220,6 +308,7 @@ public class Player {
         this.x = startX;
         this.y = startY;
         this.hp = maxHp;
+        this.energy = maxEnergy;
     }
 
     public void setPosition(double x, double y) {
@@ -239,25 +328,38 @@ public class Player {
     }
 
     public void updateAnimation(long now, boolean moving, boolean moveUp, boolean moveDown, boolean moveLeft, boolean moveRight) {
-        // Neu dang tan cong, khoa animation movement va uu tien slice.
+        // Neu dang tan cong, khoa animation movement va uu tien animation tan cong.
         if (attacking) {
-            SpriteAnimation slashAnimation;
-            if (facingDirection == FacingDirection.UP) {
-                slashAnimation = sliceUpAnimation;
-            } else if (facingDirection == FacingDirection.SIDE) {
-                slashAnimation = sliceSideAnimation;
+            SpriteAnimation attackAnimation;
+            if (currentAttackType == AttackAnimationType.SLICE) {
+                if (facingDirection == FacingDirection.UP) {
+                    attackAnimation = sliceUpAnimation;
+                } else if (facingDirection == FacingDirection.SIDE) {
+                    attackAnimation = sliceSideAnimation;
+                } else {
+                    attackAnimation = sliceDownAnimation;
+                }
             } else {
-                slashAnimation = sliceDownAnimation;
+                if (facingDirection == FacingDirection.UP) {
+                    attackAnimation = hitUpAnimation;
+                } else if (facingDirection == FacingDirection.SIDE) {
+                    attackAnimation = hitSideAnimation;
+                } else {
+                    attackAnimation = hitDownAnimation;
+                }
             }
 
-            slashAnimation.update(now, true);
-            currentFrame = slashAnimation.getCurrentFrame();
+            attackAnimation.update(now, true);
+            currentFrame = attackAnimation.getCurrentFrame();
 
             if (now - attackStartedAtNs >= attackDurationNs) {
                 attacking = false;
                 sliceDownAnimation.reset();
                 sliceSideAnimation.reset();
                 sliceUpAnimation.reset();
+                hitDownAnimation.reset();
+                hitSideAnimation.reset();
+                hitUpAnimation.reset();
             }
             return;
         }
@@ -298,22 +400,100 @@ public class Player {
         currentFrame = activeAnimation.getCurrentFrame();
     }
 
-    // Bat dau 1 lan slash neu player dang ranh.
-    public boolean startAttack(long now) {
+    // Bat dau 1 lan tan cong neu player dang ranh.
+    // HIT: danh thuong, SLICE: de danh cho vu khi sau nay.
+    public boolean startAttack(long now, AttackAnimationType attackType) {
         if (attacking) {
             return false;
         }
         attacking = true;
         attackStartedAtNs = now;
-        // Reset ca 3 animation slash de lan attack moi luon bat dau o frame 0.
+        currentAttackType = attackType == null ? AttackAnimationType.HIT : attackType;
+
+        // Reset tat ca animation tan cong de lan moi bat dau tu frame 0.
         sliceDownAnimation.reset();
         sliceSideAnimation.reset();
         sliceUpAnimation.reset();
+        hitDownAnimation.reset();
+        hitSideAnimation.reset();
+        hitUpAnimation.reset();
+
+        if (currentAttackType == AttackAnimationType.SLICE) {
+            attackDurationNs = sliceDownAnimation.getFrameCount() * 80_000_000L;
+        } else {
+            attackDurationNs = hitDownAnimation.getFrameCount() * 90_000_000L;
+        }
         return true;
+    }
+
+    public boolean startAttack(long now) {
+        return startAttack(now, AttackAnimationType.HIT);
     }
 
     public boolean isAttacking() {
         return attacking;
+    }
+
+    // Tru nang luong, tra ve false neu khong du de thuc hien hanh dong.
+    public boolean consumeEnergy(double amount) {
+        if (amount <= 0) {
+            return true;
+        }
+        if (energy < amount) {
+            return false;
+        }
+        energy -= amount;
+        if (energy < 0) {
+            energy = 0;
+        }
+        return true;
+    }
+
+    // Hoi nang luong co clamp [0..maxEnergy].
+    public void recoverEnergy(double amount) {
+        if (amount <= 0) {
+            return;
+        }
+        energy += amount;
+        if (energy > maxEnergy) {
+            energy = maxEnergy;
+        }
+    }
+
+    // Cong kinh nghiem va tu dong level-up khi dat nguong.
+    // Level-up don gian: tang size player de tao feedback ro rang trong MVP.
+    public void addExperience(int amount) {
+        if (amount <= 0) {
+            return;
+        }
+        experience += amount;
+        while (experience >= experienceToNextLevel) {
+            experience -= experienceToNextLevel;
+            level++;
+            growOnLevelUp();
+        }
+    }
+
+    private void growOnLevelUp() {
+        // Tang nhe kich thuoc moi level de tranh pha collision qua manh.
+        // Dat 10% de nhin ro hon trong gameplay.
+        double scale = 1.10;
+        double oldCenterX = x + width / 2.0;
+        double oldCenterY = y + height / 2.0;
+
+        width *= scale;
+        height *= scale;
+
+        // Giu tam nhan vat de khong giat manh vi tri khi level-up.
+        x = oldCenterX - width / 2.0;
+        y = oldCenterY - height / 2.0;
+
+        // Tang toi da nang luong nhe theo level de tao phan thuong lau dai.
+        maxEnergy += 4;
+        energy = maxEnergy;
+        // Kick hieu ung popup level-up.
+        levelUpEffectStartedAtNs = System.nanoTime();
+        lastLeveledUpTo = level;
     }
 
     // Tra ve hitbox tan cong don gian theo huong dang quay mat.

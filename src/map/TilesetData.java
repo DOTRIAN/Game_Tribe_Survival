@@ -2,6 +2,7 @@ package map;
 
 import javafx.scene.image.Image;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -19,9 +20,13 @@ public class TilesetData {
     private final Image image;
     // localTileId -> du lieu animation (neu tile do co animation trong TSX).
     private final Map<Integer, TileAnimationData> animations;
+    // localTileId -> properties cua tile trong TSX (tree, stone, collision, hp,...).
+    // Dung cho gameplay adapter khi map team dat logic bang Tile Properties.
+    private final Map<Integer, Map<String, String>> tileProperties;
 
     public TilesetData(int firstGid, int columns, int tileWidth, int tileHeight, int tileCount, Image image,
-                       Map<Integer, TileAnimationData> animations) {
+                       Map<Integer, TileAnimationData> animations,
+                       Map<Integer, Map<String, String>> tileProperties) {
         this.firstGid = firstGid;
         this.columns = columns;
         this.tileWidth = tileWidth;
@@ -29,6 +34,12 @@ public class TilesetData {
         this.tileCount = tileCount;
         this.image = image;
         this.animations = new HashMap<>(animations);
+        this.tileProperties = new HashMap<>();
+        if (tileProperties != null) {
+            for (Map.Entry<Integer, Map<String, String>> entry : tileProperties.entrySet()) {
+                this.tileProperties.put(entry.getKey(), new HashMap<>(entry.getValue()));
+            }
+        }
     }
 
     public int getFirstGid() {
@@ -61,6 +72,18 @@ public class TilesetData {
             return localId;
         }
         return animationData.resolveLocalId(nowNs);
+    }
+
+    /**
+     * Lay properties theo local tile id (id trong TSX, khong phai GID).
+     * Tra ve map readonly de tranh sua doi data goc trong runtime.
+     */
+    public Map<String, String> getPropertiesForLocalId(int localId) {
+        Map<String, String> properties = tileProperties.get(localId);
+        if (properties == null) {
+            return Collections.emptyMap();
+        }
+        return Collections.unmodifiableMap(properties);
     }
 
     public static final class TileAnimationData {

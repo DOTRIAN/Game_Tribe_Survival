@@ -1,148 +1,120 @@
-# MAP CONTRACT (Tiled <-> Java)
-Version: 1.0  
-Applies to: `mapdemo.tmx` and all future maps
-
 ## 1) Mục tiêu
-Tài liệu này là **hợp đồng dữ liệu** giữa:
-- Người vẽ map trên Tiled
-- Người code Java (load map, collision, resource, drop)
-
-Mục tiêu: hai bên làm độc lập nhưng dữ liệu luôn đọc được, không phải sửa tay nhiều trong code.
+Chuẩn hóa dữ liệu map để code Java:
+1. Phân biệt đúng loại resource (`tree`, `rock`, ...)
+2. Trừ HP / drop item chuẩn
+3. Khi resource bị phá: **toàn bộ hình resource biến mất** (gốc + tán)
+4. Chuẩn bị sẵn dữ liệu cho phase sau: đổi sang hiệu ứng mảnh vụn (debris)
 
 ---
 
 ## 2) Layer chuẩn bắt buộc
 
-## 2.1 Tile Layers
-1. `Grounds`
-- Chỉ chứa nền (đất, cỏ, đường, sàn)
-- Không chứa logic gameplay
+### 2.1 Tile Layers
+- `Grounds`: nền map
+- `Objects`: phần thân/vật thể thấp
+- `Foreground`: phần che lên player (tán cây, mái nhà)
 
-2. `Objects`
-- Chứa vật thể thấp (prop thấp, phần thân thấp)
-- Chủ yếu phục vụ render
-
-3. `Foreground`
-- Chứa phần cần che player (tán cây, mái nhà, vật thể cao)
-- Chỉ render overlay, không dùng để collision
-
-## 2.2 Object Layers
-4. `Collisions`
-- Chỉ chứa object chặn đường tĩnh
-- Ví dụ: tường, mép nhà, đá không tương tác
-- Không chứa `dropItem`, `maxHp`
-
-5. `Resources`
-- Chứa object tài nguyên có tương tác
-- Ví dụ: cây, đá, cỏ, rau
-- Có HP và drop item
+### 2.2 Object Layers
+- `Collisions`: vật cản tĩnh, không tương tác (không hp, không drop)
+- `Resources`: object gameplay có hp/drop
+- `ResourceVisuals` (MỚI): vùng hình ảnh “đầy đủ” của resource để ẩn khi bị phá (bao cả gốc + tán)
 
 ---
 
-## 3) Schema object cho layer `Resources` (BẮT BUỘC)
+## 3) Schema bắt buộc cho object layer `Resources`
 
-Mỗi object trong `Resources` phải có:
+Mỗi object resource bắt buộc có:
 
 - `class` (hoặc `type`): `Resource`
+- `resourceId` (string, bắt buộc, duy nhất trong map)  
+  Ví dụ: `tree_001`, `rock_014`
 - `kind` (string, bắt buộc)  
   Ví dụ: `tree_oak`, `rock_small`, `grass`, `vegetable_carrot`
-- `maxHp` (int, bắt buộc)  
-  HP khởi tạo của resource
+- `maxHp` (int, bắt buộc)
 - `dropItem` (string, bắt buộc)  
   Ví dụ: `wood`, `stone`, `fiber`, `carrot`
 
-Thuộc tính optional:
-- `dropMin` (int, mặc định `1`)
-- `dropMax` (int, mặc định `dropMin`)
-- `respawnSec` (int, mặc định `-1`, nghĩa là không hồi)
+Optional:
+- `dropMin` (int, default `1`)
+- `dropMax` (int, default = `dropMin`)
+- `respawnSec` (int, default `-1`)
 
-### Ví dụ object hợp lệ
+---
+
+## 4) Schema bắt buộc cho object layer `ResourceVisuals`
+
+Mỗi object visual bắt buộc có:
+
+- `class` (hoặc `type`): `ResourceVisual`
+- `resourceId` (string, bắt buộc)  
+  Phải trùng với `resourceId` của object trong `Resources`
+- `visualRole` (string, optional): `full`, `trunk`, `canopy` (khuyến nghị `full`)
+- Hình dạng object (rectangle) bao phủ vùng hình cần ẩn (gốc + tán)
+
+### Quy tắc:
+- Nếu cây có tán ở `Foreground`, object `ResourceVisual` phải phủ luôn vùng tán đó.
+- Khi `resourceId` bị phá, code sẽ ẩn mọi tile giao với vùng visual cùng `resourceId`.
+
+---
+
+## 5) Quy ước cho layer `Collisions`
+- `class/type`: `Collision`
+- Không có `dropItem`, `maxHp`, `resourceId`, `kind`
+
+---
+
+## 6) Quy ước đặt tên
+- Dùng `snake_case`, không dấu, không khoảng trắng
+- Key phân biệt chữ hoa/thường chính xác:
+  - `resourceId`, `kind`, `maxHp`, `dropItem`, `dropMin`, `dropMax`, `respawnSec`
+
+---
+
+## 7) Flow gameplay thống nhất
+
+1. Player chém resource theo object trong `Resources`
+2. HP về 0 => resource destroyed
+3. Code tìm `resourceId` tương ứng trong `ResourceVisuals`
+4. Ẩn toàn bộ vùng visual (=> cây biến mất cả gốc + tán)
+5. Spawn drop item
+6. Phase sau: thay bước 5 bằng spawn debris trước, debris hút về player rồi cộng inventory
+
+---
+
+## 8) Chuẩn bị cho phase “mảnh vụn” (debris)
+
+Trong `Resources`, thêm optional:
+- `debrisType` (string) ví dụ: `wood_chip`, `stone_shard`
+- `debrisCount` (int) ví dụ: `6`
+
+Nếu chưa có asset debris, vẫn để trống, code fallback drop trực tiếp như hiện tại.
+
+---
+
+## 9) Checklist bàn giao map
+
+1. Có đủ layer: `Grounds`, `Objects`, `Foreground`, `Collisions`, `Resources`, `ResourceVisuals`
+2. Mỗi resource có đủ: `resourceId`, `kind`, `maxHp`, `dropItem`
+3. Mỗi resource có ít nhất 1 object visual cùng `resourceId`
+4. `resourceId` là duy nhất, không trùng
+5. `dropMin <= dropMax`
+6. Không trộn resource object vào `Collisions`
+
+---
+
+## 10) Ví dụ mẫu
+
+### Resource object (layer `Resources`)
 - `class=Resource`
+- `resourceId=tree_001`
 - `kind=tree_oak`
 - `maxHp=5`
 - `dropItem=wood`
 - `dropMin=1`
 - `dropMax=3`
-- `respawnSec=120`
 
----
-
-## 4) Schema object cho layer `Collisions`
-
-Mỗi object trong `Collisions`:
-- `class` (hoặc `type`): `Collision`
-- Dùng shape đơn giản: Rectangle hoặc Ellipse
-- Không set `dropItem`, `maxHp`, `dropMin`, `dropMax`
-
----
-
-## 5) Quy ước đặt tên / dữ liệu
-
-1. Các key property dùng đúng chữ hoa/thường:
-- `kind`
-- `maxHp`
-- `dropItem`
-- `dropMin`
-- `dropMax`
-- `respawnSec`
-
-2. Giá trị string dùng:
-- `snake_case`
-- Không dấu
-- Không khoảng trắng
-- Ví dụ: `tree_oak`, `stone_resource`
-
-3. Không dùng `name` để code phân loại gameplay
-- `name` chỉ để con người đọc trong Tiled
-- Code sẽ đọc bằng `kind`
-
----
-
-## 6) Quy tắc cây có gốc + tán
-
-- Gốc cây (hitbox gameplay): đặt object ở layer `Resources`
-- Tán cây (che player): vẽ tile ở layer `Foreground`
-
-Lý do:
-- Va chạm + chặt cây xử lý bằng object resource
-- Hiệu ứng che lớp xử lý bằng foreground render
-
----
-
-## 7) Ranh giới trách nhiệm
-
-## Bên map
-- Đảm bảo đúng tên layer
-- Đảm bảo object resource có đủ property bắt buộc
-- Không trộn resource vào `Collisions`
-
-## Bên code
-- Parse theo schema này
-- Validate dữ liệu thiếu/sai và log object id bị lỗi
-- Dùng default cho field optional
-
----
-
-## 8) Checklist nghiệm thu map trước khi bàn giao
-
-1. Có đủ layer: `Grounds`, `Objects`, `Foreground`, `Collisions`, `Resources`
-2. Mọi object trong `Resources` có đủ: `kind`, `maxHp`, `dropItem`
-3. Nếu có `dropMin/dropMax` thì `dropMin <= dropMax`
-4. Không có object resource đặt nhầm trong `Collisions`
-5. Không typo key (ví dụ `dropitem`, `hp`, `maxhp`)
-
----
-
-## 9) Ví dụ lỗi thường gặp (cần tránh)
-
-- Đặt `hp` thay vì `maxHp`
-- Đặt `dropitem` thay vì `dropItem`
-- Để `kind="Tree Oak"` (có khoảng trắng/chữ hoa)
-- Vẽ tán cây ở `Objects` thay vì `Foreground`
-- Đặt object tài nguyên trong layer `Collisions`
-
----
-
-## 10) Chính sách thay đổi contract
-- Mọi thay đổi key/layer phải báo trước cho cả team
-- Chỉ tăng version khi thay đổi schema (ví dụ 1.0 -> 1.1)
+### Visual object (layer `ResourceVisuals`)
+- `class=ResourceVisual`
+- `resourceId=tree_001`
+- `visualRole=full`
+- Rectangle phủ toàn bộ cây (gốc + tán)

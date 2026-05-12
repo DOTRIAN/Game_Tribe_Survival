@@ -66,10 +66,44 @@ public class TiledMapLoader {
             File imageFile = new File(tsxFile.getParentFile(), imageSource);
             Image tilesetImage = new Image(imageFile.toURI().toString());
             Map<Integer, TilesetData.TileAnimationData> animations = readTileAnimations(tsxRoot);
+            Map<Integer, Map<String, String>> tileProperties = readTilesetTileProperties(tsxRoot);
 
-            tilesets.add(new TilesetData(firstGid, columns, tileWidth, tileHeight, tileCount, tilesetImage, animations));
+            tilesets.add(new TilesetData(
+                    firstGid,
+                    columns,
+                    tileWidth,
+                    tileHeight,
+                    tileCount,
+                    tilesetImage,
+                    animations,
+                    tileProperties
+            ));
         }
         return tilesets;
+    }
+
+    // Doc properties cua tung tile trong TSX.
+    // Muc tieu: ho tro gameplay adapter khi map khong dung Object Layer.
+    private Map<Integer, Map<String, String>> readTilesetTileProperties(Element tsxRoot) {
+        Map<Integer, Map<String, String>> allProperties = new HashMap<>();
+        NodeList tileNodes = tsxRoot.getElementsByTagName("tile");
+        for (int i = 0; i < tileNodes.getLength(); i++) {
+            Node tileNode = tileNodes.item(i);
+            if (!(tileNode instanceof Element)) {
+                continue;
+            }
+            Element tileElement = (Element) tileNode;
+            int tileId = parseInt(tileElement.getAttribute("id"), -1);
+            if (tileId < 0) {
+                continue;
+            }
+
+            Map<String, String> properties = readProperties(tileElement);
+            if (!properties.isEmpty()) {
+                allProperties.put(tileId, properties);
+            }
+        }
+        return allProperties;
     }
 
     private Map<Integer, TilesetData.TileAnimationData> readTileAnimations(Element tsxRoot) {

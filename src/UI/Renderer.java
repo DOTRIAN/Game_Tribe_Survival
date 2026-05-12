@@ -2,9 +2,8 @@ package ui;
 
 import core.GameConfig;
 import core.GameState;
+import entity.Enemy;
 import entity.Player;
-import entity.Tree;
-import entity.Wolf;
 import input.InputHandler;
 import javafx.scene.Scene;
 import javafx.scene.canvas.Canvas;
@@ -23,6 +22,7 @@ import javafx.stage.Stage;
 import map.MapData;
 import map.MapRenderer;
 import system.resource.ResourceNode;
+import ui.minimap.MiniMap;
 
 import java.util.List;
 import java.util.Map;
@@ -39,6 +39,7 @@ public class Renderer {
     private final Hud hud;
     private final Image welcomeBackgroundImage;
     private final Image gameBackgroundImage;
+    private final MiniMap miniMap;
     private MapRenderer mapRenderer;
 
     public Renderer(Stage stage, InputHandler inputHandler) {
@@ -47,6 +48,7 @@ public class Renderer {
         this.hud = new Hud();
         this.welcomeBackgroundImage = new Image("file:assets/backgrounds/menu_bg1.png");
         this.gameBackgroundImage = new Image("file:assets/backgrounds/grass03.png");
+        this.miniMap = new MiniMap();
 
         StackPane root = new StackPane(canvas);
         Scene scene = new Scene(root, GameConfig.WIDTH, GameConfig.HEIGHT);
@@ -67,11 +69,12 @@ public class Renderer {
         this.mapRenderer = (mapData == null) ? null : new MapRenderer(mapData);
     }
 
-    public void render(GameState gameState, Player player, Wolf wolf, long now, boolean wolfMoving,
-                       List<Tree> trees, double cameraX, double cameraY, int menuIndex, boolean welcomeFlashing,
+    public void render(GameState gameState, Player player, List<Enemy> enemies, long now,
+                       double cameraX, double cameraY, int menuIndex, boolean welcomeFlashing,
                        String playerNameDraft, int maxNameLength,
                        List<ResourceNode> allResources, Map<String, Integer> collectedResources,
-                       double darknessAlpha, boolean isNight, String dayNightPhase) {
+                       double darknessAlpha, boolean isNight, String dayNightPhase,
+                       double worldWidth, double worldHeight) {
         if (gameState == GameState.WELCOME) {
             if (welcomeBackgroundImage.isError()) {
                 graphicsContext.setFill(Color.web("#2a3a2a"));
@@ -158,8 +161,8 @@ public class Renderer {
             graphicsContext.fillText("GUIDE", 430, 155);
             graphicsContext.setFont(Font.font("Georgia", FontWeight.NORMAL, 22));
             graphicsContext.fillText("W A S D : Move", 285, 215);
-            graphicsContext.fillText("J : Take Damage (Test)", 285, 255);
-            graphicsContext.fillText("K : Heal (Test)", 285, 295);
+            graphicsContext.fillText("F : Use skill", 285, 255);
+            graphicsContext.fillText("K : Heal", 285, 295);
 
             graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 20));
             graphicsContext.fillText("ENTER : Play", 285, 355);
@@ -252,16 +255,17 @@ public class Renderer {
             }
         }
 
-        for (Tree tree : trees) {
-            if (mapRenderer == null) {
-                tree.draw(graphicsContext, renderCameraX, renderCameraY);
-            }
-        }
-
         // Entity duoc ve sau layer duoi, truoc layer tren.
         player.draw(graphicsContext, renderCameraX, renderCameraY);
-        if (wolf != null) {
-            wolf.draw(graphicsContext, renderCameraX, renderCameraY, now, wolfMoving, player);
+        // Hieu ung level-up popup ngay tren nhan vat (world-space).
+        renderLevelUpEffect(player, renderCameraX, renderCameraY, now);
+        if (enemies != null) {
+            for (Enemy enemy : enemies) {
+                if (enemy == null || !enemy.isAlive()) {
+                    continue;
+                }
+                enemy.draw(graphicsContext, renderCameraX, renderCameraY);
+            }
         }
 
         if (mapRenderer != null) {
@@ -289,14 +293,28 @@ public class Renderer {
         // graphicsContext.fillText("J: take damage | K: heal", 20, 80);
 
         hud.render(graphicsContext, player, collectedResources);
+        // Minimap la UI overlay doc lap.
+        // Dat sau world rendering de khong bi anh huong boi camera zoom cua gameplay.
+        miniMap.render(
+                graphicsContext,
+                worldWidth,
+                worldHeight,
+                cameraX,
+                cameraY,
+                CAMERA_ZOOM,
+                player,
+                enemies
+        );
 
         if (gameState == GameState.GAME_OVER) {
             graphicsContext.setFill(Color.DARKRED);
-            graphicsContext.fillText("GAME OVER", 400, 250);
+            graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 50));
+            graphicsContext.fillText("GAME OVER", 375, 250);
 
             graphicsContext.setFill(Color.BLACK);
-            graphicsContext.fillText("The wolf caught you.", 380, 280);
-            graphicsContext.fillText("Press R to restart.", 385, 310);
+            graphicsContext.setFont(Font.font("Georgia", FontWeight.NORMAL, 26));
+            graphicsContext.fillText("Player is dead.", 375, 280);
+            graphicsContext.fillText("Press R to restart.", 375, 310);
         }
 
         if (gameState == GameState.PAUSED) {
@@ -374,6 +392,35 @@ public class Renderer {
         );
         graphicsContext.setFill(gradient);
         graphicsContext.fillOval(x - radius, y - radius, radius * 2, radius * 2);
+    }
+
+    // Ve popup level-up de nguoi choi thay feedback "manh hon" ngay lap tuc.
+    private void renderLevelUpEffect(Player player, double cameraX, double cameraY, long now) {
+        if (player == null || !player.isLevelUpEffectActive(now)) {
+            return;
+        }
+
+        double progress = player.getLevelUpEffectProgress(now); // 0 -> 1
+        double screenX = player.getX() - cameraX + player.getWidth() / 2.0;
+        double screenY = player.getY() - cameraY - 12 - progress * 16; // bay len nhe
+
+        double alpha = 1.0 - progress;
+        if (alpha < 0) {
+            alpha = 0;
+        }
+
+        String text = "↑ LEVEL UP " + player.getLastLeveledUpTo();
+        graphicsContext.save();
+        graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 10));
+        double textWidth = measureTextWidth(graphicsContext, text);
+        double textX = screenX - textWidth / 2.0;
+
+        // Vien den mong de doc ro tren nen bat ky.
+        graphicsContext.setStroke(Color.color(0, 0, 0, 0.75 * alpha));
+        graphicsContext.strokeText(text, textX, screenY);
+        graphicsContext.setFill(Color.color(1.0, 0.93, 0.46, 0.96 * alpha));
+        graphicsContext.fillText(text, textX, screenY);
+        graphicsContext.restore();
     }
 
     // Ham helper do text width theo font hien tai cua graphics context.
