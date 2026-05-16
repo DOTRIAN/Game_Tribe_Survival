@@ -2,19 +2,27 @@ package map;
 
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.image.Image;
+import javafx.scene.image.PixelReader;
+import javafx.scene.image.PixelWriter;
+import javafx.scene.image.WritableImage;
 import javafx.scene.paint.Color;
 import system.resource.ResourceNode;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class MapRenderer {
     private final MapData mapData;
     private List<ResourceNode> resources;
+    // Cache tile tint de tranh tao lai tung pixel moi frame.
+    private final Map<String, Image> tintedTileCache;
 
     public MapRenderer(MapData mapData) {
         this.mapData = mapData;
         this.resources = new ArrayList<>();
+        this.tintedTileCache = new HashMap<>();
     }
 
     // Nhan danh sach resource runtime tu Renderer/Game moi frame.
@@ -98,6 +106,26 @@ public class MapRenderer {
                         sourceX, sourceY, tileset.getTileWidth(), tileset.getTileHeight(),
                         x * tileW - cameraX, y * tileH - cameraY, tileW, tileH
                 );
+
+                // Neu tile nam trong resource vua bi danh, phu them lop trang mo de tao "nhay trang".
+                if (hideDestroyedResourceTiles) {
+                    double tileWorldX = x * tileW;
+                    double tileWorldY = y * tileH;
+                    ResourceNode flashingResource = findFlashingAliveResource(tileWorldX, tileWorldY, tileW, tileH, now);
+                    if (flashingResource != null) {
+                        Image tintedTile = buildTintedTileImage(tileset, sourceX, sourceY, flashingResource.getHitFlashColor());
+                        if (tintedTile != null) {
+                            gc.save();
+                            // Giam do dam flash trang cho nhe mat hon.
+                            gc.setGlobalAlpha(0.58);
+                            gc.drawImage(
+                                    tintedTile,
+                                    tileWorldX - cameraX, tileWorldY - cameraY, tileW, tileH
+                            );
+                            gc.restore();
+                        }
+                    }
+                }
             }
         }
     }
@@ -127,5 +155,76 @@ public class MapRenderer {
             }
         }
         return false;
+    }
+
+    private ResourceNode findFlashingAliveResource(double tileX, double tileY, double tileW, double tileH, long nowNs) {
+        for (ResourceNode resource : resources) {
+            if (resource == null || !resource.isAlive() || !resource.isHitFlashActive(nowNs)) {
+                continue;
+            }
+            boolean hit = resource.getX() < tileX + tileW
+                    && resource.getX() + resource.getWidth() > tileX
+                    && resource.getY() < tileY + tileH
+                    && resource.getY() + resource.getHeight() > tileY;
+            if (hit) {
+                return resource;
+            }
+        }
+        return null;
+    }
+
+    // Cat tile goc theo source rect roi tao ban tint theo alpha cua tile.
+    // Cach nay giup flash "om shape" cua cay/da thay vi phu hinh vuong.
+    private Image buildTintedTileImage(TilesetData tileset, int sourceX, int sourceY, Color tint) {
+        if (tileset == null || tint == null) {
+            return null;
+        }
+        Image srcImage = tileset.getImage();
+        if (srcImage == null || srcImage.isError()) {
+            return null;
+        }
+
+        int sw = tileset.getTileWidth();
+        int sh = tileset.getTileHeight();
+        if (sw <= 0 || sh <= 0) {
+            return null;
+        }
+
+        int tintR = (int) Math.round(tint.getRed() * 255.0);
+        int tintG = (int) Math.round(tint.getGreen() * 255.0);
+        int tintB = (int) Math.round(tint.getBlue() * 255.0);
+        String key = System.identityHashCode(srcImage) + ":" + sourceX + ":" + sourceY + ":" + tintR + ":" + tintG + ":" + tintB;
+        Image cached = tintedTileCache.get(key);
+        if (cached != null) {
+            return cached;
+        }
+
+        PixelReader reader = srcImage.getPixelReader();
+        if (reader == null) {
+            return null;
+        }
+        int imageW = (int) srcImage.getWidth();
+        int imageH = (int) srcImage.getHeight();
+        WritableImage tinted = new WritableImage(sw, sh);
+        PixelWriter writer = tinted.getPixelWriter();
+        for (int py = 0; py < sh; py++) {
+            for (int px = 0; px < sw; px++) {
+                int sx = sourceX + px;
+                int sy = sourceY + py;
+                if (sx < 0 || sy < 0 || sx >= imageW || sy >= imageH) {
+                    writer.setColor(px, py, Color.TRANSPARENT);
+                    continue;
+                }
+                Color src = reader.getColor(sx, sy);
+                double a = src.getOpacity();
+                if (a <= 0.001) {
+                    writer.setColor(px, py, Color.TRANSPARENT);
+                    continue;
+                }
+                writer.setColor(px, py, Color.color(tint.getRed(), tint.getGreen(), tint.getBlue(), a));
+            }
+        }
+        tintedTileCache.put(key, tinted);
+        return tinted;
     }
 }

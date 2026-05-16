@@ -1,6 +1,7 @@
 package system.resource;
 
 import map.MapObjectData;
+import javafx.scene.paint.Color;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -137,19 +138,24 @@ public class ResourceManager {
      * - Giam hp cua node theo objectId.
      * - Neu node bi pha se tra ve DropResult de he thong khac xu ly spawn item.
      */
-    public DropResult hitResource(int objectId, int damage, long nowNs) {
+    public ResourceHitResult hitResource(int objectId, int damage, long nowNs) {
         ResourceNode node = resourcesById.get(objectId);
         if (node == null || !node.isAlive()) {
             return null;
         }
 
-        boolean destroyed = node.applyDamage(damage, nowNs);
+        int realDamage = Math.max(0, damage);
+        boolean destroyed = node.applyDamage(realDamage, nowNs);
+        if (realDamage > 0) {
+            // Tang thoi gian flash sat muc tren yeu cau (150ms) de de nhan thay hon.
+            node.triggerHitFlash(nowNs, 150_000_000L, Color.rgb(255, 255, 255));
+        }
         if (!destroyed) {
-            return null;
+            return new ResourceHitResult(node, realDamage, false, null);
         }
 
         int amount = rollDropAmount(node.getDropMin(), node.getDropMax());
-        return new DropResult(node.getDropItem(), amount);
+        return new ResourceHitResult(node, realDamage, true, new DropResult(node.getDropItem(), amount));
     }
 
     /**
@@ -157,7 +163,7 @@ public class ResourceManager {
      * - Utility cho giai doan MVP:
      *   tim node dau tien giao voi hitbox attack roi ap damage.
      */
-    public DropResult hitFirstResourceIntersecting(double x, double y, double w, double h, int damage, long nowNs) {
+    public ResourceHitResult hitFirstResourceIntersecting(double x, double y, double w, double h, int damage, long nowNs) {
         for (ResourceNode node : resourcesById.values()) {
             if (!node.isAlive()) {
                 continue;

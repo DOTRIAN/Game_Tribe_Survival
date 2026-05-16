@@ -1,5 +1,5 @@
 {
-    "activeFile": "nen.tsx",
+    "activeFile": "map.tmx",
     "expandedProjectPaths": [
     ],
     "fileStates": {
@@ -29,8 +29,8 @@
     "project": "untitled.tiled-project",
     "property.type": "string",
     "recentFiles": [
-        "map.tmx",
-        "nen.tsx"
+        "nen.tsx",
+        "map.tmx"
     ],
     "tileset.lastUsedFormat": "tsx",
     "tileset.tileSize": {

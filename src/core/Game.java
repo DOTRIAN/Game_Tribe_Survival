@@ -12,10 +12,18 @@ import map.MapData;
 import map.MapObjectData;
 import map.TileCollisionResolver;
 import map.TiledMapLoader;
+import system.CollisionSystem;
+import system.DamageSystem;
+import system.level.Level;
+import system.level.LevelManager;
+import system.level.LevelResult;
+import system.DamageResult;
 import system.resource.DropResult;
 import system.resource.ResourceContractValidator;
 import system.resource.ResourceManager;
+import system.resource.ResourceHitResult;
 import system.resource.TileResourceAdapter;
+import ui.FloatingDamageText;
 import ui.Renderer;
 
 import java.util.ArrayList;
@@ -25,35 +33,55 @@ import java.util.Map;
 import java.util.Random;
 
 public class Game {
-    // Phai dong bo voi CAMERA_ZOOM trong Renderer de camera center dung khi co zoom.
-    // Neu doi zoom ben Renderer, nho doi gia tri nay theo.
+    // Zoom camera cho gameplay. Gia tri nay phai khop voi Renderer
+    // de camera va viewport world tinh dung tam.
     private static final double CAMERA_ZOOM = 1.5;
 
     private final GameLoop gameLoop;
     private final Renderer renderer;
     private final InputHandler inputHandler;
     private final Player player;
-    // Danh sach quai runtime (quan ly theo da hinh Enemy).
     private final List<Enemy> enemies;
-    private final List<MapObjectData> mapCollisions;
     private final ResourceManager resourceManager;
-    private final TileCollisionResolver tileCollisionResolver;
     private final DayNightCycle dayNightCycle;
-    // Tai nguyen nguoi choi da thu thap (hien thi HUD text tam thoi).
     private final Map<String, Integer> collectedResources;
-    private GameState gameState;
+    private final StringBuilder playerNameBuffer;
+    private final List<FloatingDamageText> floatingDamageTexts;
+    private final Random random;
+    // Quan ly danh sach level + tien do da mo khoa/hoan thanh.
+    private final LevelManager levelManager;
 
-    // ===== Enemy Spawn Config =====
-    // Ban ngay: chi spawn orc it (1-2 con).
+    private GameState gameState;
+    private List<MapObjectData> mapCollisions;
+    private TileCollisionResolver tileCollisionResolver;
+    private MapData mapData;
+    private long lastEnemySpawnAtNs;
+    private double cameraX;
+    private double cameraY;
+    private double worldWidth;
+    private double worldHeight;
+    private double playerStartX;
+    private double playerStartY;
+    private int menuIndex;
+    private long welcomeFlashUntilNs;
+    private int pendingWelcomeAction;
+    private long lastUpdateNowNs;
+    // selectedLevelId:
+    // - level dang duoc focus trong man chon level
+    // - khong nhat thiet la level dang choi
+    private int selectedLevelId;
+    // Moc bat dau runtime cua level hien tai de tinh objective SURVIVE va score.
+    private long levelStartedAtNs;
+    // Luu ket qua vua clear level de ve overlay LEVEL_COMPLETE.
+    private LevelResult lastLevelResult;
+
     private static final int DAY_ORC_TARGET_MIN = 1;
     private static final int DAY_ORC_TARGET_MAX = 2;
     private static final int DAY_SKELETON_TARGET = 0;
-    // Ban dem: ca 2 loai deu xuat hien nhieu.
     private static final int NIGHT_ORC_TARGET_MIN = 7;
     private static final int NIGHT_ORC_TARGET_MAX = 8;
     private static final int NIGHT_SKELETON_TARGET_MIN = 7;
     private static final int NIGHT_SKELETON_TARGET_MAX = 8;
-    // Moi lan spawn theo nhip de thay quai vao dan tu ranh map.
     private static final long ENEMY_SPAWN_INTERVAL_NS = 650_000_000L;
 
     private static final int MENU_PLAY = 0;
@@ -61,59 +89,46 @@ public class Game {
     private static final int MENU_EXIT = 2;
     private static final int MENU_COUNT = 3;
 
-    // ===== Mouse Hitbox cho menu WELCOME =====
-    // Cac gia tri nay map 1-1 voi toa do ve button trong Renderer.
     private static final double MENU_BUTTON_X = 350;
-    private static final double MENU_BUTTON_Y_START = 246; // itemY - 24 voi itemY ban dau = 270
+    private static final double MENU_BUTTON_Y_START = 246;
     private static final double MENU_BUTTON_WIDTH = 260;
     private static final double MENU_BUTTON_HEIGHT = 42;
     private static final double MENU_BUTTON_GAP = 58;
 
-    private long lastEnemySpawnAtNs;
-    private double cameraX;
-    private double cameraY;
-    // Kich thuoc world thuc te dang dung cho movement/camera.
-    // Neu co map tiled thi lay theo pixel size cua map, neu khong thi fallback GameConfig.
-    private double worldWidth;
-    private double worldHeight;
-    // Vi tri spawn hien tai cua player (tinh theo center cua world thuc te).
-    private double playerStartX;
-    private double playerStartY;
-    private int menuIndex;
-    private MapData mapData;
+    private static final int LEVEL_SELECT_COLUMNS = 2;
+    private static final double LEVEL_CARD_X = 145;
+    private static final double LEVEL_CARD_Y = 165;
+    private static final double LEVEL_CARD_WIDTH = 300;
+    private static final double LEVEL_CARD_HEIGHT = 110;
+    private static final double LEVEL_CARD_GAP_X = 42;
+    private static final double LEVEL_CARD_GAP_Y = 26;
 
-    private long welcomeFlashUntilNs;
-    private static final long WELCOME_FLASH_DURATION_NS = 120_000_000L; // flash nhe khi enter o Welcome
-    private static final long WELCOME_TRANSITION_DELAY_NS = 220_000_000L; // tre de thay duoc hieu ung chuyen man
-    private int pendingWelcomeAction; // -1: khong co action dang cho
-
-    // ===== Name Input Config =====
-    // Gioi han do dai ten de tranh ten qua dai de vo UI khi ve tren dau player.
+    private static final long WELCOME_FLASH_DURATION_NS = 120_000_000L;
+    private static final long WELCOME_TRANSITION_DELAY_NS = 220_000_000L;
     private static final int MAX_PLAYER_NAME_LENGTH = 14;
-    // Buffer tam trong man hinh nhap ten.
-    private final StringBuilder playerNameBuffer;
-    private final Random random;
-    // Moc thoi gian frame truoc de tinh delta time (phuc vu energy drain/regen).
-    private long lastUpdateNowNs;
 
-    // ===== Energy / Progression Config =====
-    // Tieu hao nang luong khi nhan vat THUC SU di chuyen (don vi: energy/second).
     private static final double MOVE_ENERGY_DRAIN_PER_SECOND = 2.2;
-    // Hoi nang luong nhe khi dung im.
     private static final double IDLE_ENERGY_REGEN_PER_SECOND = 0.9;
-    // Danh thuong khong ton nang luong; skill F ton nang luong o muc nhe.
     private static final double SKILL_F_ENERGY_COST = 3.0;
-    // Thu thap "food" se hoi nang luong manh hon.
     private static final double FOOD_ENERGY_BONUS = 15.0;
 
     public Game(Stage stage) {
         this.inputHandler = new InputHandler();
-        // Spawn tam thoi; sau khi load map se reset lai vao dung center world thuc te.
         this.player = new Player(100, 100, 58, 58, 1, 100);
         this.renderer = new Renderer(stage, inputHandler);
         this.gameLoop = new GameLoop(this);
         this.gameState = GameState.WELCOME;
         this.enemies = new ArrayList<>();
+        this.resourceManager = new ResourceManager();
+        this.dayNightCycle = new DayNightCycle();
+        this.collectedResources = new LinkedHashMap<>();
+        this.playerNameBuffer = new StringBuilder("Player");
+        this.floatingDamageTexts = new ArrayList<>();
+        this.random = new Random();
+        this.levelManager = LevelManager.getInstance();
+        this.mapCollisions = new ArrayList<>();
+        this.tileCollisionResolver = null;
+        this.mapData = null;
         this.lastEnemySpawnAtNs = 0L;
         this.cameraX = 0;
         this.cameraY = 0;
@@ -124,55 +139,19 @@ public class Game {
         this.menuIndex = 0;
         this.welcomeFlashUntilNs = 0L;
         this.pendingWelcomeAction = -1;
-        this.playerNameBuffer = new StringBuilder("Player");
-        this.random = new Random();
         this.lastUpdateNowNs = -1L;
-        this.resourceManager = new ResourceManager();
-        this.dayNightCycle = new DayNightCycle();
-        this.collectedResources = new LinkedHashMap<>();
+        this.selectedLevelId = 1;
+        this.levelStartedAtNs = 0L;
+        this.lastLevelResult = null;
 
-        MapData loadedMap = null;
-        try {
-            // Uu tien map moi tu team ve map.
-            loadedMap = new TiledMapLoader().load("assets/Map_game/map.tmx");
-        } catch (Exception exception) {
-            System.out.println("Cannot load assets/Map_game/map.tmx: " + exception.getMessage());
-            try {
-                // Fallback map cu de tranh chan pipeline gameplay.
-                loadedMap = new TiledMapLoader().load("assets/maps/mapdemo.tmx");
-            } catch (Exception fallbackException) {
-                // Neu map loi thi game van chay theo luong cu.
-                System.out.println("Cannot load fallback tiled map: " + fallbackException.getMessage());
-            }
-        }
+        // 1) Load du lieu level tu JSON
+        // 2) Load tien do da luu cua nguoi choi
+        levelManager.loadLevels("resources/levels/level_data.json");
+        levelManager.loadProgress();
+        this.selectedLevelId = levelManager.getFirstUnlockedLevelId();
 
-        this.mapData = loadedMap;
-        List<MapObjectData> runtimeCollisionObjects = new ArrayList<>();
-        if (loadedMap != null) {
-            runtimeCollisionObjects.addAll(loadedMap.getCollisionObjects());
-            // Adapter: map Tile Properties -> resource objects runtime.
-            // Chi them vao runtime list, khong sua file map goc.
-            runtimeCollisionObjects.addAll(new TileResourceAdapter().buildResourceObjects(loadedMap));
-        }
-        this.mapCollisions = runtimeCollisionObjects;
-        this.resourceManager.loadFromMapObjects(this.mapCollisions);
-        List<String> contractErrors = new ResourceContractValidator().validate(this.mapCollisions);
-        if (!contractErrors.isEmpty()) {
-            System.out.println("=== Resource contract warnings ===");
-            for (String error : contractErrors) {
-                System.out.println(error);
-            }
-        }
-        this.renderer.setMapData(loadedMap);
-        this.tileCollisionResolver = loadedMap == null ? null : new TileCollisionResolver(loadedMap, resourceManager);
-
-        // Neu load duoc map tiled: dung kich thuoc map pixel lam world boundary thuc te.
-        if (loadedMap != null) {
-            this.worldWidth = loadedMap.getPixelWidth();
-            this.worldHeight = loadedMap.getPixelHeight();
-        }
-
-        // Spawn player o GIUA world thuc te (uu tien map tiled 120x80 neu co).
+        // Khi vua mo game, world se dung map chinh trong folder Map_Game.
+        loadMapIntoWorld(resolveDefaultMapPath());
         recalculatePlayerStartAtWorldCenter();
         player.reset(playerStartX, playerStartY);
         updateCamera();
@@ -187,11 +166,7 @@ public class Game {
         if (lastUpdateNowNs < 0) {
             lastUpdateNowNs = now;
         }
-        // Tach update() thanh nhieu ham state-specific de:
-        // 1) de doc/de review tung man hinh
-        // 2) de debug regression nhanh (loi nam o state nao ro rang)
-        // 3) de sau nay co the dua tung khoi sang subsystem rieng
-        //    (UI flow, input flow, combat flow) ma khong pha logic con lai.
+
         switch (gameState) {
             case GAME_OVER:
                 handleGameOverState();
@@ -205,12 +180,16 @@ public class Game {
             case GUIDE:
                 handleGuideState();
                 break;
+            case LEVEL_SELECT:
+                handleLevelSelectState();
+                break;
+            case LEVEL_COMPLETE:
+                handleLevelCompleteState();
+                break;
             case PAUSED:
                 handlePausedState();
                 break;
             case PLAYING:
-                // Neu ham nay tra true: frame da early-return (vi pause),
-                // khong chay inputHandler.update() lan nua.
                 if (handlePlayingState(now)) {
                     return;
                 }
@@ -223,12 +202,13 @@ public class Game {
 
     private void handleGameOverState() {
         if (inputHandler.isJustPressed(KeyCode.R)) {
-            restartGame();
+            restartCurrentLevel();
+        } else if (inputHandler.isJustPressed(KeyCode.ESCAPE)) {
+            openLevelSelect();
         }
     }
 
     private void handleWelcomeState(long now) {
-        // Ho tro hover + click chuot trong WELCOME.
         updateWelcomeMenuHoverByMouse();
 
         if (pendingWelcomeAction == -1) {
@@ -290,10 +270,8 @@ public class Game {
         appendTypedCharacters();
 
         if (inputHandler.isJustPressed(KeyCode.ENTER)) {
-            String normalizedName = normalizePlayerName(playerNameBuffer.toString());
-            player.setPlayerName(normalizedName);
-            restartGame();
-            gameState = GameState.PLAYING;
+            player.setPlayerName(normalizePlayerName(playerNameBuffer.toString()));
+            openLevelSelect();
         }
     }
 
@@ -301,8 +279,57 @@ public class Game {
         if (inputHandler.isJustPressed(KeyCode.ESCAPE)) {
             gameState = GameState.WELCOME;
         } else if (inputHandler.isJustPressed(KeyCode.ENTER)) {
-            restartGame();
-            gameState = GameState.PLAYING;
+            openLevelSelect();
+        }
+    }
+
+    private void handleLevelSelectState() {
+        // Level Select chi la UI state:
+        // - di chuyen con tro chon level
+        // - neu ENTER/click vao level da unlock thi moi vao PLAYING
+        if (inputHandler.isJustPressed(KeyCode.ESCAPE)) {
+            gameState = GameState.WELCOME;
+            return;
+        }
+
+        if (inputHandler.isJustPressed(KeyCode.LEFT) || inputHandler.isJustPressed(KeyCode.A)) {
+            moveLevelSelection(-1, 0);
+        }
+        if (inputHandler.isJustPressed(KeyCode.RIGHT) || inputHandler.isJustPressed(KeyCode.D)) {
+            moveLevelSelection(1, 0);
+        }
+        if (inputHandler.isJustPressed(KeyCode.UP) || inputHandler.isJustPressed(KeyCode.W)) {
+            moveLevelSelection(0, -1);
+        }
+        if (inputHandler.isJustPressed(KeyCode.DOWN) || inputHandler.isJustPressed(KeyCode.S)) {
+            moveLevelSelection(0, 1);
+        }
+
+        if (inputHandler.isMouseLeftJustClicked()) {
+            int clickedLevelId = findLevelSelectAt(inputHandler.getMouseX(), inputHandler.getMouseY());
+            if (clickedLevelId != -1) {
+                selectedLevelId = clickedLevelId;
+                if (levelManager.getPlayerProgress().isLevelUnlocked(clickedLevelId)) {
+                    startSelectedLevel();
+                }
+            }
+        }
+
+        if (inputHandler.isJustPressed(KeyCode.ENTER)) {
+            startSelectedLevel();
+        }
+    }
+
+    private void handleLevelCompleteState() {
+        if (inputHandler.isJustPressed(KeyCode.ENTER)) {
+            selectedLevelId = levelManager.getSuggestedNextLevelId();
+            if (!startSelectedLevel()) {
+                openLevelSelect();
+            }
+        } else if (inputHandler.isJustPressed(KeyCode.R)) {
+            restartCurrentLevel();
+        } else if (inputHandler.isJustPressed(KeyCode.ESCAPE)) {
+            openLevelSelect();
         }
     }
 
@@ -310,12 +337,10 @@ public class Game {
         if (inputHandler.isJustPressed(KeyCode.P)) {
             gameState = GameState.PLAYING;
         } else if (inputHandler.isJustPressed(KeyCode.ESCAPE)) {
-            gameState = GameState.WELCOME;
-            menuIndex = 0;
+            openLevelSelect();
         }
     }
 
-    // Tra ve true neu frame dung tai day (vi vua bam ESC de pause).
     private boolean handlePlayingState(long now) {
         if (inputHandler.isJustPressed(KeyCode.ESCAPE)) {
             gameState = GameState.PAUSED;
@@ -345,19 +370,15 @@ public class Game {
         }
 
         if (inputHandler.isPressed(KeyCode.J)) {
-            player.takeDamage(1);
+            DamageSystem.applyDamage(null, player, 1);
         }
         if (inputHandler.isPressed(KeyCode.K)) {
             player.heal(1);
         }
 
-        // Input tan cong:
-        // - Click chuot trai -> HIT (4 frame Hit_Base) theo yeu cau moi.
-        // - Phim F -> SLICE (giu lai de test/legacy, sau nay map voi vu khi).
         if (inputHandler.isMouseLeftJustClicked()) {
             performPlayerAttack(now, Player.AttackAnimationType.HIT);
         } else if (inputHandler.isJustPressed(KeyCode.F)) {
-            // Skill F yeu cau du nang luong moi duoc kich hoat.
             if (player.consumeEnergy(SKILL_F_ENERGY_COST)) {
                 performPlayerAttack(now, Player.AttackAnimationType.SLICE);
             }
@@ -366,6 +387,7 @@ public class Game {
         resourceManager.update(now);
         updateEnemySpawning(now);
         updateEnemies(now);
+        cleanupExpiredDamageTexts(now);
         player.clampPosition(0, 0, worldWidth, worldHeight);
 
         if (isPlayerCollidingWithMapCollision()) {
@@ -375,8 +397,11 @@ public class Game {
         boolean playerMoving = oldPlayerX != player.getX() || oldPlayerY != player.getY();
         player.updateAnimation(now, playerMoving, moveUp, moveDown, moveLeft, moveRight);
         updateEnergyByMovement(now, playerMoving);
+
         if (!player.isAlive()) {
             gameState = GameState.GAME_OVER;
+        } else {
+            checkCurrentLevelCompletion(now);
         }
 
         updateCamera();
@@ -384,10 +409,6 @@ public class Game {
     }
 
     private void updateCamera() {
-        // Khi zoom > 1, viewport world thuc te nho hon man hinh.
-        // Vi vay tam camera phai dua tren "viewport world sau zoom":
-        // viewWorldWidth  = screenWidth  / zoom
-        // viewWorldHeight = screenHeight / zoom
         double viewWorldWidth = GameConfig.WIDTH / CAMERA_ZOOM;
         double viewWorldHeight = GameConfig.HEIGHT / CAMERA_ZOOM;
 
@@ -401,8 +422,6 @@ public class Game {
             cameraY = 0;
         }
 
-        // Camera phai clamp theo world thuc te (map tiled neu co),
-        // neu khong se sinh ra "ban do ao" va gioi han di chuyen sai.
         double maxCameraX = worldWidth - viewWorldWidth;
         double maxCameraY = worldHeight - viewWorldHeight;
 
@@ -423,6 +442,11 @@ public class Game {
 
     public void render(long now) {
         boolean welcomeFlashing = now < welcomeFlashUntilNs;
+        Level currentLevel = levelManager.getCurrentLevel();
+        String objectiveText = currentLevel == null
+                ? ""
+                : currentLevel.buildObjectiveStatus(collectedResources, Math.max(0L, now - levelStartedAtNs));
+
         renderer.render(
                 gameState,
                 player,
@@ -439,8 +463,14 @@ public class Game {
                 dayNightCycle.getDarknessAlpha(now),
                 dayNightCycle.isNight(now),
                 dayNightCycle.getPhaseName(now),
+                floatingDamageTexts,
                 worldWidth,
-                worldHeight
+                worldHeight,
+                levelManager,
+                currentLevel,
+                selectedLevelId,
+                lastLevelResult,
+                objectiveText
         );
     }
 
@@ -457,29 +487,197 @@ public class Game {
     }
 
     private void restartGame() {
-        // Moi lan vao game/reset, spawn dung giua world hien tai.
         recalculatePlayerStartAtWorldCenter();
         player.reset(playerStartX, playerStartY);
         enemies.clear();
-        gameState = GameState.PLAYING;
+        floatingDamageTexts.clear();
+        collectedResources.clear();
+        resourceManager.loadFromMapObjects(mapCollisions);
         menuIndex = 0;
-        pendingWelcomeAction = -1; // dam bao khong con action cho tu menu
+        pendingWelcomeAction = -1;
         lastEnemySpawnAtNs = 0L;
         lastUpdateNowNs = -1L;
-        // Update camera ngay luc reset de frame dau tien vao game da focus dung vao player.
+        levelStartedAtNs = System.nanoTime();
         updateCamera();
-        dayNightCycle.reset(System.nanoTime());
+        dayNightCycle.reset(levelStartedAtNs);
+    }
+
+    private void restartCurrentLevel() {
+        Level currentLevel = levelManager.getCurrentLevel();
+        if (currentLevel == null) {
+            openLevelSelect();
+            return;
+        }
+        loadMapIntoWorld(currentLevel.getMapFile());
+        restartGame();
+        gameState = GameState.PLAYING;
+    }
+
+    private void openLevelSelect() {
+        selectedLevelId = levelManager.getFirstUnlockedLevelId();
+        gameState = GameState.LEVEL_SELECT;
+        pendingWelcomeAction = -1;
+        menuIndex = 0;
+    }
+
+    private boolean startSelectedLevel() {
+        // Chon level trong LevelManager truoc.
+        // Neu level bi lock thi reject ngay o day.
+        if (!levelManager.selectLevel(selectedLevelId)) {
+            return false;
+        }
+        lastLevelResult = null;
+        loadCurrentLevelMap();
+        restartGame();
+        gameState = GameState.PLAYING;
+        return true;
+    }
+
+    private void loadCurrentLevelMap() {
+        Level currentLevel = levelManager.getCurrentLevel();
+        if (currentLevel == null) {
+            return;
+        }
+        // Moi level tu JSON se tro toi 1 map file cu the.
+        loadMapIntoWorld(currentLevel.getMapFile());
+    }
+
+    private void loadMapIntoWorld(String mapPath) {
+        // loadMapIntoWorld la diem noi giua:
+        // - file TMX tren dia
+        // - collision runtime
+        // - resource runtime
+        // - renderer/map renderer
+        MapData loadedMap = null;
+        try {
+            loadedMap = new TiledMapLoader().load(mapPath);
+        } catch (Exception exception) {
+            System.out.println("Cannot load " + mapPath + ": " + exception.getMessage());
+            if (!"assets/maps/mapdemo.tmx".equalsIgnoreCase(mapPath)) {
+                try {
+                    loadedMap = new TiledMapLoader().load("assets/maps/mapdemo.tmx");
+                } catch (Exception fallbackException) {
+                    System.out.println("Cannot load fallback tiled map: " + fallbackException.getMessage());
+                }
+            }
+        }
+
+        this.mapData = loadedMap;
+        List<MapObjectData> runtimeCollisionObjects = new ArrayList<>();
+        if (loadedMap != null) {
+            runtimeCollisionObjects.addAll(loadedMap.getCollisionObjects());
+            // Adapter nay quet tile properties trong map de tao resource runtime.
+            // Nghia la map artist chi can lam viec trong Tiled, code tu suy ra resource node.
+            runtimeCollisionObjects.addAll(new TileResourceAdapter().buildResourceObjects(loadedMap));
+            this.worldWidth = loadedMap.getPixelWidth();
+            this.worldHeight = loadedMap.getPixelHeight();
+        } else {
+            this.worldWidth = GameConfig.WORLD_WIDTH;
+            this.worldHeight = GameConfig.WORLD_HEIGHT;
+        }
+
+        this.mapCollisions = runtimeCollisionObjects;
+        this.resourceManager.loadFromMapObjects(this.mapCollisions);
+        List<String> contractErrors = new ResourceContractValidator().validate(this.mapCollisions);
+        if (!contractErrors.isEmpty()) {
+            System.out.println("=== Resource contract warnings ===");
+            for (String error : contractErrors) {
+                System.out.println(error);
+            }
+        }
+        this.renderer.setMapData(loadedMap);
+        this.tileCollisionResolver = loadedMap == null ? null : new TileCollisionResolver(loadedMap, resourceManager);
+        recalculatePlayerStartAtWorldCenter();
+        updateCamera();
+    }
+
+    private String resolveDefaultMapPath() {
+        // Uu tien map chinh ma team dang lam trong folder Map_Game.
+        return "assets/Map_Game/map.tmx";
     }
 
     private void recalculatePlayerStartAtWorldCenter() {
-        // Center cua map/world tinh theo pixel:
-        // centerX = worldWidth / 2, centerY = worldHeight / 2
-        // Vi player co kich thuoc rieng, can tru di nua width/height de dat tam player vao giua.
         playerStartX = worldWidth / 2 - player.getWidth() / 2;
         playerStartY = worldHeight / 2 - player.getHeight() / 2;
     }
 
-    // Khong con tree/wolf test class: enemy duoc quan ly boi List<Enemy>.
+    private void checkCurrentLevelCompletion(long now) {
+        Level currentLevel = levelManager.getCurrentLevel();
+        if (currentLevel == null) {
+            return;
+        }
+
+        // Objective duoc tinh ngay trong runtime bang data JSON cua level:
+        // - COLLECT: dua theo collectedResources
+        // - SURVIVE: dua theo thoi gian choi cua man hien tai
+        long elapsedNs = Math.max(0L, now - levelStartedAtNs);
+        if (!currentLevel.areObjectivesCompleted(collectedResources, elapsedNs)) {
+            return;
+        }
+
+        int collectedCount = getCollectedTotalCount();
+        LevelResult result = LevelResult.createForCompletion(
+                currentLevel,
+                elapsedNs / 1_000_000_000L,
+                0,
+                collectedCount
+        );
+        levelManager.completeLevel(result);
+        lastLevelResult = result;
+        selectedLevelId = levelManager.getSuggestedNextLevelId();
+        gameState = GameState.LEVEL_COMPLETE;
+    }
+
+    private int getCollectedTotalCount() {
+        int total = 0;
+        for (Integer value : collectedResources.values()) {
+            if (value != null) {
+                total += value;
+            }
+        }
+        return total;
+    }
+
+    private void moveLevelSelection(int dx, int dy) {
+        List<Level> levels = levelManager.getAllLevels();
+        if (levels.isEmpty()) {
+            return;
+        }
+
+        int currentIndex = 0;
+        for (int i = 0; i < levels.size(); i++) {
+            if (levels.get(i).getId() == selectedLevelId) {
+                currentIndex = i;
+                break;
+            }
+        }
+
+        int row = currentIndex / LEVEL_SELECT_COLUMNS;
+        int col = currentIndex % LEVEL_SELECT_COLUMNS;
+        int newRow = Math.max(0, row + dy);
+        int newCol = Math.max(0, Math.min(LEVEL_SELECT_COLUMNS - 1, col + dx));
+        int newIndex = newRow * LEVEL_SELECT_COLUMNS + newCol;
+        if (newIndex >= levels.size()) {
+            newIndex = levels.size() - 1;
+        }
+        selectedLevelId = levels.get(newIndex).getId();
+    }
+
+    private int findLevelSelectAt(double mx, double my) {
+        List<Level> levels = levelManager.getAllLevels();
+        for (int i = 0; i < levels.size(); i++) {
+            int col = i % LEVEL_SELECT_COLUMNS;
+            int row = i / LEVEL_SELECT_COLUMNS;
+            double x = LEVEL_CARD_X + col * (LEVEL_CARD_WIDTH + LEVEL_CARD_GAP_X);
+            double y = LEVEL_CARD_Y + row * (LEVEL_CARD_HEIGHT + LEVEL_CARD_GAP_Y);
+            boolean insideX = mx >= x && mx <= x + LEVEL_CARD_WIDTH;
+            boolean insideY = my >= y && my <= y + LEVEL_CARD_HEIGHT;
+            if (insideX && insideY) {
+                return levels.get(i).getId();
+            }
+        }
+        return -1;
+    }
 
     private boolean isPlayerCollidingWithMapCollision() {
         double px = getPlayerCollisionX();
@@ -487,24 +685,18 @@ public class Game {
         double pw = getPlayerCollisionWidth();
         double ph = getPlayerCollisionHeight();
 
-        // 1) Collision theo Object Layer / object runtime adapter.
         for (MapObjectData object : mapCollisions) {
-            // Chi check object dung vai tro collision.
             if (!"Collision".equalsIgnoreCase(object.getType())) {
                 continue;
             }
-
-            // Neu object nay la resource va da bi pha thi bo qua collision,
-            // giup player di xuyen qua sau khi "chat/dao" xong.
             if (isResourceObject(object) && !isResourceAlive(object.getId())) {
                 continue;
             }
-            if (object.intersects(px, py, pw, ph)) {
+            if (CollisionSystem.intersects(px, py, pw, ph, object.getX(), object.getY(), object.getWidth(), object.getHeight())) {
                 return true;
             }
         }
 
-        // 2) Collision theo Tile Properties (fallback/chinh cho map moi khong co Object Layer).
         if (tileCollisionResolver != null && tileCollisionResolver.isBlocked(px, py, pw, ph)) {
             return true;
         }
@@ -513,12 +705,10 @@ public class Game {
     }
 
     private double getPlayerCollisionX() {
-        // Thu nho hitbox ngang de sprite 48x48 khong bi block qua som.
         return player.getX() + player.getWidth() * 0.22;
     }
 
     private double getPlayerCollisionY() {
-        // Day hitbox xuong duoi de uu tien phan "chan" va cham world object.
         return player.getY() + player.getHeight() * 0.30;
     }
 
@@ -530,50 +720,6 @@ public class Game {
         return player.getHeight() * 0.62;
     }
 
-    // Duyet A..Z va append ky tu vua bam.
-    // Cac phim duoc luu theo enum KeyCode.A ... KeyCode.Z.
-    private void appendLetterFromKeyboard() {
-        if (playerNameBuffer.length() >= MAX_PLAYER_NAME_LENGTH) {
-            return;
-        }
-
-        for (char c = 'A'; c <= 'Z'; c++) {
-            KeyCode code = KeyCode.getKeyCode(String.valueOf(c));
-            if (code != null && inputHandler.isJustPressed(code)) {
-                playerNameBuffer.append(c);
-                return; // Moi frame chi them 1 ky tu de input on dinh.
-            }
-        }
-    }
-
-    // Duyet 0..9 va append so vao ten.
-    private void appendDigitFromKeyboard() {
-        if (playerNameBuffer.length() >= MAX_PLAYER_NAME_LENGTH) {
-            return;
-        }
-
-        // Ho tro day du 2 cum phim so:
-        // 1) Hang so tren cung ban phim: DIGIT0..DIGIT9
-        // 2) Cum numpad: NUMPAD0..NUMPAD9
-        // Ly do bo sung: tuy layout may, nguoi dung co the bam numpad
-        // va neu chi bat DIGIT thi se co cam giac "khong nhap duoc so".
-        for (int d = 0; d <= 9; d++) {
-            KeyCode digitCode = KeyCode.getKeyCode("DIGIT" + d);
-            KeyCode numpadCode = KeyCode.getKeyCode("NUMPAD" + d);
-
-            boolean digitPressed = digitCode != null && inputHandler.isJustPressed(digitCode);
-            boolean numpadPressed = numpadCode != null && inputHandler.isJustPressed(numpadCode);
-
-            if (digitPressed || numpadPressed) {
-                playerNameBuffer.append(d);
-                return;
-            }
-        }
-    }
-
-    // Chuan hoa ten truoc khi save vao player:
-    // - trim bo khoang trang dau/cuoi
-    // - neu rong thi fallback "Player"
     private String normalizePlayerName(String rawName) {
         if (rawName == null) {
             return "Player";
@@ -588,8 +734,6 @@ public class Game {
         return trimmed;
     }
 
-    // Xu ly ky tu text da duoc nhap trong frame hien tai.
-    // Chi cho phep: chu cai, so va dau cach.
     private void appendTypedCharacters() {
         if (playerNameBuffer.length() >= MAX_PLAYER_NAME_LENGTH) {
             return;
@@ -606,19 +750,13 @@ public class Game {
             }
 
             char ch = typed.charAt(i);
-
-            // Bo qua ky tu dieu khien (Enter, Backspace, ...)
             if (Character.isISOControl(ch)) {
                 continue;
             }
-
-            // Cho phep chu cai va so.
             if (Character.isLetterOrDigit(ch)) {
                 playerNameBuffer.append(Character.toUpperCase(ch));
                 continue;
             }
-
-            // Cho phep 1 dau cach, nhung khong dat o dau ten va khong lap lai lien tiep.
             if (ch == ' '
                     && playerNameBuffer.length() > 0
                     && playerNameBuffer.charAt(playerNameBuffer.length() - 1) != ' ') {
@@ -627,7 +765,6 @@ public class Game {
         }
     }
 
-    // Cap nhat item menu dang duoc hover boi chuot.
     private void updateWelcomeMenuHoverByMouse() {
         int hoveredIndex = findWelcomeMenuIndexAt(inputHandler.getMouseX(), inputHandler.getMouseY());
         if (hoveredIndex != -1 && pendingWelcomeAction == -1) {
@@ -635,8 +772,6 @@ public class Game {
         }
     }
 
-    // Tra ve index menu neu diem (mx,my) nam trong 1 button WELCOME.
-    // -1 nghia la chuot dang ngoai vung button.
     private int findWelcomeMenuIndexAt(double mx, double my) {
         for (int i = 0; i < MENU_COUNT; i++) {
             double top = MENU_BUTTON_Y_START + i * MENU_BUTTON_GAP;
@@ -649,29 +784,22 @@ public class Game {
         return -1;
     }
 
-    // Xu ly 1 lan tan cong cua player:
-    // 1) Bat state slash animation
-    // 2) Lay hitbox tan cong theo huong nhan vat
-    // 3) Apply damage len resource dau tien giao hitbox
-    // 4) Neu resource vo -> nhan drop vao kho thu thap tam thoi
     private void performPlayerAttack(long now, Player.AttackAnimationType attackType) {
         if (!player.startAttack(now, attackType)) {
             return;
         }
 
-        // Damage theo loai don danh:
-        // - HIT (danh thuong) = 1
-        // - SLICE (skill F)   = 2
+        // Thu tu uu tien:
+        // 1) Neu hit vao enemy thi dung o combat
+        // 2) Neu khong trung enemy thi moi thu pha resource
         int attackDamage = attackType == Player.AttackAnimationType.SLICE ? 2 : 1;
-
         double[] attackBox = player.buildAttackHitbox();
-        boolean hitEnemy = applyAttackToFirstEnemy(attackBox[0], attackBox[1], attackBox[2], attackBox[3], attackDamage);
+        boolean hitEnemy = applyAttackToFirstEnemy(attackBox[0], attackBox[1], attackBox[2], attackBox[3], attackDamage, now);
         if (hitEnemy) {
-            System.out.println("[Combat] Hit enemy for " + attackDamage + " damage.");
             return;
         }
 
-        DropResult dropResult = resourceManager.hitFirstResourceIntersecting(
+        ResourceHitResult resourceHitResult = resourceManager.hitFirstResourceIntersecting(
                 attackBox[0],
                 attackBox[1],
                 attackBox[2],
@@ -680,34 +808,52 @@ public class Game {
                 now
         );
 
-        if (dropResult == null) {
-            System.out.println("[Resource] Attack landed, no resource destroyed.");
+        if (resourceHitResult == null) {
             return;
         }
-
-        addCollectedItem(dropResult.getItemId(), dropResult.getAmount());
-        System.out.println("[Resource] Destroyed -> drop " + dropResult.getItemId() + " x" + dropResult.getAmount());
+        if (resourceHitResult.getDamageApplied() > 0 && resourceHitResult.getResourceNode() != null) {
+            spawnFloatingDamageText(
+                    resourceHitResult.getResourceNode().getCenterX(),
+                    resourceHitResult.getResourceNode().getY(),
+                    resourceHitResult.getDamageApplied(),
+                    false,
+                    now
+            );
+        }
+        DropResult dropResult = resourceHitResult.getDropResult();
+        if (dropResult != null) {
+            addCollectedItem(dropResult.getItemId(), dropResult.getAmount());
+        }
     }
 
-    // Apply damage len enemy dau tien giao hitbox.
-    private boolean applyAttackToFirstEnemy(double x, double y, double w, double h, int damage) {
+    private boolean applyAttackToFirstEnemy(double x, double y, double w, double h, int damage, long nowNs) {
         for (Enemy enemy : enemies) {
             if (enemy == null || !enemy.isAlive()) {
                 continue;
             }
-            if (!enemy.intersects(x, y, w, h)) {
+            if (!CollisionSystem.intersects(enemy, x, y, w, h)) {
                 continue;
             }
-            enemy.takeDamage(damage);
+            DamageResult damageResult = DamageSystem.applyDamage(player, enemy, damage, nowNs);
+            if (damageResult.hasDamage()) {
+                spawnFloatingDamageText(enemy.getCenterX(), enemy.getY(), damageResult.getFinalDamage(), damageResult.isCritical(), nowNs);
+            }
             return true;
         }
         return false;
     }
 
-    // Spawn manager:
-    // - Ban ngay: it orc (1-2), khong skeleton.
-    // - Ban dem: ca orc + skeleton deu nhieu (7-8 moi loai).
-    // - Spawn tu ria map (4 phia) roi duoi vao player.
+    private void spawnFloatingDamageText(double worldX, double worldY, int damage, boolean critical, long nowNs) {
+        if (damage <= 0) {
+            return;
+        }
+        floatingDamageTexts.add(new FloatingDamageText("-" + damage, worldX, worldY, nowNs, 820_000_000L, critical));
+    }
+
+    private void cleanupExpiredDamageTexts(long nowNs) {
+        floatingDamageTexts.removeIf(text -> text == null || text.isExpired(nowNs));
+    }
+
     private void updateEnemySpawning(long now) {
         if (now - lastEnemySpawnAtNs < ENEMY_SPAWN_INTERVAL_NS) {
             return;
@@ -735,7 +881,6 @@ public class Game {
         lastEnemySpawnAtNs = now;
     }
 
-    // Update AI va attack cua moi enemy, dong thoi don enemy chet de list gon.
     private void updateEnemies(long now) {
         List<Enemy> dead = new ArrayList<>();
         for (Enemy enemy : enemies) {
@@ -767,8 +912,6 @@ public class Game {
         return count;
     }
 
-    // Spawn tu 4 ria map:
-    // 0=top, 1=right, 2=bottom, 3=left.
     private double[] randomEdgeSpawnPoint() {
         int side = random.nextInt(4);
         double margin = 4;
@@ -804,22 +947,19 @@ public class Game {
         }
         int oldAmount = collectedResources.getOrDefault(itemId, 0);
         collectedResources.put(itemId, oldAmount + amount);
-        // Moi lan thu thap tai nguyen: +1 EXP theo yeu cau MVP.
+        // Moi lan nhat/pha duoc resource thi cong EXP ngay lap tuc.
         player.addExperience(1);
-        // Food cho hoi nang luong manh hon dung im.
         if (isFoodItem(itemId)) {
             player.recoverEnergy(FOOD_ENERGY_BONUS);
         }
     }
 
     private void updateEnergyByMovement(long now, boolean playerMoving) {
-        // Delta second theo frame de drain/regen on dinh, khong phu thuoc FPS.
         double deltaSeconds = (now - lastUpdateNowNs) / 1_000_000_000.0;
         if (deltaSeconds < 0) {
             deltaSeconds = 0;
         }
         if (deltaSeconds > 0.25) {
-            // Clamp anti-spike: tranh frame hut qua nhieu energy khi co pause lag.
             deltaSeconds = 0.25;
         }
         lastUpdateNowNs = now;
@@ -839,7 +979,6 @@ public class Game {
                 || normalized.contains("food");
     }
 
-    // Detect object co schema resource theo contract/property map.
     private boolean isResourceObject(MapObjectData object) {
         if (object == null || object.getProperties() == null) {
             return false;

@@ -1,0 +1,128 @@
+{
+  "version": "1.0",
+  "totalLevels": 6,
+  "levels": [
+    {
+      "id": 1,
+      "name": "Khoi Dong",
+      "description": "Lam quen voi thu thap tai nguyen.",
+      "difficulty": 1,
+      "mapFile": "assets/Map_Game/map.tmx",
+      "requiredLevel": 0,
+      "unlocksLevel": 2,
+      "objectives": [
+        {
+          "type": "COLLECT",
+          "item": "wood",
+          "amount": 3,
+          "seconds": 0,
+          "description": "Thu thap 3 wood"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Kiem Da",
+      "description": "Thu thap them da de mo rong sinh ton.",
+      "difficulty": 2,
+      "mapFile": "assets/Map_Game/map.tmx",
+      "requiredLevel": 1,
+      "unlocksLevel": 3,
+      "objectives": [
+        {
+          "type": "COLLECT",
+          "item": "stone",
+          "amount": 2,
+          "seconds": 0,
+          "description": "Thu thap 2 stone"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Song Sot",
+      "description": "Giu vi tri va song sot them mot luc.",
+      "difficulty": 2,
+      "mapFile": "assets/Map_Game/map.tmx",
+      "requiredLevel": 2,
+      "unlocksLevel": 4,
+      "objectives": [
+        {
+          "type": "SURVIVE",
+          "item": "",
+          "amount": 0,
+          "seconds": 20,
+          "description": "Song sot 20 giay"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "Du Tru",
+      "description": "Thu thap ket hop gỗ va soi.",
+      "difficulty": 3,
+      "mapFile": "assets/Map_Game/map.tmx",
+      "requiredLevel": 3,
+      "unlocksLevel": 5,
+      "objectives": [
+        {
+          "type": "COLLECT",
+          "item": "wood",
+          "amount": 5,
+          "seconds": 0,
+          "description": "Thu thap 5 wood"
+        },
+        {
+          "type": "COLLECT",
+          "item": "stone",
+          "amount": 3,
+          "seconds": 0,
+          "description": "Thu thap 3 stone"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "Nguon Thuc An",
+      "description": "Thu thap carrot de hoan thanh muc tieu.",
+      "difficulty": 3,
+      "mapFile": "assets/Map_Game/map.tmx",
+      "requiredLevel": 4,
+      "unlocksLevel": 6,
+      "objectives": [
+        {
+          "type": "COLLECT",
+          "item": "carrot",
+          "amount": 1,
+          "seconds": 0,
+          "description": "Thu thap 1 carrot"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "name": "Thu Thach Cuoi",
+      "description": "Thu thap va song sot de ket thuc chuoi man.",
+      "difficulty": 4,
+      "mapFile": "assets/Map_Game/map.tmx",
+      "requiredLevel": 5,
+      "unlocksLevel": 0,
+      "objectives": [
+        {
+          "type": "COLLECT",
+          "item": "wood",
+          "amount": 6,
+          "seconds": 0,
+          "description": "Thu thap 6 wood"
+        },
+        {
+          "type": "SURVIVE",
+          "item": "",
+          "amount": 0,
+          "seconds": 30,
+          "description": "Song sot 30 giay"
+        }
+      ]
+    }
+  ]
+}
