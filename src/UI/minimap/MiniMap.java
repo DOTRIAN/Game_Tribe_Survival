@@ -1,6 +1,5 @@
 package ui.minimap;
 
-import core.GameConfig;
 import entity.Enemy;
 import entity.Player;
 import javafx.scene.canvas.GraphicsContext;
@@ -50,6 +49,8 @@ public class MiniMap {
                        double cameraX,
                        double cameraY,
                        double cameraZoom,
+                       double viewportWidth,
+                       double viewportHeight,
                        Player player,
                        List<Enemy> enemies) {
         if (gc == null || player == null) {
@@ -60,8 +61,8 @@ public class MiniMap {
         }
 
         // Toa do panel tren man hinh.
-        double panelX = GameConfig.WIDTH - PANEL_MARGIN_RIGHT - PANEL_WIDTH;
-        double panelY = GameConfig.HEIGHT - PANEL_MARGIN_BOTTOM - PANEL_HEIGHT;
+        double panelX = viewportWidth - PANEL_MARGIN_RIGHT - PANEL_WIDTH;
+        double panelY = viewportHeight - PANEL_MARGIN_BOTTOM - PANEL_HEIGHT;
 
         // Vung world hien thi ben trong panel.
         double mapX = panelX + INNER_PADDING;
@@ -87,8 +88,9 @@ public class MiniMap {
 
         // 3) Camera viewport rectangle.
         // Viewport world = screen / zoom.
-        double viewWorldW = GameConfig.WIDTH / cameraZoom;
-        double viewWorldH = GameConfig.HEIGHT / cameraZoom;
+        // Camera rect bat buoc dung viewport runtime, neu khong minimap se sai khi fullscreen.
+        double viewWorldW = viewportWidth / cameraZoom;
+        double viewWorldH = viewportHeight / cameraZoom;
         double camRectX = mapX + cameraX * scaleX;
         double camRectY = mapY + cameraY * scaleY;
         double camRectW = viewWorldW * scaleX;

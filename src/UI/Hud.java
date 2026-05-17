@@ -16,7 +16,8 @@ public class Hud {
     private static final double PANEL_WIDTH = 210;
     private static final double PANEL_HEIGHT = 84;
     // Panel ben phai de hien thi tai nguyen da thu thap.
-    private static final double RESOURCE_PANEL_X = 730;
+    // X se tinh dong theo viewport width de khong bi "dat cung" khi resize/fullscreen.
+    private static final double RESOURCE_PANEL_MARGIN_RIGHT = 16;
     private static final double RESOURCE_PANEL_Y = 16;
     private static final double RESOURCE_PANEL_WIDTH = 214;
     private static final double RESOURCE_PANEL_HEIGHT = 132;
@@ -45,7 +46,10 @@ public class Hud {
     // Dang dat false nen se KHONG hien thi Player X/Y.
     private static final boolean SHOW_COORDINATES = false;
 
-    public void render(GraphicsContext graphicsContext, Player player, Map<String, Integer> collectedResources) {
+    public void render(GraphicsContext graphicsContext,
+                       Player player,
+                       Map<String, Integer> collectedResources,
+                       double viewportWidth) {
         // ===== 1) Ve nen panel HUD =====
         // Mau den trong suot nhe de tach HUD khoi background map.
         graphicsContext.setFill(Color.color(0, 0, 0, 0.35));
@@ -99,22 +103,30 @@ public class Hud {
         }
 
         // ===== 7) Resource text panel =====
+        // Neo panel tai nguyen vao canh phai cua viewport:
+        // - viewport rong hon: panel lui ve ben phai
+        // - viewport hep hon: panel tu dong theo vao trong
+        // Cac text ben trong cung phai dua theo toa do X moi nay.
+        double resourcePanelX = viewportWidth - RESOURCE_PANEL_MARGIN_RIGHT - RESOURCE_PANEL_WIDTH;
+
         graphicsContext.setFill(Color.color(0, 0, 0, 0.35));
-        graphicsContext.fillRoundRect(RESOURCE_PANEL_X, RESOURCE_PANEL_Y, RESOURCE_PANEL_WIDTH, RESOURCE_PANEL_HEIGHT, PANEL_ARC, PANEL_ARC);
+        graphicsContext.fillRoundRect(resourcePanelX, RESOURCE_PANEL_Y, RESOURCE_PANEL_WIDTH, RESOURCE_PANEL_HEIGHT,
+                PANEL_ARC, PANEL_ARC);
         graphicsContext.setStroke(Color.color(1, 1, 1, 0.3));
-        graphicsContext.strokeRoundRect(RESOURCE_PANEL_X, RESOURCE_PANEL_Y, RESOURCE_PANEL_WIDTH, RESOURCE_PANEL_HEIGHT, PANEL_ARC, PANEL_ARC);
+        graphicsContext.strokeRoundRect(resourcePanelX, RESOURCE_PANEL_Y, RESOURCE_PANEL_WIDTH, RESOURCE_PANEL_HEIGHT,
+                PANEL_ARC, PANEL_ARC);
 
         graphicsContext.setFill(Color.web("#f3f3f3"));
-        graphicsContext.fillText("Collected", RESOURCE_PANEL_X + 12, RESOURCE_PANEL_Y + 18);
+        graphicsContext.fillText("Collected", resourcePanelX + 12, RESOURCE_PANEL_Y + 18);
 
         // Hien thi cac tai nguyen co trong kho tam thoi.
         // Hien tai dung text; sau nay co the doi thanh icon pixel + so.
         double lineY = RESOURCE_PANEL_Y + 38;
         if (collectedResources == null || collectedResources.isEmpty()) {
-            graphicsContext.fillText("wood: 0", RESOURCE_PANEL_X + 12, lineY);
-            graphicsContext.fillText("stone: 0", RESOURCE_PANEL_X + 12, lineY + 18);
-            graphicsContext.fillText("fiber: 0", RESOURCE_PANEL_X + 12, lineY + 36);
-            graphicsContext.fillText("carrot: 0", RESOURCE_PANEL_X + 12, lineY + 54);
+            graphicsContext.fillText("wood: 0", resourcePanelX + 12, lineY);
+            graphicsContext.fillText("stone: 0", resourcePanelX + 12, lineY + 18);
+            graphicsContext.fillText("fiber: 0", resourcePanelX + 12, lineY + 36);
+            graphicsContext.fillText("carrot: 0", resourcePanelX + 12, lineY + 54);
         } else {
             // In toan bo entry hien co.
             int printed = 0;
@@ -123,14 +135,15 @@ public class Hud {
                     break;
                 }
                 String line = entry.getKey() + ": " + entry.getValue();
-                graphicsContext.fillText(line, RESOURCE_PANEL_X + 12, lineY + printed * 18);
+                graphicsContext.fillText(line, resourcePanelX + 12, lineY + printed * 18);
                 printed++;
             }
         }
 
         // ===== 8) Energy bar =====
         graphicsContext.setFill(Color.web("#2a2a2a"));
-        graphicsContext.fillRoundRect(ENERGY_BAR_X, ENERGY_BAR_Y, ENERGY_BAR_WIDTH, ENERGY_BAR_HEIGHT, BAR_ARC, BAR_ARC);
+        graphicsContext.fillRoundRect(ENERGY_BAR_X, ENERGY_BAR_Y, ENERGY_BAR_WIDTH, ENERGY_BAR_HEIGHT, BAR_ARC,
+                BAR_ARC);
 
         double energyRatio = 0;
         if (player.getMaxEnergy() > 0) {
@@ -145,26 +158,24 @@ public class Hud {
                 ENERGY_BAR_WIDTH * energyRatio,
                 ENERGY_BAR_HEIGHT,
                 BAR_ARC,
-                BAR_ARC
-        );
+                BAR_ARC);
 
         graphicsContext.setStroke(Color.color(0, 0, 0, 0.55));
-        graphicsContext.strokeRoundRect(ENERGY_BAR_X, ENERGY_BAR_Y, ENERGY_BAR_WIDTH, ENERGY_BAR_HEIGHT, BAR_ARC, BAR_ARC);
+        graphicsContext.strokeRoundRect(ENERGY_BAR_X, ENERGY_BAR_Y, ENERGY_BAR_WIDTH, ENERGY_BAR_HEIGHT, BAR_ARC,
+                BAR_ARC);
 
         graphicsContext.setFill(Color.web("#d9f4ff"));
         graphicsContext.fillText(
                 "EN: " + (int) player.getEnergy() + "/" + (int) player.getMaxEnergy(),
                 ENERGY_BAR_X,
-                ENERGY_BAR_Y + 22
-        );
+                ENERGY_BAR_Y + 22);
 
         // ===== 9) Level / XP =====
         graphicsContext.setFill(Color.web("#ffe9b0"));
         graphicsContext.fillText(
                 "LV " + player.getLevel() + "  XP " + player.getExperience() + "/" + player.getExperienceToNextLevel(),
                 ENERGY_BAR_X + 86,
-                ENERGY_BAR_Y + 22
-        );
+                ENERGY_BAR_Y + 22);
     }
 
     // Do rong text theo font hien tai cua GraphicsContext.
