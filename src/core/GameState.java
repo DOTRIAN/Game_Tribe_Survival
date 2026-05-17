@@ -5,7 +5,9 @@ public enum GameState {
     // Trang thai nhap ten nhan vat truoc khi vao gameplay.
     NAME_INPUT,
     GUIDE,
+    LEVEL_SELECT,
     PLAYING,
+    LEVEL_COMPLETE,
     PAUSED,
     GAME_OVER
 }

@@ -9,7 +9,7 @@ import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import javafx.scene.text.Text;
 
-public class Player {
+public class Player extends Entity {
     private enum FacingDirection {
         DOWN,
         SIDE,
@@ -20,13 +20,6 @@ public class Player {
         SLICE
     }
 
-    private double x;
-    private double y;
-    private double width;
-    private double height;
-    private double speed;
-    private int hp;
-    private int maxHp;
     // Nang luong dung cho movement/skill.
     private double energy;
     private double maxEnergy;
@@ -64,13 +57,7 @@ public class Player {
     private AttackAnimationType currentAttackType;
 
     public Player(double x, double y, double width, double height, double speed, int maxHp) {
-        this.x = x;
-        this.y = y;
-        this.width = width;
-        this.height = height;
-        this.speed = speed;
-        this.maxHp = maxHp;
-        this.hp = maxHp;
+        super(x, y, width, height, speed, maxHp);
         this.maxEnergy = 100;
         this.energy = maxEnergy;
         this.level = 1;
@@ -203,52 +190,6 @@ public class Player {
         y += speed;
     }
 
-    public void clampPosition(double minX, double minY, double maxWidth, double maxHeight) {
-        if (x < minX) {
-            x = minX;
-        }
-
-        if (y < minY) {
-            y = minY;
-        }
-
-        if (x + width > maxWidth) {
-            x = maxWidth - width;
-        }
-
-        if (y + height > maxHeight) {
-            y = maxHeight - height;
-        }
-    }
-
-    public double getX() {
-        return x;
-    }
-
-    public double getY() {
-        return y;
-    }
-
-    public double getWidth() {
-        return width;
-    }
-
-    public double getHeight() {
-        return height;
-    }
-
-    public double getSpeed() {
-        return speed;
-    }
-
-    public int getHp() {
-        return hp;
-    }
-
-    public int getMaxHp() {
-        return maxHp;
-    }
-
     public double getEnergy() {
         return energy;
     }
@@ -286,34 +227,11 @@ public class Player {
         return lastLeveledUpTo;
     }
 
-    public void takeDamage(int amount) {
-        hp -= amount;
-        if (hp < 0) {
-            hp = 0;
-        }
-    }
-
-    public void heal(int amount) {
-        hp += amount;
-        if (hp > maxHp) {
-            hp = maxHp;
-        }
-    }
-
-    public boolean isAlive() {
-        return hp > 0;
-    }
-
     public void reset(double startX, double startY) {
         this.x = startX;
         this.y = startY;
         this.hp = maxHp;
         this.energy = maxEnergy;
-    }
-
-    public void setPosition(double x, double y) {
-        this.x = x;
-        this.y = y;
     }
 
     // Getter/Setter ten nhan vat:

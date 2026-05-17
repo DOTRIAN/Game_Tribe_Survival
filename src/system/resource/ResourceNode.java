@@ -1,35 +1,29 @@
 package system.resource;
 
+import entity.Entity;
+
 /**
  * ResourceNode:
  * - Runtime instance cua 1 tai nguyen dat tren map.
  * - Moi object trong layer "Resources" (hoac object co schema resource) se map thanh 1 node.
+ * - Node nay da ke thua Entity de:
+ *   1) dung chung contract HP / damage / hitbox
+ *   2) co the noi vao DamageSystem / CollisionSystem khi can
  * - Noi day quan ly trang thai thay doi theo gameplay:
- *   + currentHp
- *   + alive/depleted
+ *   + hp hien tai (thong qua Entity.hp)
+ *   + alive/depleted (thong qua Entity.isAlive())
  *   + thoi diem bi pha (de tinh respawn neu can)
  */
-public class ResourceNode {
+public class ResourceNode extends Entity {
     private final int objectId;
     private final String kind;
     private final ResourceType resourceType;
-
-    // Hitbox gameplay trong world space (dung cho collision + hit detection)
-    private final double x;
-    private final double y;
-    private final double width;
-    private final double height;
 
     // Cac gia tri gameplay da "resolve" xong tu map property + default config.
     private final String dropItem;
     private final int dropMin;
     private final int dropMax;
     private final int respawnSeconds;
-    private final int maxHp;
-
-    // Runtime mutable state.
-    private int currentHp;
-    private boolean alive;
     private long destroyedAtNs;
 
     public ResourceNode(int objectId,
@@ -44,20 +38,14 @@ public class ResourceNode {
                         int dropMax,
                         int respawnSeconds,
                         int maxHp) {
+        super(x, y, width, height, 0, maxHp);
         this.objectId = objectId;
         this.kind = kind == null ? "unknown" : kind;
         this.resourceType = resourceType == null ? ResourceType.UNKNOWN : resourceType;
-        this.x = x;
-        this.y = y;
-        this.width = Math.max(0, width);
-        this.height = Math.max(0, height);
         this.dropItem = dropItem == null ? "" : dropItem;
         this.dropMin = Math.max(0, dropMin);
         this.dropMax = Math.max(this.dropMin, dropMax);
         this.respawnSeconds = respawnSeconds;
-        this.maxHp = Math.max(1, maxHp);
-        this.currentHp = this.maxHp;
-        this.alive = true;
         this.destroyedAtNs = -1L;
     }
 
@@ -71,22 +59,6 @@ public class ResourceNode {
 
     public ResourceType getResourceType() {
         return resourceType;
-    }
-
-    public double getX() {
-        return x;
-    }
-
-    public double getY() {
-        return y;
-    }
-
-    public double getWidth() {
-        return width;
-    }
-
-    public double getHeight() {
-        return height;
     }
 
     public String getDropItem() {
@@ -105,16 +77,8 @@ public class ResourceNode {
         return respawnSeconds;
     }
 
-    public int getMaxHp() {
-        return maxHp;
-    }
-
     public int getCurrentHp() {
-        return currentHp;
-    }
-
-    public boolean isAlive() {
-        return alive;
+        return hp;
     }
 
     public long getDestroyedAtNs() {
@@ -131,15 +95,13 @@ public class ResourceNode {
      * @return true neu node vua chuyen tu song -> bi pha
      */
     public boolean applyDamage(int damage, long nowNs) {
-        if (!alive) {
+        if (isDead()) {
             return false;
         }
 
         int realDamage = Math.max(0, damage);
-        currentHp -= realDamage;
-        if (currentHp <= 0) {
-            currentHp = 0;
-            alive = false;
+        takeDamage(realDamage);
+        if (isDead()) {
             destroyedAtNs = nowNs;
             return true;
         }
@@ -163,7 +125,7 @@ public class ResourceNode {
      * - Dung moc nowNs - destroyedAtNs de tinh.
      */
     public boolean shouldRespawn(long nowNs) {
-        if (alive) {
+        if (isAlive()) {
             return false;
         }
         if (respawnSeconds <= 0 || destroyedAtNs < 0) {
@@ -178,8 +140,7 @@ public class ResourceNode {
      * - Dua node ve trang thai moi.
      */
     public void respawn() {
-        alive = true;
-        currentHp = maxHp;
+        hp = maxHp;
         destroyedAtNs = -1L;
     }
 }

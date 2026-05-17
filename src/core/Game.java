@@ -25,8 +25,7 @@ import java.util.Map;
 import java.util.Random;
 
 public class Game {
-    // Phai dong bo voi CAMERA_ZOOM trong Renderer de camera center dung khi co
-    // zoom.
+    // Phai dong bo voi CAMERA_ZOOM trong Renderer de camera center dung khi co zoom.
     // Neu doi zoom ben Renderer, nho doi gia tri nay theo.
     private static final double CAMERA_ZOOM = 1.5;
 
@@ -45,14 +44,15 @@ public class Game {
     private GameState gameState;
 
     // ===== Enemy Spawn Config =====
-    // Ban ngay: chi spawn orc it (1-2 con). -> Điều chỉnh: spawn 2 con theo yêu
-    // cầu.
-    private static final int DAY_ORC_TARGET_MIN = 2;
+    // Ban ngay: chi spawn orc it (1-2 con).
+    private static final int DAY_ORC_TARGET_MIN = 1;
     private static final int DAY_ORC_TARGET_MAX = 2;
     private static final int DAY_SKELETON_TARGET = 0;
-    // Ban dem: chia lam 2 dot, moi dot 5 con.
-    private static final int NIGHT_WAVE_SIZE = 5;
-    private static final int NIGHT_MAX_WAVES = 2;
+    // Ban dem: ca 2 loai deu xuat hien nhieu.
+    private static final int NIGHT_ORC_TARGET_MIN = 7;
+    private static final int NIGHT_ORC_TARGET_MAX = 8;
+    private static final int NIGHT_SKELETON_TARGET_MIN = 7;
+    private static final int NIGHT_SKELETON_TARGET_MAX = 8;
     // Moi lan spawn theo nhip de thay quai vao dan tu ranh map.
     private static final long ENEMY_SPAWN_INTERVAL_NS = 650_000_000L;
 
@@ -61,16 +61,19 @@ public class Game {
     private static final int MENU_EXIT = 2;
     private static final int MENU_COUNT = 3;
 
+    // ===== Mouse Hitbox cho menu WELCOME =====
+    // Cac gia tri nay map 1-1 voi toa do ve button trong Renderer.
+    private static final double MENU_BUTTON_X = 350;
+    private static final double MENU_BUTTON_Y_START = 246; // itemY - 24 voi itemY ban dau = 270
+    private static final double MENU_BUTTON_WIDTH = 260;
+    private static final double MENU_BUTTON_HEIGHT = 42;
+    private static final double MENU_BUTTON_GAP = 58;
+
     private long lastEnemySpawnAtNs;
-    private int spawnedOrcsToday; // Đếm số Orc đã spawn trong ngày hiện tại
-    private int currentNightWave; // Đợt quái hiện tại (1 hoặc 2)
-    private int spawnedInCurrentWave; // Số quái đã spawn trong đợt hiện tại
-    private boolean lastIsNight; // Lưu trạng thái buổi trước để phát hiện chuyển giao Ngày/Đêm
     private double cameraX;
     private double cameraY;
     // Kich thuoc world thuc te dang dung cho movement/camera.
-    // Neu co map tiled thi lay theo pixel size cua map, neu khong thi fallback
-    // GameConfig.
+    // Neu co map tiled thi lay theo pixel size cua map, neu khong thi fallback GameConfig.
     private double worldWidth;
     private double worldHeight;
     // Vi tri spawn hien tai cua player (tinh theo center cua world thuc te).
@@ -127,10 +130,6 @@ public class Game {
         this.resourceManager = new ResourceManager();
         this.dayNightCycle = new DayNightCycle();
         this.collectedResources = new LinkedHashMap<>();
-        this.spawnedOrcsToday = 0;
-        this.currentNightWave = 0;
-        this.spawnedInCurrentWave = 0;
-        this.lastIsNight = false;
 
         MapData loadedMap = null;
         try {
@@ -167,8 +166,7 @@ public class Game {
         this.renderer.setMapData(loadedMap);
         this.tileCollisionResolver = loadedMap == null ? null : new TileCollisionResolver(loadedMap, resourceManager);
 
-        // Neu load duoc map tiled: dung kich thuoc map pixel lam world boundary thuc
-        // te.
+        // Neu load duoc map tiled: dung kich thuoc map pixel lam world boundary thuc te.
         if (loadedMap != null) {
             this.worldWidth = loadedMap.getPixelWidth();
             this.worldHeight = loadedMap.getPixelHeight();
@@ -189,16 +187,11 @@ public class Game {
         if (lastUpdateNowNs < 0) {
             lastUpdateNowNs = now;
         }
-        // Hotkey he thong:
-        // F11 bat/tat fullscreen, tach khoi state gameplay de dung duoc o moi man hinh.
-        if (inputHandler.isJustPressed(KeyCode.F11)) {
-            renderer.toggleFullscreen();
-        }
         // Tach update() thanh nhieu ham state-specific de:
         // 1) de doc/de review tung man hinh
         // 2) de debug regression nhanh (loi nam o state nao ro rang)
         // 3) de sau nay co the dua tung khoi sang subsystem rieng
-        // (UI flow, input flow, combat flow) ma khong pha logic con lai.
+        //    (UI flow, input flow, combat flow) ma khong pha logic con lai.
         switch (gameState) {
             case GAME_OVER:
                 handleGameOverState();
@@ -393,13 +386,10 @@ public class Game {
     private void updateCamera() {
         // Khi zoom > 1, viewport world thuc te nho hon man hinh.
         // Vi vay tam camera phai dua tren "viewport world sau zoom":
-        // viewWorldWidth = screenWidth / zoom
+        // viewWorldWidth  = screenWidth  / zoom
         // viewWorldHeight = screenHeight / zoom
-        // Truoc day dung GameConfig WIDTH/HEIGHT (co dinh), dan den camera "mua" voi
-        // resize/fullscreen.
-        // Nay lay truc tiep viewport runtime tu Renderer de camera luon khop cua so hien tai.
-        double viewWorldWidth = renderer.getViewportWidth() / CAMERA_ZOOM;
-        double viewWorldHeight = renderer.getViewportHeight() / CAMERA_ZOOM;
+        double viewWorldWidth = GameConfig.WIDTH / CAMERA_ZOOM;
+        double viewWorldHeight = GameConfig.HEIGHT / CAMERA_ZOOM;
 
         cameraX = player.getX() + player.getWidth() / 2 - viewWorldWidth / 2;
         cameraY = player.getY() + player.getHeight() / 2 - viewWorldHeight / 2;
@@ -450,7 +440,8 @@ public class Game {
                 dayNightCycle.isNight(now),
                 dayNightCycle.getPhaseName(now),
                 worldWidth,
-                worldHeight);
+                worldHeight
+        );
     }
 
     public GameState getGameState() {
@@ -475,8 +466,7 @@ public class Game {
         pendingWelcomeAction = -1; // dam bao khong con action cho tu menu
         lastEnemySpawnAtNs = 0L;
         lastUpdateNowNs = -1L;
-        // Update camera ngay luc reset de frame dau tien vao game da focus dung vao
-        // player.
+        // Update camera ngay luc reset de frame dau tien vao game da focus dung vao player.
         updateCamera();
         dayNightCycle.reset(System.nanoTime());
     }
@@ -484,8 +474,7 @@ public class Game {
     private void recalculatePlayerStartAtWorldCenter() {
         // Center cua map/world tinh theo pixel:
         // centerX = worldWidth / 2, centerY = worldHeight / 2
-        // Vi player co kich thuoc rieng, can tru di nua width/height de dat tam player
-        // vao giua.
+        // Vi player co kich thuoc rieng, can tru di nua width/height de dat tam player vao giua.
         playerStartX = worldWidth / 2 - player.getWidth() / 2;
         playerStartY = worldHeight / 2 - player.getHeight() / 2;
     }
@@ -515,8 +504,7 @@ public class Game {
             }
         }
 
-        // 2) Collision theo Tile Properties (fallback/chinh cho map moi khong co Object
-        // Layer).
+        // 2) Collision theo Tile Properties (fallback/chinh cho map moi khong co Object Layer).
         if (tileCollisionResolver != null && tileCollisionResolver.isBlocked(px, py, pw, ph)) {
             return true;
         }
@@ -650,13 +638,10 @@ public class Game {
     // Tra ve index menu neu diem (mx,my) nam trong 1 button WELCOME.
     // -1 nghia la chuot dang ngoai vung button.
     private int findWelcomeMenuIndexAt(double mx, double my) {
-        // Dung layout runtime tu Renderer de hitbox chuot luon trung voi vi tri dang ve.
-        // (Khac phuc loi full screen: UI da center nhung hitbox van o toa do cu.)
-        Renderer.WelcomeMenuLayout layout = renderer.getWelcomeMenuLayout();
         for (int i = 0; i < MENU_COUNT; i++) {
-            double top = layout.getButtonYStart() + i * layout.getButtonGap();
-            boolean insideX = mx >= layout.getButtonX() && mx <= layout.getButtonX() + layout.getButtonWidth();
-            boolean insideY = my >= top && my <= top + layout.getButtonHeight();
+            double top = MENU_BUTTON_Y_START + i * MENU_BUTTON_GAP;
+            boolean insideX = mx >= MENU_BUTTON_X && mx <= MENU_BUTTON_X + MENU_BUTTON_WIDTH;
+            boolean insideY = my >= top && my <= top + MENU_BUTTON_HEIGHT;
             if (insideX && insideY) {
                 return i;
             }
@@ -676,12 +661,11 @@ public class Game {
 
         // Damage theo loai don danh:
         // - HIT (danh thuong) = 1
-        // - SLICE (skill F) = 2
+        // - SLICE (skill F)   = 2
         int attackDamage = attackType == Player.AttackAnimationType.SLICE ? 2 : 1;
 
         double[] attackBox = player.buildAttackHitbox();
-        boolean hitEnemy = applyAttackToFirstEnemy(attackBox[0], attackBox[1], attackBox[2], attackBox[3],
-                attackDamage);
+        boolean hitEnemy = applyAttackToFirstEnemy(attackBox[0], attackBox[1], attackBox[2], attackBox[3], attackDamage);
         if (hitEnemy) {
             System.out.println("[Combat] Hit enemy for " + attackDamage + " damage.");
             return;
@@ -693,7 +677,8 @@ public class Game {
                 attackBox[2],
                 attackBox[3],
                 attackDamage,
-                now);
+                now
+        );
 
         if (dropResult == null) {
             System.out.println("[Resource] Attack landed, no resource destroyed.");
@@ -729,60 +714,22 @@ public class Game {
         }
 
         boolean night = dayNightCycle.isNight(now);
+        int targetOrc = night ? randomBetween(NIGHT_ORC_TARGET_MIN, NIGHT_ORC_TARGET_MAX)
+                : randomBetween(DAY_ORC_TARGET_MIN, DAY_ORC_TARGET_MAX);
+        int targetSkeleton = night ? randomBetween(NIGHT_SKELETON_TARGET_MIN, NIGHT_SKELETON_TARGET_MAX)
+                : DAY_SKELETON_TARGET;
 
-        // Phát hiện thời điểm chuyển từ Ngày sang Đêm để khởi tạo wave.
-        if (!lastIsNight && night) {
-            currentNightWave = 1;
-            spawnedInCurrentWave = 0;
-            System.out.println("[Spawn] Night falls! Wave 1 starting...");
-        }
-        // Phát hiện thời điểm chuyển từ Đêm sang Ngày để reset số lượng quái spawn.
-        // Đây là cách quản lý trạng thái theo chu kỳ trong OOP.
-        if (lastIsNight && !night) {
-            spawnedOrcsToday = 0;
-            currentNightWave = 0;
-            spawnedInCurrentWave = 0;
-            System.out.println("[Spawn] A new day starts! Day spawn count reset.");
-        }
-        lastIsNight = night;
+        int aliveOrc = countAliveEnemyByType("ORC");
+        int aliveSkeleton = countAliveEnemyByType("SKELETON");
 
-        if (night) {
-            // Logic ban đêm: Chia làm 2 đợt (waves).
-            // Mỗi đợt spawn tối đa 5 con. Đợt 2 chỉ bắt đầu khi đợt 1 đã bị tiêu diệt hết.
-            if (currentNightWave > 0 && currentNightWave <= NIGHT_MAX_WAVES) {
-                if (spawnedInCurrentWave < NIGHT_WAVE_SIZE) {
-                    // Spawn xen kẽ Orc và Skeleton để tăng độ đa dạng.
-                    double[] spawn = randomEdgeSpawnPoint();
-                    if (spawnedInCurrentWave % 2 == 0) {
-                        enemies.add(new OrcEnemy(spawn[0], spawn[1]));
-                    } else {
-                        enemies.add(new SkeletonEnemy(spawn[0], spawn[1]));
-                    }
-                    spawnedInCurrentWave++;
-                    System.out.println("[Spawn] Night Wave " + currentNightWave + ": Spawned " + spawnedInCurrentWave
-                            + "/" + NIGHT_WAVE_SIZE);
-                } else if (enemies.isEmpty() && currentNightWave < NIGHT_MAX_WAVES) {
-                    // Chuyển sang wave tiếp theo khi toàn bộ quái đợt cũ đã chết.
-                    currentNightWave++;
-                    spawnedInCurrentWave = 0;
-                    System.out.println("[Spawn] Wave " + (currentNightWave - 1) + " cleared! Wave " + currentNightWave
-                            + " starting...");
-                }
-            }
-        } else {
-            // Logic ban ngày: Chỉ spawn ĐÚNG 2 con cho cả ngày.
-            // Nếu đã spawn đủ 2 con, dù người chơi có giết bớt thì cũng không spawn thêm
-            // nữa.
-            if (spawnedOrcsToday < 2) {
-                int aliveOrc = countAliveEnemyByType("ORC");
-                // Giới hạn số lượng hiện có trên màn hình cùng lúc là 2.
-                if (aliveOrc < 2) {
-                    double[] spawn = randomEdgeSpawnPoint();
-                    enemies.add(new OrcEnemy(spawn[0], spawn[1]));
-                    spawnedOrcsToday++; // Tăng biến đếm để kiểm soát giới hạn ngày.
-                    System.out.println("[Spawn] Day Orc spawned (" + spawnedOrcsToday + "/2)");
-                }
-            }
+        if (aliveOrc < targetOrc) {
+            double[] spawn = randomEdgeSpawnPoint();
+            enemies.add(new OrcEnemy(spawn[0], spawn[1]));
+        }
+
+        if (aliveSkeleton < targetSkeleton) {
+            double[] spawn = randomEdgeSpawnPoint();
+            enemies.add(new SkeletonEnemy(spawn[0], spawn[1]));
         }
 
         lastEnemySpawnAtNs = now;
@@ -795,24 +742,13 @@ public class Game {
             if (enemy == null) {
                 continue;
             }
-            // Kiểm tra trạng thái sống của quai (Encapsulation: sử dụng phương thức
-            // isAlive())
             if (!enemy.isAlive()) {
                 dead.add(enemy);
-
-                // Khi một quái vật chết, cộng 10 điểm kinh nghiệm cho người chơi.
-                // Đây là cách các đối tượng tương tác với nhau trong hệ thống OOP.
-                player.addExperience(10);
-                System.out.println("[Combat] Enemy defeated! +10 EXP");
                 continue;
             }
-            // Cập nhật AI và trạng thái của từng quái vật (Polymorphism: gọi update() của
-            // lớp Enemy)
             enemy.update(now, player, worldWidth, worldHeight);
             enemy.tryAttackPlayer(player, now);
         }
-
-        // Loại bỏ các quái vật đã chết khỏi danh sách quản lý runtime.
         if (!dead.isEmpty()) {
             enemies.removeAll(dead);
         }
@@ -852,7 +788,7 @@ public class Game {
             x = margin;
             y = random.nextDouble() * Math.max(1, worldHeight - 64);
         }
-        return new double[] { x, y };
+        return new double[]{x, y};
     }
 
     private int randomBetween(int min, int max) {

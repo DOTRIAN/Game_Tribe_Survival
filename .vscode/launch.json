@@ -1,0 +1,19 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "name": "Main",
+      "request": "launch",
+      "mainClass": "main.Main",
+      "projectName": "Game__TEST_4d51388f"
+    },
+    {
+      "type": "java",
+      "name": "Run JavaFX",
+      "request": "launch",
+      "mainClass": "main.Main",
+      "vmArgs": "--module-path \"C:/Program Files/Java/javafx-sdk-25.0.2/lib\" --add-modules javafx.controls,javafx.fxml"
+    }
+  ]
+}

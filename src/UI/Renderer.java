@@ -36,57 +36,13 @@ public class Renderer {
 
     private final Canvas canvas;
     private final GraphicsContext graphicsContext;
-    // Luu Stage de co the bat/tat fullscreen tu Game (qua method toggle ben duoi).
-    private final Stage stage;
     private final Hud hud;
     private final Image welcomeBackgroundImage;
     private final Image gameBackgroundImage;
     private final MiniMap miniMap;
     private MapRenderer mapRenderer;
 
-    /**
-     * WelcomeMenuLayout:
-     * - DTO nho de dong bo GIUA render WELCOME va logic click/hover trong Game.
-     * - Muc tieu OOP: gom du lieu layout vao 1 object ro nghia, tranh hard-code roi rac.
-     */
-    public static final class WelcomeMenuLayout {
-        private final double panelX;
-        private final double panelY;
-        private final double panelW;
-        private final double panelH;
-        private final double buttonX;
-        private final double buttonYStart;
-        private final double buttonWidth;
-        private final double buttonHeight;
-        private final double buttonGap;
-
-        private WelcomeMenuLayout(double panelX, double panelY, double panelW, double panelH,
-                                  double buttonX, double buttonYStart, double buttonWidth, double buttonHeight,
-                                  double buttonGap) {
-            this.panelX = panelX;
-            this.panelY = panelY;
-            this.panelW = panelW;
-            this.panelH = panelH;
-            this.buttonX = buttonX;
-            this.buttonYStart = buttonYStart;
-            this.buttonWidth = buttonWidth;
-            this.buttonHeight = buttonHeight;
-            this.buttonGap = buttonGap;
-        }
-
-        public double getPanelX() { return panelX; }
-        public double getPanelY() { return panelY; }
-        public double getPanelW() { return panelW; }
-        public double getPanelH() { return panelH; }
-        public double getButtonX() { return buttonX; }
-        public double getButtonYStart() { return buttonYStart; }
-        public double getButtonWidth() { return buttonWidth; }
-        public double getButtonHeight() { return buttonHeight; }
-        public double getButtonGap() { return buttonGap; }
-    }
-
     public Renderer(Stage stage, InputHandler inputHandler) {
-        this.stage = stage;
         this.canvas = new Canvas(GameConfig.WIDTH, GameConfig.HEIGHT);
         this.graphicsContext = canvas.getGraphicsContext2D();
         this.hud = new Hud();
@@ -97,13 +53,6 @@ public class Renderer {
         StackPane root = new StackPane(canvas);
         Scene scene = new Scene(root, GameConfig.WIDTH, GameConfig.HEIGHT);
         inputHandler.attach(scene);
-
-        // Quan trong cho resize:
-        // - Canvas mac dinh KHONG tu resize theo Scene.
-        // - Bind width/height de vung ve game luon khop cua so hien tai.
-        // - Cach nay giu nguyen kien truc render cu, chi doi viewport runtime.
-        canvas.widthProperty().bind(scene.widthProperty());
-        canvas.heightProperty().bind(scene.heightProperty());
 
         stage.setScene(scene);
         stage.show();
@@ -116,52 +65,6 @@ public class Renderer {
         });
     }
 
-    // API viewport cho lop Game/HUD/MiniMap.
-    // Tra ve kich thuoc "thuc te dang ve" cua Canvas o frame hien tai.
-    public double getViewportWidth() {
-        return canvas.getWidth();
-    }
-
-    public double getViewportHeight() {
-        return canvas.getHeight();
-    }
-
-    // Bat/tat fullscreen theo kieu toggle.
-    // Dat o Renderer de dung vai tro "presentation layer" (Game chi phat lenh).
-    public void toggleFullscreen() {
-        if (stage == null) {
-            return;
-        }
-        stage.setFullScreen(!stage.isFullScreen());
-    }
-
-    // Expose layout WELCOME de Game dung chung cho hitbox chuot.
-    public WelcomeMenuLayout getWelcomeMenuLayout() {
-        return buildWelcomeMenuLayout(canvas.getWidth(), canvas.getHeight());
-    }
-
-    // Cong thuc layout WELCOME duy nhat (single source of truth).
-    private WelcomeMenuLayout buildWelcomeMenuLayout(double viewportWidth, double viewportHeight) {
-        double panelW = 400;
-        double panelH = 300;
-        double panelX = (viewportWidth - panelW) / 2.0;
-        double panelY = (viewportHeight - panelH) / 2.0;
-
-        // Giu nguyen "ti le bo cuc cu" trong panel:
-        // x button = panelX + 70, yStart = panelY + 126, gap = 58, size = 260x42
-        return new WelcomeMenuLayout(
-                panelX,
-                panelY,
-                panelW,
-                panelH,
-                panelX + 70,
-                panelY + 126,
-                260,
-                42,
-                58
-        );
-    }
-
     public void setMapData(MapData mapData) {
         this.mapRenderer = (mapData == null) ? null : new MapRenderer(mapData);
     }
@@ -172,31 +75,25 @@ public class Renderer {
                        List<ResourceNode> allResources, Map<String, Integer> collectedResources,
                        double darknessAlpha, boolean isNight, String dayNightPhase,
                        double worldWidth, double worldHeight) {
-        // Viewport dong: moi frame lay lai width/height tu canvas.
-        // Neu user resize cua so / full screen, toan bo draw se theo gia tri moi.
-        double viewportWidth = canvas.getWidth();
-        double viewportHeight = canvas.getHeight();
-
         if (gameState == GameState.WELCOME) {
             if (welcomeBackgroundImage.isError()) {
                 graphicsContext.setFill(Color.web("#2a3a2a"));
-                graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
+                graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
             } else {
-                graphicsContext.drawImage(welcomeBackgroundImage, 0, 0, viewportWidth, viewportHeight);
+                graphicsContext.drawImage(welcomeBackgroundImage, 0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
             }
 
             graphicsContext.setFill(Color.color(0, 0, 0, 0.5));
-            graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
+            graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
             if (welcomeFlashing) {
                 graphicsContext.setFill(Color.color(1, 1, 1, 0.18));
-                graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
+                graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
             }
 
-            WelcomeMenuLayout layout = buildWelcomeMenuLayout(viewportWidth, viewportHeight);
-            double panelX = layout.getPanelX();
-            double panelY = layout.getPanelY();
-            double panelW = layout.getPanelW();
-            double panelH = layout.getPanelH();
+            double panelX = 280;
+            double panelY = 120;
+            double panelW = 400;
+            double panelH = 300;
             graphicsContext.setFill(Color.color(0.95, 0.92, 0.78, 0.9));
             graphicsContext.fillRoundRect(panelX, panelY, panelW, panelH, 20, 20);
             graphicsContext.setStroke(Color.web("#5b4a2e"));
@@ -205,33 +102,33 @@ public class Renderer {
 
             graphicsContext.setFill(Color.web("#2f2618"));
             graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 34));
-            graphicsContext.fillText("TRIBE SURVIVAL", panelX + 54, panelY + 66);
+            graphicsContext.fillText("TRIBE SURVIVAL", 334, 186);
 
             String[] menuItems = {"PLAY", "GUIDE", "EXIT"};
-            double itemY = layout.getButtonYStart() + 24;
+            double itemY = 270;
             for (int i = 0; i < menuItems.length; i++) {
                 boolean selected = i == menuIndex;
                 graphicsContext.setFill(selected ? Color.web("#7b5b2e") : Color.web("#d6c29b"));
-                graphicsContext.fillRoundRect(layout.getButtonX(), itemY - 24, layout.getButtonWidth(), layout.getButtonHeight(), 12, 12);
+                graphicsContext.fillRoundRect(350, itemY - 24, 260, 42, 12, 12);
                 graphicsContext.setStroke(Color.web("#4a3a20"));
-                graphicsContext.strokeRoundRect(layout.getButtonX(), itemY - 24, layout.getButtonWidth(), layout.getButtonHeight(), 12, 12);
+                graphicsContext.strokeRoundRect(350, itemY - 24, 260, 42, 12, 12);
 
                 graphicsContext.setFill(selected ? Color.web("#fff4d8") : Color.web("#3a2f1d"));
                 graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 20));
                 if ("PLAY".equals(menuItems[i])) {
-                    graphicsContext.fillText(menuItems[i], layout.getButtonX() + 106, itemY + 2);
+                    graphicsContext.fillText(menuItems[i], 456, itemY + 2);
                 } else if ("GUIDE".equals(menuItems[i])) {
-                    graphicsContext.fillText(menuItems[i], layout.getButtonX() + 98, itemY + 2);
+                    graphicsContext.fillText(menuItems[i], 448, itemY + 2);
                 } else {
-                    graphicsContext.fillText(menuItems[i], layout.getButtonX() + 110, itemY + 2);
+                    graphicsContext.fillText(menuItems[i], 460, itemY + 2);
                 }
                 if (selected) {
                     graphicsContext.setFill(Color.web("#fff4d8"));
                     graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 24));
-                    graphicsContext.fillText(">", layout.getButtonX() + 15, itemY + 3);
+                    graphicsContext.fillText(">", 365, itemY + 3);
                 }
 
-                itemY += layout.getButtonGap();
+                itemY += 58;
             }
 
             return;
@@ -240,18 +137,18 @@ public class Renderer {
         if (gameState == GameState.GUIDE) {
             if (welcomeBackgroundImage.isError()) {
                 graphicsContext.setFill(Color.web("#2a3a2a"));
-                graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
+                graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
             } else {
-                graphicsContext.drawImage(welcomeBackgroundImage, 0, 0, viewportWidth, viewportHeight);
+                graphicsContext.drawImage(welcomeBackgroundImage, 0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
             }
 
             graphicsContext.setFill(Color.color(0, 0, 0, 0.55));
-            graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
+            graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
 
+            double panelX = 210;
+            double panelY = 95;
             double panelW = 540;
             double panelH = 350;
-            double panelX = (viewportWidth - panelW) / 2.0;
-            double panelY = (viewportHeight - panelH) / 2.0;
 
             graphicsContext.setFill(Color.color(0.95, 0.92, 0.78, 0.92));
             graphicsContext.fillRoundRect(panelX, panelY, panelW, panelH, 20, 20);
@@ -261,15 +158,15 @@ public class Renderer {
 
             graphicsContext.setFill(Color.web("#2f2618"));
             graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 34));
-            graphicsContext.fillText("GUIDE", panelX + 220, panelY + 60);
+            graphicsContext.fillText("GUIDE", 430, 155);
             graphicsContext.setFont(Font.font("Georgia", FontWeight.NORMAL, 22));
-            graphicsContext.fillText("W A S D : Move", panelX + 75, panelY + 120);
-            graphicsContext.fillText("F : Use skill", panelX + 75, panelY + 160);
-            graphicsContext.fillText("K : Heal", panelX + 75, panelY + 200);
+            graphicsContext.fillText("W A S D : Move", 285, 215);
+            graphicsContext.fillText("F : Use skill", 285, 255);
+            graphicsContext.fillText("K : Heal", 285, 295);
 
             graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 20));
-            graphicsContext.fillText("ENTER : Play", panelX + 75, panelY + 260);
-            graphicsContext.fillText("ESC : Back to Menu", panelX + 260, panelY + 260);
+            graphicsContext.fillText("ENTER : Play", 285, 355);
+            graphicsContext.fillText("ESC : Back to Menu", 470, 355);
 
             return;
         }
@@ -281,18 +178,18 @@ public class Renderer {
             // - ENTER xac nhan, ESC quay lai menu
             if (welcomeBackgroundImage.isError()) {
                 graphicsContext.setFill(Color.web("#2a3a2a"));
-                graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
+                graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
             } else {
-                graphicsContext.drawImage(welcomeBackgroundImage, 0, 0, viewportWidth, viewportHeight);
+                graphicsContext.drawImage(welcomeBackgroundImage, 0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
             }
 
             graphicsContext.setFill(Color.color(0, 0, 0, 0.55));
-            graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
+            graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
 
+            double panelX = 220;
+            double panelY = 140;
             double panelW = 520;
             double panelH = 240;
-            double panelX = (viewportWidth - panelW) / 2.0;
-            double panelY = (viewportHeight - panelH) / 2.0;
             graphicsContext.setFill(Color.color(0.95, 0.92, 0.78, 0.93));
             graphicsContext.fillRoundRect(panelX, panelY, panelW, panelH, 20, 20);
             graphicsContext.setStroke(Color.web("#5b4a2e"));
@@ -302,11 +199,11 @@ public class Renderer {
             graphicsContext.setFill(Color.web("#2f2618"));
             // Tang tieu de de de doc hon.
             graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 36));
-            graphicsContext.fillText("ENTER NAME", panelX + 140, panelY + 52);
+            graphicsContext.fillText("ENTER NAME", 360, 192);
 
             // Input box.
-            double boxX = panelX + 60;
-            double boxY = panelY + 80;
+            double boxX = 280;
+            double boxY = 220;
             double boxW = 400;
             double boxH = 52;
             graphicsContext.setFill(Color.web("#fff8e8"));
@@ -323,14 +220,14 @@ public class Renderer {
 
             graphicsContext.setFont(Font.font("Georgia", FontWeight.NORMAL, 20));
             graphicsContext.fillText("Length: " + shownName.length() + "/" + maxNameLength, boxX + 14, boxY + 74);
-            graphicsContext.fillText("ENTER: Confirm", panelX + 65, panelY + 198);
-            graphicsContext.fillText("ESC: Back", panelX + 300, panelY + 198);
+            graphicsContext.fillText("ENTER: Confirm", 285, 338);
+            graphicsContext.fillText("ESC: Back", 520, 338);
             return;
         }
 
         // Gameplay: clear full canvas de tranh bong frame cu.
         graphicsContext.setFill(Color.web("#1b1b1b"));
-        graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
+        graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
 
         // Bat dau world-space rendering.
         // save() giu lai trang thai transform hien tai.
@@ -352,9 +249,9 @@ public class Renderer {
         } else {
             if (gameBackgroundImage.isError()) {
                 graphicsContext.setFill(Color.BEIGE);
-                graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
+                graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
             } else {
-                graphicsContext.drawImage(gameBackgroundImage, 0, 0, viewportWidth, viewportHeight);
+                graphicsContext.drawImage(gameBackgroundImage, 0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
             }
         }
 
@@ -381,12 +278,12 @@ public class Renderer {
         // ===== Day/Night overlay + local lights =====
         // - Ve sau world de toi toan canh.
         // - Ve truoc HUD de HUD van de doc.
-        renderNightOverlayAndLights(player, cameraX, cameraY, darknessAlpha, isNight, viewportWidth, viewportHeight);
+        renderNightOverlayAndLights(player, cameraX, cameraY, darknessAlpha, isNight);
 
         // Debug text nho: giup test nhanh chu ky day/night khi can.
         graphicsContext.setFill(Color.color(1, 1, 1, 0.85));
         graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 12));
-        graphicsContext.fillText("Light: " + dayNightPhase + " alpha=" + String.format("%.2f", darknessAlpha), 14, viewportHeight - 8);
+        graphicsContext.fillText("Light: " + dayNightPhase + " alpha=" + String.format("%.2f", darknessAlpha), 14, 532);
 
         // Da an toan bo text debug/hint cu de HUD gon hon.
         // Neu can bat lai, chi can bo comment cac dong duoi:
@@ -395,7 +292,7 @@ public class Renderer {
         // graphicsContext.fillText("WASD: move", 20, 55);
         // graphicsContext.fillText("J: take damage | K: heal", 20, 80);
 
-        hud.render(graphicsContext, player, collectedResources, viewportWidth);
+        hud.render(graphicsContext, player, collectedResources);
         // Minimap la UI overlay doc lap.
         // Dat sau world rendering de khong bi anh huong boi camera zoom cua gameplay.
         miniMap.render(
@@ -405,8 +302,6 @@ public class Renderer {
                 cameraX,
                 cameraY,
                 CAMERA_ZOOM,
-                viewportWidth,
-                viewportHeight,
                 player,
                 enemies
         );
@@ -424,7 +319,7 @@ public class Renderer {
 
         if (gameState == GameState.PAUSED) {
             graphicsContext.setFill(Color.color(0, 0, 0, 0.45));
-            graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
+            graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
 
             graphicsContext.setFill(Color.WHITE);
             graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 42));
@@ -444,13 +339,7 @@ public class Renderer {
      *   1) Quanh player (de gameplay khong bi mu)
      *   2) 1 diem lua tinh tren map (tam thoi, co the doi sang object light sau)
      */
-    private void renderNightOverlayAndLights(Player player,
-                                             double cameraX,
-                                             double cameraY,
-                                             double darknessAlpha,
-                                             boolean isNight,
-                                             double viewportWidth,
-                                             double viewportHeight) {
+    private void renderNightOverlayAndLights(Player player, double cameraX, double cameraY, double darknessAlpha, boolean isNight) {
         if (darknessAlpha <= 0.001) {
             return;
         }
@@ -458,7 +347,7 @@ public class Renderer {
         // 1) Phu lop toi toan man hinh.
         graphicsContext.setGlobalBlendMode(BlendMode.SRC_OVER);
         graphicsContext.setFill(Color.color(0, 0, 0, darknessAlpha));
-        graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
+        graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
 
         // 2) Ve vung sang bo sung bang blend SCREEN de "day lui" bong toi.
         graphicsContext.save();
