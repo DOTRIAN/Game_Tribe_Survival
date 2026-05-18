@@ -12,8 +12,10 @@ import map.MapData;
 import map.MapObjectData;
 import map.TileCollisionResolver;
 import map.TiledMapLoader;
+import system.CollisionSystem;
 import system.resource.DropResult;
 import system.resource.ResourceContractValidator;
+import system.resource.ResourceHitResult;
 import system.resource.ResourceManager;
 import system.resource.TileResourceAdapter;
 import ui.Renderer;
@@ -671,7 +673,8 @@ public class Game {
             return;
         }
 
-        DropResult dropResult = resourceManager.hitFirstResourceIntersecting(
+        // API moi tra ve ResourceHitResult (co ca damage + destroyed + drop).
+        ResourceHitResult hitResult = resourceManager.hitFirstResourceIntersecting(
                 attackBox[0],
                 attackBox[1],
                 attackBox[2],
@@ -680,11 +683,17 @@ public class Game {
                 now
         );
 
-        if (dropResult == null) {
-            System.out.println("[Resource] Attack landed, no resource destroyed.");
+        if (hitResult == null) {
+            System.out.println("[Resource] Attack missed resource.");
             return;
         }
 
+        if (!hitResult.isDestroyed() || hitResult.getDropResult() == null) {
+            System.out.println("[Resource] Hit resource for " + hitResult.getDamageApplied() + " damage.");
+            return;
+        }
+
+        DropResult dropResult = hitResult.getDropResult();
         addCollectedItem(dropResult.getItemId(), dropResult.getAmount());
         System.out.println("[Resource] Destroyed -> drop " + dropResult.getItemId() + " x" + dropResult.getAmount());
     }
@@ -695,7 +704,8 @@ public class Game {
             if (enemy == null || !enemy.isAlive()) {
                 continue;
             }
-            if (!enemy.intersects(x, y, w, h)) {
+            // intersects() da duoc tach ve CollisionSystem de dong bo AABB logic.
+            if (!CollisionSystem.intersects(enemy, x, y, w, h)) {
                 continue;
             }
             enemy.takeDamage(damage);

@@ -264,7 +264,8 @@ public class Renderer {
                 if (enemy == null || !enemy.isAlive()) {
                     continue;
                 }
-                enemy.draw(graphicsContext, renderCameraX, renderCameraY);
+                // API Enemy.draw moi can nowNs de render hieu ung hit flash theo thoi gian.
+                enemy.draw(graphicsContext, renderCameraX, renderCameraY, now);
             }
         }
 
@@ -292,7 +293,8 @@ public class Renderer {
         // graphicsContext.fillText("WASD: move", 20, 55);
         // graphicsContext.fillText("J: take damage | K: heal", 20, 80);
 
-        hud.render(graphicsContext, player, collectedResources);
+        // API HUD moi can viewport width de canh panel tai nguyen theo canh phai.
+        hud.render(graphicsContext, player, collectedResources, GameConfig.WIDTH);
         // Minimap la UI overlay doc lap.
         // Dat sau world rendering de khong bi anh huong boi camera zoom cua gameplay.
         miniMap.render(
@@ -302,6 +304,8 @@ public class Renderer {
                 cameraX,
                 cameraY,
                 CAMERA_ZOOM,
+                GameConfig.WIDTH,
+                GameConfig.HEIGHT,
                 player,
                 enemies
         );
