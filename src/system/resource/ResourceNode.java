@@ -2,6 +2,10 @@ package system.resource;
 
 import entity.Entity;
 
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
+
 /**
  * ResourceNode:
  * - Runtime instance cua 1 tai nguyen dat tren map.
@@ -24,6 +28,8 @@ public class ResourceNode extends Entity {
     private final int dropMin;
     private final int dropMax;
     private final int respawnSeconds;
+    // Danh sach tile visual dung de hide/flash chinh xac (khong quet theo bbox rong).
+    private final Set<Long> visualTileKeys;
     private long destroyedAtNs;
 
     public ResourceNode(int objectId,
@@ -37,7 +43,8 @@ public class ResourceNode extends Entity {
                         int dropMin,
                         int dropMax,
                         int respawnSeconds,
-                        int maxHp) {
+                        int maxHp,
+                        Set<Long> visualTileKeys) {
         super(x, y, width, height, 0, maxHp);
         this.objectId = objectId;
         this.kind = kind == null ? "unknown" : kind;
@@ -46,6 +53,7 @@ public class ResourceNode extends Entity {
         this.dropMin = Math.max(0, dropMin);
         this.dropMax = Math.max(this.dropMin, dropMax);
         this.respawnSeconds = respawnSeconds;
+        this.visualTileKeys = visualTileKeys == null ? Collections.emptySet() : Collections.unmodifiableSet(new HashSet<>(visualTileKeys));
         this.destroyedAtNs = -1L;
     }
 
@@ -83,6 +91,17 @@ public class ResourceNode extends Entity {
 
     public long getDestroyedAtNs() {
         return destroyedAtNs;
+    }
+
+    public boolean hasVisualTiles() {
+        return !visualTileKeys.isEmpty();
+    }
+
+    public boolean containsVisualTile(int tileX, int tileY) {
+        if (visualTileKeys.isEmpty()) {
+            return false;
+        }
+        return visualTileKeys.contains(packTileKey(tileX, tileY));
     }
 
     /**
@@ -142,6 +161,10 @@ public class ResourceNode extends Entity {
     public void respawn() {
         hp = maxHp;
         destroyedAtNs = -1L;
+    }
+
+    public static long packTileKey(int tileX, int tileY) {
+        return (((long) tileX) << 32) ^ (tileY & 0xffffffffL);
     }
 }
 

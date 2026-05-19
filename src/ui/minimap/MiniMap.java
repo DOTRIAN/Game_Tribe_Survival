@@ -19,8 +19,8 @@ import java.util.List;
  */
 public class MiniMap {
     // Kich thuoc panel minimap.
-    private static final double PANEL_WIDTH = 190;
-    private static final double PANEL_HEIGHT = 138;
+    private static final double PANEL_WIDTH = 214;
+    private static final double PANEL_HEIGHT = 130;
     // Dat minimap o goc phai duoi de tranh de len HUD tai nguyen goc phai tren.
     private static final double PANEL_MARGIN_RIGHT = 16;
     private static final double PANEL_MARGIN_BOTTOM = 16;

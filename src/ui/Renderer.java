@@ -21,8 +21,12 @@ import javafx.scene.paint.Stop;
 import javafx.stage.Stage;
 import map.MapData;
 import map.MapRenderer;
+import system.level.Level;
+import system.level.LevelResult;
+import system.level.PlayerProgress;
 import system.resource.ResourceNode;
 import ui.minimap.MiniMap;
+import ui.FloatingDamageText;
 
 import java.util.List;
 import java.util.Map;
@@ -72,7 +76,10 @@ public class Renderer {
     public void render(GameState gameState, Player player, List<Enemy> enemies, long now,
                        double cameraX, double cameraY, int menuIndex, boolean welcomeFlashing,
                        String playerNameDraft, int maxNameLength,
+                       List<Level> levels, PlayerProgress playerProgress, int selectedLevelIndex,
+                       Level currentLevel, String objectiveStatus, LevelResult lastLevelResult,
                        List<ResourceNode> allResources, Map<String, Integer> collectedResources,
+                       List<FloatingDamageText> floatingDamageTexts,
                        double darknessAlpha, boolean isNight, String dayNightPhase,
                        double worldWidth, double worldHeight) {
         if (gameState == GameState.WELCOME) {
@@ -225,6 +232,39 @@ public class Renderer {
             return;
         }
 
+        if (gameState == GameState.LEVEL_SELECT) {
+            graphicsContext.setFill(Color.web("#1a1f24"));
+            graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
+            graphicsContext.setFill(Color.web("#e9d8b3"));
+            graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 36));
+            graphicsContext.fillText("SELECT LEVEL", 350, 90);
+            graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 18));
+            if (levels == null || levels.isEmpty()) {
+                graphicsContext.fillText("No level data.", 380, 150);
+                return;
+            }
+
+            double startY = 150;
+            for (int i = 0; i < levels.size(); i++) {
+                Level level = levels.get(i);
+                boolean selected = i == selectedLevelIndex;
+                boolean unlocked = playerProgress != null && playerProgress.isLevelUnlocked(level.getId());
+                int stars = playerProgress == null ? 0 : playerProgress.getLevelStars(level.getId());
+                String line = (selected ? "> " : "  ")
+                        + "L" + level.getId()
+                        + " - " + level.getName()
+                        + (unlocked ? "" : " [LOCK]")
+                        + "  Stars:" + stars;
+                graphicsContext.setFill(selected ? Color.web("#fff6d2") : (unlocked ? Color.web("#d9d9d9") : Color.web("#808080")));
+                graphicsContext.fillText(line, 190, startY + i * 38);
+            }
+
+            graphicsContext.setFill(Color.web("#c8d6e5"));
+            graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 16));
+            graphicsContext.fillText("W/S or UP/DOWN: select | ENTER: play | ESC: back", 220, 520);
+            return;
+        }
+
         // Gameplay: clear full canvas de tranh bong frame cu.
         graphicsContext.setFill(Color.web("#1b1b1b"));
         graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
@@ -272,6 +312,7 @@ public class Renderer {
         if (mapRenderer != null) {
             mapRenderer.renderAboveEntities(graphicsContext, renderCameraX, renderCameraY, now);
         }
+        renderFloatingDamageTexts(floatingDamageTexts, renderCameraX, renderCameraY, now);
 
         // Ket thuc world-space rendering, tra lai he toa do man hinh.
         graphicsContext.restore();
@@ -310,6 +351,24 @@ public class Renderer {
                 enemies
         );
 
+        if (currentLevel != null && objectiveStatus != null && !objectiveStatus.isBlank()) {
+            double boxX = 16;
+            double boxY = 118;
+            double boxW = 360;
+            double boxH = 40;
+            graphicsContext.setFill(Color.color(0, 0, 0, 0.40));
+            graphicsContext.fillRoundRect(boxX, boxY, boxW, boxH, 10, 10);
+            graphicsContext.setStroke(Color.color(1, 1, 1, 0.24));
+            graphicsContext.strokeRoundRect(boxX, boxY, boxW, boxH, 10, 10);
+
+            graphicsContext.setFill(Color.web("#f4efe1"));
+            graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 13));
+            graphicsContext.fillText("L" + currentLevel.getId() + " " + currentLevel.getName(), boxX + 10, boxY + 16);
+            graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 11));
+            String clipped = objectiveStatus.length() > 52 ? objectiveStatus.substring(0, 52) + "..." : objectiveStatus;
+            graphicsContext.fillText(clipped, boxX + 10, boxY + 32);
+        }
+
         if (gameState == GameState.GAME_OVER) {
             graphicsContext.setFill(Color.DARKRED);
             graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 50));
@@ -332,6 +391,24 @@ public class Renderer {
             graphicsContext.setFont(Font.font("Georgia", FontWeight.NORMAL, 22));
             graphicsContext.fillText("Press P to Resume", 360, 280);
             graphicsContext.fillText("Press ESC to Menu", 355, 315);
+        }
+
+        if (gameState == GameState.LEVEL_COMPLETE) {
+            graphicsContext.setFill(Color.color(0, 0, 0, 0.62));
+            graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
+            graphicsContext.setFill(Color.web("#fff0bf"));
+            graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 46));
+            graphicsContext.fillText("LEVEL COMPLETE", 280, 190);
+
+            if (lastLevelResult != null) {
+                graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 20));
+                graphicsContext.fillText("Score: " + lastLevelResult.getScore(), 395, 250);
+                graphicsContext.fillText("Stars: " + lastLevelResult.getStars(), 395, 285);
+                graphicsContext.fillText("Time: " + lastLevelResult.getPlayTimeSeconds() + "s", 395, 320);
+            }
+            graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 18));
+            graphicsContext.fillText("ENTER: next/select level", 350, 390);
+            graphicsContext.fillText("ESC: level select", 390, 420);
         }
     }
 
@@ -433,5 +510,30 @@ public class Renderer {
         Text helper = new Text(text);
         helper.setFont(graphicsContext.getFont());
         return helper.getLayoutBounds().getWidth();
+    }
+
+    private void renderFloatingDamageTexts(List<FloatingDamageText> texts, double cameraX, double cameraY, long nowNs) {
+        if (texts == null || texts.isEmpty()) {
+            return;
+        }
+        for (FloatingDamageText text : texts) {
+            if (text == null || text.isExpired(nowNs)) {
+                continue;
+            }
+            double progress = text.getProgress(nowNs);
+            double rise = 22.0 * progress;
+            double alpha = 1.0 - progress;
+            double drawX = text.getWorldX() - cameraX;
+            double drawY = text.getWorldY() - cameraY - rise;
+
+            graphicsContext.save();
+            graphicsContext.setGlobalAlpha(Math.max(0.0, alpha));
+            graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, text.isCritical() ? 14 : 12));
+            graphicsContext.setStroke(Color.color(0, 0, 0, 0.82));
+            graphicsContext.strokeText(text.getText(), drawX, drawY);
+            graphicsContext.setFill(text.isCritical() ? Color.web("#ffd24d") : Color.web("#ffebe6"));
+            graphicsContext.fillText(text.getText(), drawX, drawY);
+            graphicsContext.restore();
+        }
     }
 }

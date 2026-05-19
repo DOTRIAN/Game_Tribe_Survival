@@ -15,12 +15,14 @@ import java.util.Map;
 
 public class MapRenderer {
     private final MapData mapData;
+    private final TilePropertyCatalog tilePropertyCatalog;
     private List<ResourceNode> resources;
     // Cache tile tint de tranh tao lai tung pixel moi frame.
     private final Map<String, Image> tintedTileCache;
 
     public MapRenderer(MapData mapData) {
         this.mapData = mapData;
+        this.tilePropertyCatalog = new TilePropertyCatalog(mapData);
         this.resources = new ArrayList<>();
         this.tintedTileCache = new HashMap<>();
     }
@@ -75,7 +77,7 @@ public class MapRenderer {
                 if (hideDestroyedResourceTiles) {
                     double tileWorldX = x * tileW;
                     double tileWorldY = y * tileH;
-                    if (intersectsDestroyedResource(tileWorldX, tileWorldY, tileW, tileH)) {
+                    if (intersectsDestroyedResource(x, y, gid, tileWorldX, tileWorldY, tileW, tileH)) {
                         continue;
                     }
                 }
@@ -111,7 +113,7 @@ public class MapRenderer {
                 if (hideDestroyedResourceTiles) {
                     double tileWorldX = x * tileW;
                     double tileWorldY = y * tileH;
-                    ResourceNode flashingResource = findFlashingAliveResource(tileWorldX, tileWorldY, tileW, tileH, now);
+                    ResourceNode flashingResource = findFlashingAliveResource(x, y, gid, tileWorldX, tileWorldY, tileW, tileH, now);
                     if (flashingResource != null) {
                         Image tintedTile = buildTintedTileImage(tileset, sourceX, sourceY, flashingResource.getHitFlashColor());
                         if (tintedTile != null) {
@@ -141,9 +143,18 @@ public class MapRenderer {
         return chosen;
     }
 
-    private boolean intersectsDestroyedResource(double tileX, double tileY, double tileW, double tileH) {
+    private boolean intersectsDestroyedResource(int tileGridX, int tileGridY, int gid, double tileX, double tileY, double tileW, double tileH) {
         for (ResourceNode resource : resources) {
             if (resource == null || resource.isAlive()) {
+                continue;
+            }
+            if (resource.hasVisualTiles()) {
+                if (resource.containsVisualTile(tileGridX, tileGridY) && isMatchingResourceTile(resource, gid)) {
+                    return true;
+                }
+                continue;
+            }
+            if (!isMatchingResourceTile(resource, gid)) {
                 continue;
             }
             boolean hit = resource.getX() < tileX + tileW
@@ -157,9 +168,18 @@ public class MapRenderer {
         return false;
     }
 
-    private ResourceNode findFlashingAliveResource(double tileX, double tileY, double tileW, double tileH, long nowNs) {
+    private ResourceNode findFlashingAliveResource(int tileGridX, int tileGridY, int gid, double tileX, double tileY, double tileW, double tileH, long nowNs) {
         for (ResourceNode resource : resources) {
             if (resource == null || !resource.isAlive() || !resource.isHitFlashActive(nowNs)) {
+                continue;
+            }
+            if (resource.hasVisualTiles()) {
+                if (resource.containsVisualTile(tileGridX, tileGridY) && isMatchingResourceTile(resource, gid)) {
+                    return resource;
+                }
+                continue;
+            }
+            if (!isMatchingResourceTile(resource, gid)) {
                 continue;
             }
             boolean hit = resource.getX() < tileX + tileW
@@ -171,6 +191,19 @@ public class MapRenderer {
             }
         }
         return null;
+    }
+
+    private boolean isMatchingResourceTile(ResourceNode resource, int gid) {
+        if (resource == null || gid <= 0) {
+            return false;
+        }
+        if (resource.getResourceType() == system.resource.ResourceType.TREE) {
+            return tilePropertyCatalog.isTree(gid);
+        }
+        if (resource.getResourceType() == system.resource.ResourceType.ROCK) {
+            return tilePropertyCatalog.isStone(gid);
+        }
+        return true;
     }
 
     // Cat tile goc theo source rect roi tao ban tint theo alpha cua tile.

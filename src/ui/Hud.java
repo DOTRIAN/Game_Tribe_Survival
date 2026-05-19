@@ -13,26 +13,26 @@ public class Hud {
     private static final double PANEL_X = 16;
     private static final double PANEL_Y = 16;
     // Thu nho panel so voi ban truoc de tong the gon hon.
-    private static final double PANEL_WIDTH = 210;
-    private static final double PANEL_HEIGHT = 84;
+    private static final double PANEL_WIDTH = 250;
+    private static final double PANEL_HEIGHT = 96;
     // Panel ben phai de hien thi tai nguyen da thu thap.
     // X se tinh dong theo viewport width de khong bi "dat cung" khi resize/fullscreen.
     private static final double RESOURCE_PANEL_MARGIN_RIGHT = 16;
     private static final double RESOURCE_PANEL_Y = 16;
     private static final double RESOURCE_PANEL_WIDTH = 214;
-    private static final double RESOURCE_PANEL_HEIGHT = 132;
+    private static final double RESOURCE_PANEL_HEIGHT = 116;
 
     // Vi tri va kich thuoc thanh HP nam ben trong panel.
     // Gia tri nay duoc tinh theo PANEL_* de de canh chinh dong bo.
     private static final double HP_BAR_X = PANEL_X + 12;
     private static final double HP_BAR_Y = PANEL_Y + 18;
     // Thanh HP nho hon theo yeu cau.
-    private static final double HP_BAR_WIDTH = 170;
+    private static final double HP_BAR_WIDTH = 198;
     private static final double HP_BAR_HEIGHT = 12;
     // Thanh nang luong nam duoi thanh HP.
     private static final double ENERGY_BAR_X = PANEL_X + 12;
     private static final double ENERGY_BAR_Y = PANEL_Y + 44;
-    private static final double ENERGY_BAR_WIDTH = 170;
+    private static final double ENERGY_BAR_WIDTH = 198;
     private static final double ENERGY_BAR_HEIGHT = 10;
 
     // Vi tri Y cho text HP; X se duoc tinh dong de canh giua vao thanh HP.
@@ -121,7 +121,7 @@ public class Hud {
 
         // Hien thi cac tai nguyen co trong kho tam thoi.
         // Hien tai dung text; sau nay co the doi thanh icon pixel + so.
-        double lineY = RESOURCE_PANEL_Y + 38;
+        double lineY = RESOURCE_PANEL_Y + 34;
         if (collectedResources == null || collectedResources.isEmpty()) {
             graphicsContext.fillText("wood: 0", resourcePanelX + 12, lineY);
             graphicsContext.fillText("stone: 0", resourcePanelX + 12, lineY + 18);

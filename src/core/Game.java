@@ -13,11 +13,17 @@ import map.MapObjectData;
 import map.TileCollisionResolver;
 import map.TiledMapLoader;
 import system.CollisionSystem;
+import system.DamageResult;
+import system.DamageSystem;
+import system.level.Level;
+import system.level.LevelManager;
+import system.level.LevelResult;
 import system.resource.DropResult;
 import system.resource.ResourceContractValidator;
 import system.resource.ResourceHitResult;
 import system.resource.ResourceManager;
 import system.resource.TileResourceAdapter;
+import ui.FloatingDamageText;
 import ui.Renderer;
 
 import java.util.ArrayList;
@@ -43,6 +49,8 @@ public class Game {
     private final DayNightCycle dayNightCycle;
     // Tai nguyen nguoi choi da thu thap (hien thi HUD text tam thoi).
     private final Map<String, Integer> collectedResources;
+    private final List<FloatingDamageText> floatingDamageTexts;
+    private final LevelManager levelManager;
     private GameState gameState;
 
     // ===== Enemy Spawn Config =====
@@ -82,7 +90,10 @@ public class Game {
     private double playerStartX;
     private double playerStartY;
     private int menuIndex;
+    private int selectedLevelIndex;
     private MapData mapData;
+    private long levelStartedAtNs;
+    private LevelResult lastLevelResult;
 
     private long welcomeFlashUntilNs;
     private static final long WELCOME_FLASH_DURATION_NS = 120_000_000L; // flash nhe khi enter o Welcome
@@ -107,6 +118,7 @@ public class Game {
     private static final double SKILL_F_ENERGY_COST = 3.0;
     // Thu thap "food" se hoi nang luong manh hon.
     private static final double FOOD_ENERGY_BONUS = 15.0;
+    private static final long DAMAGE_TEXT_LIFETIME_NS = 650_000_000L;
 
     public Game(Stage stage) {
         this.inputHandler = new InputHandler();
@@ -127,18 +139,25 @@ public class Game {
         this.welcomeFlashUntilNs = 0L;
         this.pendingWelcomeAction = -1;
         this.playerNameBuffer = new StringBuilder("Player");
+        this.selectedLevelIndex = 0;
+        this.levelStartedAtNs = -1L;
+        this.lastLevelResult = null;
         this.random = new Random();
         this.lastUpdateNowNs = -1L;
         this.resourceManager = new ResourceManager();
         this.dayNightCycle = new DayNightCycle();
         this.collectedResources = new LinkedHashMap<>();
+        this.floatingDamageTexts = new ArrayList<>();
+        this.levelManager = LevelManager.getInstance();
+        this.levelManager.loadLevels("resources/levels/level_data.json");
+        this.levelManager.loadProgress();
 
         MapData loadedMap = null;
         try {
             // Uu tien map moi tu team ve map.
-            loadedMap = new TiledMapLoader().load("assets/Map_game/map.tmx");
+            loadedMap = new TiledMapLoader().load("assets/Map_Game/map.tmx");
         } catch (Exception exception) {
-            System.out.println("Cannot load assets/Map_game/map.tmx: " + exception.getMessage());
+            System.out.println("Cannot load assets/Map_Game/map.tmx: " + exception.getMessage());
             try {
                 // Fallback map cu de tranh chan pipeline gameplay.
                 loadedMap = new TiledMapLoader().load("assets/maps/mapdemo.tmx");
@@ -206,6 +225,12 @@ public class Game {
                 break;
             case GUIDE:
                 handleGuideState();
+                break;
+            case LEVEL_SELECT:
+                handleLevelSelectState();
+                break;
+            case LEVEL_COMPLETE:
+                handleLevelCompleteState();
                 break;
             case PAUSED:
                 handlePausedState();
@@ -294,8 +319,8 @@ public class Game {
         if (inputHandler.isJustPressed(KeyCode.ENTER)) {
             String normalizedName = normalizePlayerName(playerNameBuffer.toString());
             player.setPlayerName(normalizedName);
-            restartGame();
-            gameState = GameState.PLAYING;
+            selectedLevelIndex = findIndexByLevelId(levelManager.getFirstUnlockedLevelId());
+            gameState = GameState.LEVEL_SELECT;
         }
     }
 
@@ -303,8 +328,49 @@ public class Game {
         if (inputHandler.isJustPressed(KeyCode.ESCAPE)) {
             gameState = GameState.WELCOME;
         } else if (inputHandler.isJustPressed(KeyCode.ENTER)) {
-            restartGame();
-            gameState = GameState.PLAYING;
+            selectedLevelIndex = findIndexByLevelId(levelManager.getFirstUnlockedLevelId());
+            gameState = GameState.LEVEL_SELECT;
+        }
+    }
+
+    private void handleLevelSelectState() {
+        List<Level> levels = levelManager.getAllLevels();
+        if (levels.isEmpty()) {
+            return;
+        }
+        if (selectedLevelIndex < 0 || selectedLevelIndex >= levels.size()) {
+            selectedLevelIndex = findIndexByLevelId(levelManager.getFirstUnlockedLevelId());
+        }
+
+        if (inputHandler.isJustPressed(KeyCode.UP) || inputHandler.isJustPressed(KeyCode.W)) {
+            selectedLevelIndex = (selectedLevelIndex - 1 + levels.size()) % levels.size();
+        }
+        if (inputHandler.isJustPressed(KeyCode.DOWN) || inputHandler.isJustPressed(KeyCode.S)) {
+            selectedLevelIndex = (selectedLevelIndex + 1) % levels.size();
+        }
+        if (inputHandler.isJustPressed(KeyCode.ESCAPE)) {
+            gameState = GameState.WELCOME;
+            return;
+        }
+        if (!inputHandler.isJustPressed(KeyCode.ENTER)) {
+            return;
+        }
+
+        Level selectedLevel = levels.get(selectedLevelIndex);
+        if (!levelManager.selectLevel(selectedLevel.getId())) {
+            return;
+        }
+        startSelectedLevel();
+    }
+
+    private void handleLevelCompleteState() {
+        if (inputHandler.isJustPressed(KeyCode.ENTER)) {
+            selectedLevelIndex = findIndexByLevelId(levelManager.getSuggestedNextLevelId());
+            gameState = GameState.LEVEL_SELECT;
+            return;
+        }
+        if (inputHandler.isJustPressed(KeyCode.ESCAPE)) {
+            gameState = GameState.LEVEL_SELECT;
         }
     }
 
@@ -366,6 +432,7 @@ public class Game {
         }
 
         resourceManager.update(now);
+        cleanupExpiredDamageTexts(now);
         updateEnemySpawning(now);
         updateEnemies(now);
         player.clampPosition(0, 0, worldWidth, worldHeight);
@@ -377,6 +444,7 @@ public class Game {
         boolean playerMoving = oldPlayerX != player.getX() || oldPlayerY != player.getY();
         player.updateAnimation(now, playerMoving, moveUp, moveDown, moveLeft, moveRight);
         updateEnergyByMovement(now, playerMoving);
+        checkLevelCompletion(now);
         if (!player.isAlive()) {
             gameState = GameState.GAME_OVER;
         }
@@ -436,8 +504,15 @@ public class Game {
                 welcomeFlashing,
                 playerNameBuffer.toString(),
                 MAX_PLAYER_NAME_LENGTH,
+                levelManager.getAllLevels(),
+                levelManager.getPlayerProgress(),
+                selectedLevelIndex,
+                levelManager.getCurrentLevel(),
+                buildCurrentObjectiveStatus(now),
+                lastLevelResult,
                 resourceManager.getAllResources(),
                 collectedResources,
+                floatingDamageTexts,
                 dayNightCycle.getDarknessAlpha(now),
                 dayNightCycle.isNight(now),
                 dayNightCycle.getPhaseName(now),
@@ -463,14 +538,23 @@ public class Game {
         recalculatePlayerStartAtWorldCenter();
         player.reset(playerStartX, playerStartY);
         enemies.clear();
+        floatingDamageTexts.clear();
         gameState = GameState.PLAYING;
         menuIndex = 0;
         pendingWelcomeAction = -1; // dam bao khong con action cho tu menu
         lastEnemySpawnAtNs = 0L;
         lastUpdateNowNs = -1L;
+        levelStartedAtNs = levelManager.getCurrentLevel() == null ? -1L : System.nanoTime();
         // Update camera ngay luc reset de frame dau tien vao game da focus dung vao player.
         updateCamera();
         dayNightCycle.reset(System.nanoTime());
+    }
+
+    private void startSelectedLevel() {
+        restartGame();
+        collectedResources.clear();
+        levelStartedAtNs = System.nanoTime();
+        gameState = GameState.PLAYING;
     }
 
     private void recalculatePlayerStartAtWorldCenter() {
@@ -667,7 +751,7 @@ public class Game {
         int attackDamage = attackType == Player.AttackAnimationType.SLICE ? 2 : 1;
 
         double[] attackBox = player.buildAttackHitbox();
-        boolean hitEnemy = applyAttackToFirstEnemy(attackBox[0], attackBox[1], attackBox[2], attackBox[3], attackDamage);
+        boolean hitEnemy = applyAttackToFirstEnemy(attackBox[0], attackBox[1], attackBox[2], attackBox[3], attackDamage, now);
         if (hitEnemy) {
             System.out.println("[Combat] Hit enemy for " + attackDamage + " damage.");
             return;
@@ -687,6 +771,7 @@ public class Game {
             System.out.println("[Resource] Attack missed resource.");
             return;
         }
+        spawnResourceDamageText(hitResult, now);
 
         if (!hitResult.isDestroyed() || hitResult.getDropResult() == null) {
             System.out.println("[Resource] Hit resource for " + hitResult.getDamageApplied() + " damage.");
@@ -699,7 +784,7 @@ public class Game {
     }
 
     // Apply damage len enemy dau tien giao hitbox.
-    private boolean applyAttackToFirstEnemy(double x, double y, double w, double h, int damage) {
+    private boolean applyAttackToFirstEnemy(double x, double y, double w, double h, int damage, long nowNs) {
         for (Enemy enemy : enemies) {
             if (enemy == null || !enemy.isAlive()) {
                 continue;
@@ -708,7 +793,8 @@ public class Game {
             if (!CollisionSystem.intersects(enemy, x, y, w, h)) {
                 continue;
             }
-            enemy.takeDamage(damage);
+            DamageResult result = DamageSystem.applyDamage(player, enemy, damage, nowNs);
+            spawnEnemyDamageText(enemy, result, nowNs);
             return true;
         }
         return false;
@@ -849,6 +935,46 @@ public class Game {
                 || normalized.contains("food");
     }
 
+    private int findIndexByLevelId(int levelId) {
+        List<Level> levels = levelManager.getAllLevels();
+        for (int i = 0; i < levels.size(); i++) {
+            if (levels.get(i).getId() == levelId) {
+                return i;
+            }
+        }
+        return 0;
+    }
+
+    private String buildCurrentObjectiveStatus(long nowNs) {
+        Level currentLevel = levelManager.getCurrentLevel();
+        if (currentLevel == null) {
+            return "";
+        }
+        long elapsedNs = levelStartedAtNs <= 0 ? 0L : Math.max(0L, nowNs - levelStartedAtNs);
+        return currentLevel.buildObjectiveStatus(collectedResources, elapsedNs);
+    }
+
+    private void checkLevelCompletion(long nowNs) {
+        Level currentLevel = levelManager.getCurrentLevel();
+        if (currentLevel == null || levelStartedAtNs <= 0) {
+            return;
+        }
+        long elapsedNs = Math.max(0L, nowNs - levelStartedAtNs);
+        if (!currentLevel.areObjectivesCompleted(collectedResources, elapsedNs)) {
+            return;
+        }
+
+        int collectedCount = collectedResources.values().stream().mapToInt(Integer::intValue).sum();
+        lastLevelResult = LevelResult.createForCompletion(
+                currentLevel,
+                elapsedNs / 1_000_000_000L,
+                0,
+                collectedCount
+        );
+        levelManager.completeLevel(lastLevelResult);
+        gameState = GameState.LEVEL_COMPLETE;
+    }
+
     // Detect object co schema resource theo contract/property map.
     private boolean isResourceObject(MapObjectData object) {
         if (object == null || object.getProperties() == null) {
@@ -870,5 +996,37 @@ public class Game {
 
     private boolean hasText(String value) {
         return value != null && !value.trim().isEmpty();
+    }
+
+    private void spawnEnemyDamageText(Enemy enemy, DamageResult result, long nowNs) {
+        if (enemy == null || result == null || result.getFinalDamage() <= 0) {
+            return;
+        }
+        floatingDamageTexts.add(new FloatingDamageText(
+                "-" + result.getFinalDamage(),
+                enemy.getCenterX(),
+                enemy.getY() - 8,
+                nowNs,
+                DAMAGE_TEXT_LIFETIME_NS,
+                result.isCritical()
+        ));
+    }
+
+    private void spawnResourceDamageText(ResourceHitResult hitResult, long nowNs) {
+        if (hitResult == null || hitResult.getDamageApplied() <= 0 || hitResult.getResourceNode() == null) {
+            return;
+        }
+        floatingDamageTexts.add(new FloatingDamageText(
+                "-" + hitResult.getDamageApplied(),
+                hitResult.getResourceNode().getCenterX(),
+                hitResult.getResourceNode().getY() - 6,
+                nowNs,
+                DAMAGE_TEXT_LIFETIME_NS,
+                false
+        ));
+    }
+
+    private void cleanupExpiredDamageTexts(long nowNs) {
+        floatingDamageTexts.removeIf(text -> text == null || text.isExpired(nowNs));
     }
 }

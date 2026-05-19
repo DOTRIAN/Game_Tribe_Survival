@@ -86,6 +86,7 @@ public class TileResourceAdapter {
         props.put("dropItem", "wood");
         props.put("dropMin", "1");
         props.put("dropMax", "3");
+        props.put("visualTiles", toVisualTilesValue(cluster));
 
         return new MapObjectData(
                 objectId,
@@ -114,6 +115,7 @@ public class TileResourceAdapter {
         props.put("dropItem", "stone");
         props.put("dropMin", "1");
         props.put("dropMax", "2");
+        props.put("visualTiles", toVisualTilesValue(cluster));
 
         return new MapObjectData(
                 objectId,
@@ -223,5 +225,20 @@ public class TileResourceAdapter {
                 maxY = y;
             }
         }
+    }
+
+    private String toVisualTilesValue(Cluster cluster) {
+        if (cluster == null || cluster.cells.isEmpty()) {
+            return "";
+        }
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < cluster.cells.size(); i++) {
+            Cell cell = cluster.cells.get(i);
+            if (i > 0) {
+                builder.append(';');
+            }
+            builder.append(cell.x).append(':').append(cell.y);
+        }
+        return builder.toString();
     }
 }

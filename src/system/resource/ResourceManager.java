@@ -10,6 +10,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
+import java.util.HashSet;
 
 /**
  * ResourceManager:
@@ -113,6 +115,7 @@ public class ResourceManager {
             int dropMax = parseInt(props.get("dropMax"), definition.getDefaultDropMax());
             int respawnSec = parseInt(props.get("respawnSec"), definition.getDefaultRespawnSeconds());
             ResourceType type = definition.getResourceType();
+            Set<Long> visualTiles = parseVisualTiles(props.get("visualTiles"));
 
             ResourceNode node = new ResourceNode(
                     object.getId(),
@@ -126,7 +129,8 @@ public class ResourceManager {
                     dropMin,
                     dropMax,
                     respawnSec,
-                    maxHp
+                    maxHp,
+                    visualTiles
             );
 
             resourcesById.put(node.getObjectId(), node);
@@ -264,5 +268,30 @@ public class ResourceManager {
             return ResourceType.VEGETABLE;
         }
         return ResourceType.UNKNOWN;
+    }
+
+    private Set<Long> parseVisualTiles(String raw) {
+        Set<Long> keys = new HashSet<>();
+        if (raw == null || raw.isBlank()) {
+            return keys;
+        }
+        String[] parts = raw.split(";");
+        for (String part : parts) {
+            if (part == null || part.isBlank()) {
+                continue;
+            }
+            String[] xy = part.trim().split(":");
+            if (xy.length != 2) {
+                continue;
+            }
+            try {
+                int x = Integer.parseInt(xy[0].trim());
+                int y = Integer.parseInt(xy[1].trim());
+                keys.add(ResourceNode.packTileKey(x, y));
+            } catch (Exception ignored) {
+                // Bo qua tile loi format.
+            }
+        }
+        return keys;
     }
 }
