@@ -1,6 +1,9 @@
 package ui;
 
-import core.GameConfig;
+import build.AssetManager;
+import build.BuildManager;
+import build.Wall;
+import build.WallPreview;
 import core.GameState;
 import entity.Enemy;
 import entity.Player;
@@ -10,14 +13,15 @@ import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.effect.BlendMode;
 import javafx.scene.image.Image;
+import javafx.scene.layout.AnchorPane;
 import javafx.scene.layout.StackPane;
 import javafx.scene.paint.Color;
 import javafx.scene.paint.CycleMethod;
+import javafx.scene.paint.RadialGradient;
+import javafx.scene.paint.Stop;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import javafx.scene.text.Text;
-import javafx.scene.paint.RadialGradient;
-import javafx.scene.paint.Stop;
 import javafx.stage.Stage;
 import map.MapData;
 import map.MapRenderer;
@@ -25,40 +29,62 @@ import system.level.Level;
 import system.level.LevelResult;
 import system.level.PlayerProgress;
 import system.resource.ResourceNode;
-import ui.minimap.MiniMap;
-import ui.FloatingDamageText;
 
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
+import java.util.function.IntConsumer;
 
+/**
+ * Renderer:
+ * - Render world len Canvas, UI len JavaFX overlay nodes.
+ * - Vi sao can: de fullscreen/resize fill kin cua so, trong khi UI van dung CSS va layout responsive.
+ */
 public class Renderer {
-    // Zoom camera cho gameplay:
-    // - > 1.0: nhin gan hon (entity/map to hon tren man hinh)
-    // - = 1.0: giu nguyen
-    // - < 1.0: nhin xa hon
     private static final double CAMERA_ZOOM = 1.5;
+    private static final boolean DEBUG_DRAW_WALL_BOUNDS = false;
+    private static final boolean DEBUG_DRAW_WALL_INFO = true;
 
+    private final Stage stage;
     private final Canvas canvas;
     private final GraphicsContext graphicsContext;
-    private final Hud hud;
+    private final UIManager uiManager;
+    private final SettingsManager settingsManager;
+    private final GameSettings settings;
     private final Image welcomeBackgroundImage;
     private final Image gameBackgroundImage;
-    private final MiniMap miniMap;
+    private final LabelFpsTracker fpsTracker;
     private MapRenderer mapRenderer;
 
-    public Renderer(Stage stage, InputHandler inputHandler) {
-        this.canvas = new Canvas(GameConfig.WIDTH, GameConfig.HEIGHT);
+    public Renderer(Stage stage, InputHandler inputHandler, AssetManager buildAssetManager) {
+        this.stage = stage;
+        this.canvas = new Canvas();
         this.graphicsContext = canvas.getGraphicsContext2D();
-        this.hud = new Hud();
+        this.settingsManager = new SettingsManager();
+        this.settings = settingsManager.load();
         this.welcomeBackgroundImage = new Image("file:assets/backgrounds/menu_bg1.png");
         this.gameBackgroundImage = new Image("file:assets/backgrounds/grass03.png");
-        this.miniMap = new MiniMap();
+        this.fpsTracker = new LabelFpsTracker();
 
-        StackPane root = new StackPane(canvas);
-        Scene scene = new Scene(root, GameConfig.WIDTH, GameConfig.HEIGHT);
+        StackPane root = new StackPane();
+        root.setStyle("-fx-background-color: #0f1114;");
+
+        AnchorPane overlayLayer = new AnchorPane();
+        overlayLayer.setPickOnBounds(false);
+        root.getChildren().addAll(canvas, overlayLayer);
+
+        Scene scene = new Scene(root, 1280, 720);
         inputHandler.attach(scene);
 
+        canvas.widthProperty().bind(root.widthProperty());
+        canvas.heightProperty().bind(root.heightProperty());
+
+        this.uiManager = new UIManager(stage, scene, overlayLayer, buildAssetManager, settings);
+
         stage.setScene(scene);
+        stage.setMinWidth(960);
+        stage.setMinHeight(540);
+        stage.setMaximized(true);
         stage.show();
         canvas.setFocusTraversable(true);
         canvas.requestFocus();
@@ -73,370 +99,384 @@ public class Renderer {
         this.mapRenderer = (mapData == null) ? null : new MapRenderer(mapData);
     }
 
+    public double getViewportWidth() {
+        return Math.max(1.0, canvas.getWidth());
+    }
+
+    public double getViewportHeight() {
+        return Math.max(1.0, canvas.getHeight());
+    }
+
     public void render(GameState gameState, Player player, List<Enemy> enemies, long now,
                        double cameraX, double cameraY, int menuIndex, boolean welcomeFlashing,
                        String playerNameDraft, int maxNameLength,
                        List<Level> levels, PlayerProgress playerProgress, int selectedLevelIndex,
                        Level currentLevel, String objectiveStatus, LevelResult lastLevelResult,
                        List<ResourceNode> allResources, Map<String, Integer> collectedResources,
+                       int selectedHotbarIndex, int stoneWallCount,
+                       BuildManager buildManager,
                        List<FloatingDamageText> floatingDamageTexts,
                        double darknessAlpha, boolean isNight, String dayNightPhase,
                        double worldWidth, double worldHeight) {
-        if (gameState == GameState.WELCOME) {
-            if (welcomeBackgroundImage.isError()) {
-                graphicsContext.setFill(Color.web("#2a3a2a"));
-                graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
-            } else {
-                graphicsContext.drawImage(welcomeBackgroundImage, 0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
-            }
+        double viewportWidth = getViewportWidth();
+        double viewportHeight = getViewportHeight();
 
-            graphicsContext.setFill(Color.color(0, 0, 0, 0.5));
-            graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
-            if (welcomeFlashing) {
-                graphicsContext.setFill(Color.color(1, 1, 1, 0.18));
-                graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
-            }
-
-            double panelX = 280;
-            double panelY = 120;
-            double panelW = 400;
-            double panelH = 300;
-            graphicsContext.setFill(Color.color(0.95, 0.92, 0.78, 0.9));
-            graphicsContext.fillRoundRect(panelX, panelY, panelW, panelH, 20, 20);
-            graphicsContext.setStroke(Color.web("#5b4a2e"));
-            graphicsContext.setLineWidth(3);
-            graphicsContext.strokeRoundRect(panelX, panelY, panelW, panelH, 20, 20);
-
-            graphicsContext.setFill(Color.web("#2f2618"));
-            graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 34));
-            graphicsContext.fillText("TRIBE SURVIVAL", 334, 186);
-
-            String[] menuItems = {"PLAY", "GUIDE", "EXIT"};
-            double itemY = 270;
-            for (int i = 0; i < menuItems.length; i++) {
-                boolean selected = i == menuIndex;
-                graphicsContext.setFill(selected ? Color.web("#7b5b2e") : Color.web("#d6c29b"));
-                graphicsContext.fillRoundRect(350, itemY - 24, 260, 42, 12, 12);
-                graphicsContext.setStroke(Color.web("#4a3a20"));
-                graphicsContext.strokeRoundRect(350, itemY - 24, 260, 42, 12, 12);
-
-                graphicsContext.setFill(selected ? Color.web("#fff4d8") : Color.web("#3a2f1d"));
-                graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 20));
-                if ("PLAY".equals(menuItems[i])) {
-                    graphicsContext.fillText(menuItems[i], 456, itemY + 2);
-                } else if ("GUIDE".equals(menuItems[i])) {
-                    graphicsContext.fillText(menuItems[i], 448, itemY + 2);
-                } else {
-                    graphicsContext.fillText(menuItems[i], 460, itemY + 2);
-                }
-                if (selected) {
-                    graphicsContext.setFill(Color.web("#fff4d8"));
-                    graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 24));
-                    graphicsContext.fillText(">", 365, itemY + 3);
-                }
-
-                itemY += 58;
-            }
-
-            return;
-        }
-
-        if (gameState == GameState.GUIDE) {
-            if (welcomeBackgroundImage.isError()) {
-                graphicsContext.setFill(Color.web("#2a3a2a"));
-                graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
-            } else {
-                graphicsContext.drawImage(welcomeBackgroundImage, 0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
-            }
-
-            graphicsContext.setFill(Color.color(0, 0, 0, 0.55));
-            graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
-
-            double panelX = 210;
-            double panelY = 95;
-            double panelW = 540;
-            double panelH = 350;
-
-            graphicsContext.setFill(Color.color(0.95, 0.92, 0.78, 0.92));
-            graphicsContext.fillRoundRect(panelX, panelY, panelW, panelH, 20, 20);
-            graphicsContext.setStroke(Color.web("#5b4a2e"));
-            graphicsContext.setLineWidth(3);
-            graphicsContext.strokeRoundRect(panelX, panelY, panelW, panelH, 20, 20);
-
-            graphicsContext.setFill(Color.web("#2f2618"));
-            graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 34));
-            graphicsContext.fillText("GUIDE", 430, 155);
-            graphicsContext.setFont(Font.font("Georgia", FontWeight.NORMAL, 22));
-            graphicsContext.fillText("W A S D : Move", 285, 215);
-            graphicsContext.fillText("F : Use skill", 285, 255);
-            graphicsContext.fillText("K : Heal", 285, 295);
-
-            graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 20));
-            graphicsContext.fillText("ENTER : Play", 285, 355);
-            graphicsContext.fillText("ESC : Back to Menu", 470, 355);
-
-            return;
-        }
-
+        uiManager.applyGameState(gameState);
         if (gameState == GameState.NAME_INPUT) {
-            // Man hinh nhap ten:
-            // - su dung nen menu de giu tinh dong bo voi flow WELCOME
-            // - cho nguoi choi xem ten dang go (draft)
-            // - ENTER xac nhan, ESC quay lai menu
-            if (welcomeBackgroundImage.isError()) {
-                graphicsContext.setFill(Color.web("#2a3a2a"));
-                graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
-            } else {
-                graphicsContext.drawImage(welcomeBackgroundImage, 0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
-            }
-
-            graphicsContext.setFill(Color.color(0, 0, 0, 0.55));
-            graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
-
-            double panelX = 220;
-            double panelY = 140;
-            double panelW = 520;
-            double panelH = 240;
-            graphicsContext.setFill(Color.color(0.95, 0.92, 0.78, 0.93));
-            graphicsContext.fillRoundRect(panelX, panelY, panelW, panelH, 20, 20);
-            graphicsContext.setStroke(Color.web("#5b4a2e"));
-            graphicsContext.setLineWidth(3);
-            graphicsContext.strokeRoundRect(panelX, panelY, panelW, panelH, 20, 20);
-
-            graphicsContext.setFill(Color.web("#2f2618"));
-            // Tang tieu de de de doc hon.
-            graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 36));
-            graphicsContext.fillText("ENTER NAME", 360, 192);
-
-            // Input box.
-            double boxX = 280;
-            double boxY = 220;
-            double boxW = 400;
-            double boxH = 52;
-            graphicsContext.setFill(Color.web("#fff8e8"));
-            graphicsContext.fillRoundRect(boxX, boxY, boxW, boxH, 10, 10);
-            graphicsContext.setStroke(Color.web("#6f5a36"));
-            graphicsContext.setLineWidth(2);
-            graphicsContext.strokeRoundRect(boxX, boxY, boxW, boxH, 10, 10);
-
-            String shownName = playerNameDraft == null ? "" : playerNameDraft;
-            graphicsContext.setFill(Color.web("#2f2618"));
-            // Tang size text nhap ten de nguoi choi nhin ro ky tu dang go.
-            graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 30));
-            graphicsContext.fillText(shownName, boxX + 14, boxY + 34);
-
-            graphicsContext.setFont(Font.font("Georgia", FontWeight.NORMAL, 20));
-            graphicsContext.fillText("Length: " + shownName.length() + "/" + maxNameLength, boxX + 14, boxY + 74);
-            graphicsContext.fillText("ENTER: Confirm", 285, 338);
-            graphicsContext.fillText("ESC: Back", 520, 338);
-            return;
+            uiManager.setNameDraft(playerNameDraft, maxNameLength);
         }
-
-        if (gameState == GameState.LEVEL_SELECT) {
-            graphicsContext.setFill(Color.web("#1a1f24"));
-            graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
-            graphicsContext.setFill(Color.web("#e9d8b3"));
-            graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 36));
-            graphicsContext.fillText("SELECT LEVEL", 350, 90);
-            graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 18));
-            if (levels == null || levels.isEmpty()) {
-                graphicsContext.fillText("No level data.", 380, 150);
-                return;
-            }
-
-            double startY = 150;
-            for (int i = 0; i < levels.size(); i++) {
-                Level level = levels.get(i);
-                boolean selected = i == selectedLevelIndex;
-                boolean unlocked = playerProgress != null && playerProgress.isLevelUnlocked(level.getId());
-                int stars = playerProgress == null ? 0 : playerProgress.getLevelStars(level.getId());
-                String line = (selected ? "> " : "  ")
-                        + "L" + level.getId()
-                        + " - " + level.getName()
-                        + (unlocked ? "" : " [LOCK]")
-                        + "  Stars:" + stars;
-                graphicsContext.setFill(selected ? Color.web("#fff6d2") : (unlocked ? Color.web("#d9d9d9") : Color.web("#808080")));
-                graphicsContext.fillText(line, 190, startY + i * 38);
-            }
-
-            graphicsContext.setFill(Color.web("#c8d6e5"));
-            graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 16));
-            graphicsContext.fillText("W/S or UP/DOWN: select | ENTER: play | ESC: back", 220, 520);
-            return;
-        }
-
-        // Gameplay: clear full canvas de tranh bong frame cu.
-        graphicsContext.setFill(Color.web("#1b1b1b"));
-        graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
-
-        // Bat dau world-space rendering.
-        // save() giu lai trang thai transform hien tai.
-        graphicsContext.save();
-        // scale() phong to toan bo world (map + player + wolf).
-        graphicsContext.scale(CAMERA_ZOOM, CAMERA_ZOOM);
-
-        // Luu y quan trong:
-        // cameraX/cameraY la world offset goc (chua zoom), vi vay KHONG duoc chia cho zoom.
-        // Cong thuc dung la: screen = zoom * (world - camera).
-        // Neu chia camera cho zoom se gay lech tam nhin va co the lam mat entity tren man hinh.
-        double renderCameraX = cameraX;
-        double renderCameraY = cameraY;
-
-        if (mapRenderer != null) {
-            // Dong bo danh sach resource de renderer co the an tile object/foreground cua node da bi pha.
-            mapRenderer.setResources(allResources);
-            mapRenderer.renderBelowEntities(graphicsContext, renderCameraX, renderCameraY, now);
-        } else {
-            if (gameBackgroundImage.isError()) {
-                graphicsContext.setFill(Color.BEIGE);
-                graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
-            } else {
-                graphicsContext.drawImage(gameBackgroundImage, 0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
-            }
-        }
-
-        // Entity duoc ve sau layer duoi, truoc layer tren.
-        player.draw(graphicsContext, renderCameraX, renderCameraY);
-        // Hieu ung level-up popup ngay tren nhan vat (world-space).
-        renderLevelUpEffect(player, renderCameraX, renderCameraY, now);
-        if (enemies != null) {
-            for (Enemy enemy : enemies) {
-                if (enemy == null || !enemy.isAlive()) {
-                    continue;
-                }
-                // API Enemy.draw moi can nowNs de render hieu ung hit flash theo thoi gian.
-                enemy.draw(graphicsContext, renderCameraX, renderCameraY, now);
-            }
-        }
-
-        if (mapRenderer != null) {
-            mapRenderer.renderAboveEntities(graphicsContext, renderCameraX, renderCameraY, now);
-        }
-        renderFloatingDamageTexts(floatingDamageTexts, renderCameraX, renderCameraY, now);
-
-        // Ket thuc world-space rendering, tra lai he toa do man hinh.
-        graphicsContext.restore();
-
-        // ===== Day/Night overlay + local lights =====
-        // - Ve sau world de toi toan canh.
-        // - Ve truoc HUD de HUD van de doc.
-        renderNightOverlayAndLights(player, cameraX, cameraY, darknessAlpha, isNight);
-
-        // Debug text nho: giup test nhanh chu ky day/night khi can.
-        graphicsContext.setFill(Color.color(1, 1, 1, 0.85));
-        graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 12));
-        graphicsContext.fillText("Light: " + dayNightPhase + " alpha=" + String.format("%.2f", darknessAlpha), 14, 532);
-
-        // Da an toan bo text debug/hint cu de HUD gon hon.
-        // Neu can bat lai, chi can bo comment cac dong duoi:
-        // graphicsContext.setFill(Color.DARKGREEN);
-        // graphicsContext.fillText("State: " + gameState, 20, 30);
-        // graphicsContext.fillText("WASD: move", 20, 55);
-        // graphicsContext.fillText("J: take damage | K: heal", 20, 80);
-
-        // API HUD moi can viewport width de canh panel tai nguyen theo canh phai.
-        hud.render(graphicsContext, player, collectedResources, GameConfig.WIDTH);
-        // Minimap la UI overlay doc lap.
-        // Dat sau world rendering de khong bi anh huong boi camera zoom cua gameplay.
-        miniMap.render(
-                graphicsContext,
+        uiManager.updateHud(
+                player,
+                collectedResources,
+                selectedHotbarIndex,
                 worldWidth,
                 worldHeight,
                 cameraX,
                 cameraY,
                 CAMERA_ZOOM,
-                GameConfig.WIDTH,
-                GameConfig.HEIGHT,
-                player,
+                viewportWidth,
+                viewportHeight,
                 enemies
         );
 
-        if (currentLevel != null && objectiveStatus != null && !objectiveStatus.isBlank()) {
-            double boxX = 16;
-            double boxY = 118;
-            double boxW = 360;
-            double boxH = 40;
-            graphicsContext.setFill(Color.color(0, 0, 0, 0.40));
-            graphicsContext.fillRoundRect(boxX, boxY, boxW, boxH, 10, 10);
-            graphicsContext.setStroke(Color.color(1, 1, 1, 0.24));
-            graphicsContext.strokeRoundRect(boxX, boxY, boxW, boxH, 10, 10);
+        graphicsContext.setFill(Color.web("#121416"));
+        graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
 
+        if (gameState == GameState.WELCOME || gameState == GameState.NAME_INPUT || gameState == GameState.GUIDE || uiManager.isSettingsVisible()) {
+            drawBackgroundCover(welcomeBackgroundImage, viewportWidth, viewportHeight);
+            graphicsContext.setFill(Color.color(0, 0, 0, welcomeFlashing ? 0.42 : 0.28));
+            graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
+            return;
+        }
+
+        if (gameState == GameState.PLAYING || gameState == GameState.PAUSED || gameState == GameState.GAME_OVER || gameState == GameState.LEVEL_COMPLETE) {
+            renderGameplay(player, enemies, now, cameraX, cameraY, currentLevel, objectiveStatus,
+                    allResources, collectedResources, buildManager, floatingDamageTexts,
+                    darknessAlpha, isNight, dayNightPhase, worldWidth, worldHeight, viewportWidth, viewportHeight);
+            return;
+        }
+
+        drawBackgroundCover(gameBackgroundImage, viewportWidth, viewportHeight);
+    }
+
+    public void setContinueAvailable(boolean enabled) {
+        uiManager.setContinueEnabled(enabled);
+    }
+
+    public void setMenuActions(Runnable onPlay, Runnable onContinue, Runnable onGuide, Runnable onSettings, Runnable onExit) {
+        uiManager.configureMenuActions(onPlay, onContinue, onGuide, onSettings, onExit);
+    }
+
+    public void setNameActions(Runnable onConfirm, Runnable onBack) {
+        uiManager.configureNameActions(onConfirm, onBack);
+    }
+
+    public void setSettingsBackAction(Runnable onBack) {
+        uiManager.configureSettingsAction(onBack);
+    }
+
+    public void setHotbarSelectionListener(IntConsumer listener) {
+        uiManager.configureHotbarAction(listener);
+    }
+
+    public void setShopBuyListener(Consumer<String> listener) {
+        uiManager.configureShopAction(listener);
+    }
+
+    public void setInventoryCloseAction(Runnable listener) {
+        uiManager.configureInventoryClose(listener);
+    }
+
+    public String getEnteredName() {
+        return uiManager.getEnteredName();
+    }
+
+    public void updateNameLength(int currentLength, int maxLength) {
+        uiManager.updateNameLength(currentLength, maxLength);
+    }
+
+    public void showNameError(String message) {
+        uiManager.showNameError(message);
+    }
+
+    public int findHotbarSlotAt(double mouseX, double mouseY) {
+        return uiManager.findHotbarSlotAt(mouseX, mouseY);
+    }
+
+    public boolean isMouseOverUi(double mouseX, double mouseY) {
+        return uiManager.isMouseOverUi(mouseX, mouseY);
+    }
+
+    public boolean closeTopOverlay() {
+        return uiManager.closeTopOverlay();
+    }
+
+    public boolean isBlockingOverlayVisible() {
+        return uiManager.isBlockingOverlayVisible();
+    }
+
+    public void setShopVisible(boolean visible) {
+        uiManager.setShopVisible(visible);
+    }
+
+    public void toggleShop() {
+        uiManager.setShopVisible(!uiManager.isShopVisible());
+    }
+
+    public void setInventoryVisible(boolean visible) {
+        uiManager.setInventoryVisible(visible);
+    }
+
+    public void toggleInventory() {
+        uiManager.setInventoryVisible(!uiManager.isInventoryVisible());
+    }
+
+    public void toggleMinimap() {
+        uiManager.toggleMinimap();
+        settingsManager.save(uiManager.getSettings());
+    }
+
+    public void setSettingsVisible(boolean visible) {
+        if (visible) {
+            GameSettings current = uiManager.getSettings();
+            current.setFullscreen(stage.isFullScreen());
+            uiManager.getSettingsScreen().applySettings(current);
+        }
+        uiManager.setSettingsVisible(visible);
+    }
+
+    public boolean isSettingsVisible() {
+        return uiManager.isSettingsVisible();
+    }
+
+    public void toggleFullscreen() {
+        stage.setFullScreen(!stage.isFullScreen());
+        GameSettings current = uiManager.getSettings();
+        current.setFullscreen(stage.isFullScreen());
+        settingsManager.save(current);
+    }
+
+    public void saveSettings() {
+        GameSettings current = uiManager.getSettings();
+        if (stage.isFullScreen() != current.isFullscreen()) {
+            stage.setFullScreen(current.isFullscreen());
+        }
+        settingsManager.save(current);
+    }
+
+    public GameSettings getSettings() {
+        GameSettings current = uiManager.getSettings();
+        current.setFullscreen(stage.isFullScreen());
+        return current;
+    }
+
+    public void showToast(String message) {
+        uiManager.showToast(message);
+    }
+
+    public void hideToast() {
+        uiManager.hideToast();
+    }
+
+    private void renderGameplay(Player player,
+                                List<Enemy> enemies,
+                                long now,
+                                double cameraX,
+                                double cameraY,
+                                Level currentLevel,
+                                String objectiveStatus,
+                                List<ResourceNode> allResources,
+                                Map<String, Integer> collectedResources,
+                                BuildManager buildManager,
+                                List<FloatingDamageText> floatingDamageTexts,
+                                double darknessAlpha,
+                                boolean isNight,
+                                String dayNightPhase,
+                                double worldWidth,
+                                double worldHeight,
+                                double viewportWidth,
+                                double viewportHeight) {
+        graphicsContext.save();
+        graphicsContext.scale(CAMERA_ZOOM, CAMERA_ZOOM);
+
+        if (mapRenderer != null) {
+            mapRenderer.setResources(allResources);
+            mapRenderer.renderBelowEntities(graphicsContext, cameraX, cameraY, now);
+        } else {
+            drawBackgroundCover(gameBackgroundImage, viewportWidth / CAMERA_ZOOM, viewportHeight / CAMERA_ZOOM);
+        }
+
+        renderWallPreview(buildManager, cameraX, cameraY);
+        renderPlacedWalls(buildManager, cameraX, cameraY);
+
+        player.draw(graphicsContext, cameraX, cameraY);
+        renderLevelUpEffect(player, cameraX, cameraY, now);
+        if (enemies != null) {
+            for (Enemy enemy : enemies) {
+                if (enemy != null && enemy.isAlive()) {
+                    enemy.draw(graphicsContext, cameraX, cameraY, now);
+                }
+            }
+        }
+
+        if (mapRenderer != null) {
+            mapRenderer.renderAboveEntities(graphicsContext, cameraX, cameraY, now);
+        }
+
+        renderFloatingDamageTexts(floatingDamageTexts, cameraX, cameraY, now);
+        if (settings.isDebugGrid()) {
+            drawDebugGrid(cameraX, cameraY, viewportWidth / CAMERA_ZOOM, viewportHeight / CAMERA_ZOOM);
+        }
+        graphicsContext.restore();
+
+        renderNightOverlayAndLights(player, cameraX, cameraY, darknessAlpha, isNight);
+
+        graphicsContext.setFill(Color.color(1, 1, 1, 0.82));
+        graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 12));
+        graphicsContext.fillText("Light: " + dayNightPhase + " alpha=" + String.format("%.2f", darknessAlpha), 16, viewportHeight - 18);
+
+        if (currentLevel != null && objectiveStatus != null && !objectiveStatus.isBlank()) {
+            graphicsContext.setFill(Color.color(0, 0, 0, 0.30));
+            graphicsContext.fillRoundRect(20, 134, 360, 40, 12, 12);
             graphicsContext.setFill(Color.web("#f4efe1"));
             graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 13));
-            graphicsContext.fillText("L" + currentLevel.getId() + " " + currentLevel.getName(), boxX + 10, boxY + 16);
+            graphicsContext.fillText("L" + currentLevel.getId() + " " + currentLevel.getName(), 30, 150);
             graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 11));
-            String clipped = objectiveStatus.length() > 52 ? objectiveStatus.substring(0, 52) + "..." : objectiveStatus;
-            graphicsContext.fillText(clipped, boxX + 10, boxY + 32);
+            graphicsContext.fillText(objectiveStatus.length() > 58 ? objectiveStatus.substring(0, 58) + "..." : objectiveStatus, 30, 166);
         }
 
-        if (gameState == GameState.GAME_OVER) {
-            graphicsContext.setFill(Color.DARKRED);
-            graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 50));
-            graphicsContext.fillText("GAME OVER", 375, 250);
-
-            graphicsContext.setFill(Color.BLACK);
-            graphicsContext.setFont(Font.font("Georgia", FontWeight.NORMAL, 26));
-            graphicsContext.fillText("Player is dead.", 375, 280);
-            graphicsContext.fillText("Press R to restart.", 375, 310);
-        }
-
-        if (gameState == GameState.PAUSED) {
-            graphicsContext.setFill(Color.color(0, 0, 0, 0.45));
-            graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
-
-            graphicsContext.setFill(Color.WHITE);
-            graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 42));
-            graphicsContext.fillText("PAUSED", 390, 230);
-
-            graphicsContext.setFont(Font.font("Georgia", FontWeight.NORMAL, 22));
-            graphicsContext.fillText("Press P to Resume", 360, 280);
-            graphicsContext.fillText("Press ESC to Menu", 355, 315);
-        }
-
-        if (gameState == GameState.LEVEL_COMPLETE) {
-            graphicsContext.setFill(Color.color(0, 0, 0, 0.62));
-            graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
-            graphicsContext.setFill(Color.web("#fff0bf"));
-            graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 46));
-            graphicsContext.fillText("LEVEL COMPLETE", 280, 190);
-
-            if (lastLevelResult != null) {
-                graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 20));
-                graphicsContext.fillText("Score: " + lastLevelResult.getScore(), 395, 250);
-                graphicsContext.fillText("Stars: " + lastLevelResult.getStars(), 395, 285);
-                graphicsContext.fillText("Time: " + lastLevelResult.getPlayTimeSeconds() + "s", 395, 320);
-            }
-            graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 18));
-            graphicsContext.fillText("ENTER: next/select level", 350, 390);
-            graphicsContext.fillText("ESC: level select", 390, 420);
+        if (settings.isShowFps()) {
+            fpsTracker.update(now);
+            graphicsContext.setFill(Color.color(1, 1, 1, 0.90));
+            graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 12));
+            graphicsContext.fillText("FPS " + fpsTracker.getLastFps(), viewportWidth - 92, viewportHeight - 18);
         }
     }
 
-    /**
-     * renderNightOverlayAndLights:
-     * - Mo phong "troi toi dan" bang lop den alpha.
-     * - Tao "vung sang" bang hieu ung radial light (kieu duc lo, nhung than thien Canvas JavaFX).
-     * - Vung sang hien tai:
-     *   1) Quanh player (de gameplay khong bi mu)
-     *   2) 1 diem lua tinh tren map (tam thoi, co the doi sang object light sau)
-     */
+    private void renderPlacedWalls(BuildManager buildManager, double cameraX, double cameraY) {
+        if (buildManager == null) {
+            return;
+        }
+        for (Wall wall : buildManager.getWalls()) {
+            if (wall == null) {
+                continue;
+            }
+            double screenX = wall.getRenderX() - cameraX;
+            double screenY = wall.getRenderY() - cameraY;
+            if (wall.getImage() != null && !wall.getImage().isError()) {
+                drawRotatedImage(wall.getImage(), screenX, screenY, wall.getWidth(), wall.getHeight(), wall.getRotationDegrees());
+                if (DEBUG_DRAW_WALL_BOUNDS) {
+                    graphicsContext.setStroke(Color.color(0.0, 1.0, 1.0, 0.75));
+                    graphicsContext.strokeRect(screenX, screenY, wall.getWidth(), wall.getHeight());
+                }
+                continue;
+            }
+            graphicsContext.setFill(Color.color(0.75, 0.75, 0.75, 0.85));
+            graphicsContext.fillRect(screenX, screenY, wall.getWidth(), wall.getHeight());
+        }
+    }
+
+    private void renderWallPreview(BuildManager buildManager, double cameraX, double cameraY) {
+        if (buildManager == null || !buildManager.isPreviewVisible()) {
+            return;
+        }
+        WallPreview preview = buildManager.getWallPreview();
+        if (preview == null || !preview.isVisible()) {
+            return;
+        }
+
+        double screenX = preview.getRenderX() - cameraX;
+        double screenY = preview.getRenderY() - cameraY;
+
+        graphicsContext.save();
+        graphicsContext.setGlobalAlpha(preview.getOpacity());
+        if (preview.getImage() != null && !preview.getImage().isError()) {
+            drawRotatedImage(preview.getImage(), screenX, screenY, preview.getWidth(), preview.getHeight(), preview.getRotationDegrees());
+        } else {
+            graphicsContext.setFill(Color.color(0.85, 0.85, 0.85, 0.60));
+            graphicsContext.fillRect(screenX, screenY, preview.getWidth(), preview.getHeight());
+        }
+        graphicsContext.restore();
+
+        if (!preview.isValid()) {
+            graphicsContext.setFill(Color.color(1.0, 0.15, 0.15, 0.18));
+            graphicsContext.fillRect(screenX, screenY, preview.getWidth(), preview.getHeight());
+            graphicsContext.setStroke(Color.color(1.0, 0.12, 0.12, 0.92));
+            graphicsContext.strokeRect(screenX, screenY, preview.getWidth(), preview.getHeight());
+        }
+
+        if (DEBUG_DRAW_WALL_INFO) {
+            graphicsContext.setFill(Color.color(1, 1, 1, 0.86));
+            graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 12));
+            graphicsContext.fillText("tileX=" + preview.getTileX() + " tileY=" + preview.getTileY(), 16, getViewportHeight() - 102);
+            graphicsContext.fillText("rotation=" + preview.getRotationLabel() + " (" + (int) preview.getRotationDegrees() + ")", 16, getViewportHeight() - 86);
+            graphicsContext.fillText("spriteKey=" + preview.getSpriteKey(), 16, getViewportHeight() - 70);
+            graphicsContext.fillText("neighborMask=" + preview.getNeighborMask(), 16, getViewportHeight() - 54);
+        }
+    }
+
+    private void drawRotatedImage(Image image, double x, double y, double width, double height, double rotationDegrees) {
+        if (image == null) {
+            return;
+        }
+        graphicsContext.save();
+        graphicsContext.translate(x + width / 2.0, y + height / 2.0);
+        graphicsContext.rotate(rotationDegrees);
+        graphicsContext.drawImage(image, -width / 2.0, -height / 2.0, width, height);
+        graphicsContext.restore();
+    }
+
+    private void drawBackgroundCover(Image image, double viewportWidth, double viewportHeight) {
+        if (image == null || image.isError() || image.getWidth() <= 0 || image.getHeight() <= 0) {
+            graphicsContext.setFill(Color.web("#1a1f24"));
+            graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
+            return;
+        }
+
+        double imageRatio = image.getWidth() / image.getHeight();
+        double viewportRatio = viewportWidth / viewportHeight;
+        double drawWidth;
+        double drawHeight;
+        if (viewportRatio > imageRatio) {
+            drawWidth = viewportWidth;
+            drawHeight = viewportWidth / imageRatio;
+        } else {
+            drawHeight = viewportHeight;
+            drawWidth = viewportHeight * imageRatio;
+        }
+
+        double drawX = (viewportWidth - drawWidth) / 2.0;
+        double drawY = (viewportHeight - drawHeight) / 2.0;
+        graphicsContext.drawImage(image, drawX, drawY, drawWidth, drawHeight);
+    }
+
+    private void drawDebugGrid(double cameraX, double cameraY, double viewWidth, double viewHeight) {
+        double tileSize = 16.0;
+        double startX = Math.floor(cameraX / tileSize) * tileSize;
+        double startY = Math.floor(cameraY / tileSize) * tileSize;
+        graphicsContext.setStroke(Color.color(1, 1, 1, 0.08));
+        graphicsContext.setLineWidth(0.6);
+        for (double x = startX; x <= cameraX + viewWidth; x += tileSize) {
+            graphicsContext.strokeLine(x - cameraX, 0, x - cameraX, viewHeight);
+        }
+        for (double y = startY; y <= cameraY + viewHeight; y += tileSize) {
+            graphicsContext.strokeLine(0, y - cameraY, viewWidth, y - cameraY);
+        }
+    }
+
     private void renderNightOverlayAndLights(Player player, double cameraX, double cameraY, double darknessAlpha, boolean isNight) {
         if (darknessAlpha <= 0.001) {
             return;
         }
+        double viewportWidth = getViewportWidth();
+        double viewportHeight = getViewportHeight();
 
-        // 1) Phu lop toi toan man hinh.
         graphicsContext.setGlobalBlendMode(BlendMode.SRC_OVER);
         graphicsContext.setFill(Color.color(0, 0, 0, darknessAlpha));
-        graphicsContext.fillRect(0, 0, GameConfig.WIDTH, GameConfig.HEIGHT);
+        graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
 
-        // 2) Ve vung sang bo sung bang blend SCREEN de "day lui" bong toi.
         graphicsContext.save();
         graphicsContext.setGlobalBlendMode(BlendMode.SCREEN);
-
-        // Vung sang quanh player:
-        // - Ban dem radius nho hon de tao cam giac gioi han tam nhin.
-        // - Luc dusk/dawn van co sang nhe cho de chiu.
         double playerWorldX = player.getX() + player.getWidth() / 2.0;
         double playerWorldY = player.getY() + player.getHeight() / 2.0;
         double playerScreenX = (playerWorldX - cameraX) * CAMERA_ZOOM;
@@ -444,20 +484,13 @@ public class Renderer {
         double playerLightRadius = isNight ? 120 : 170;
         drawRadialLight(playerScreenX, playerScreenY, playerLightRadius, Color.color(1.0, 0.96, 0.86, 0.58));
 
-        // Bonfire light tam thoi:
-        // - Dung toa do world hard-code theo map hien tai de co "dom lua sang".
-        // - Sau nay nen doi sang object light trong map de map artist tu quan ly.
         double bonfireWorldX = 1060;
         double bonfireWorldY = 520;
-        double bonfireScreenX = (bonfireWorldX - cameraX) * CAMERA_ZOOM;
-        double bonfireScreenY = (bonfireWorldY - cameraY) * CAMERA_ZOOM;
-        drawRadialLight(bonfireScreenX, bonfireScreenY, 180, Color.color(1.0, 0.80, 0.40, 0.62));
-
+        drawRadialLight((bonfireWorldX - cameraX) * CAMERA_ZOOM, (bonfireWorldY - cameraY) * CAMERA_ZOOM, 180, Color.color(1.0, 0.80, 0.40, 0.62));
         graphicsContext.restore();
         graphicsContext.setGlobalBlendMode(BlendMode.SRC_OVER);
     }
 
-    // Ve 1 radial light tam x,y ban kinh radius.
     private void drawRadialLight(double x, double y, double radius, Color centerColor) {
         RadialGradient gradient = new RadialGradient(
                 0,
@@ -475,28 +508,20 @@ public class Renderer {
         graphicsContext.fillOval(x - radius, y - radius, radius * 2, radius * 2);
     }
 
-    // Ve popup level-up de nguoi choi thay feedback "manh hon" ngay lap tuc.
     private void renderLevelUpEffect(Player player, double cameraX, double cameraY, long now) {
         if (player == null || !player.isLevelUpEffectActive(now)) {
             return;
         }
-
-        double progress = player.getLevelUpEffectProgress(now); // 0 -> 1
+        double progress = player.getLevelUpEffectProgress(now);
         double screenX = player.getX() - cameraX + player.getWidth() / 2.0;
-        double screenY = player.getY() - cameraY - 12 - progress * 16; // bay len nhe
+        double screenY = player.getY() - cameraY - 12 - progress * 16;
+        double alpha = Math.max(0.0, 1.0 - progress);
 
-        double alpha = 1.0 - progress;
-        if (alpha < 0) {
-            alpha = 0;
-        }
-
-        String text = "↑ LEVEL UP " + player.getLastLeveledUpTo();
+        String text = "LEVEL UP " + player.getLastLeveledUpTo();
         graphicsContext.save();
         graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 10));
         double textWidth = measureTextWidth(graphicsContext, text);
         double textX = screenX - textWidth / 2.0;
-
-        // Vien den mong de doc ro tren nen bat ky.
         graphicsContext.setStroke(Color.color(0, 0, 0, 0.75 * alpha));
         graphicsContext.strokeText(text, textX, screenY);
         graphicsContext.setFill(Color.color(1.0, 0.93, 0.46, 0.96 * alpha));
@@ -504,8 +529,6 @@ public class Renderer {
         graphicsContext.restore();
     }
 
-    // Ham helper do text width theo font hien tai cua graphics context.
-    // Hien tai dang du phong cho canh chinh text dong trong cac UI tiep theo.
     private double measureTextWidth(GraphicsContext graphicsContext, String text) {
         Text helper = new Text(text);
         helper.setFont(graphicsContext.getFont());
@@ -534,6 +557,29 @@ public class Renderer {
             graphicsContext.setFill(text.isCritical() ? Color.web("#ffd24d") : Color.web("#ffebe6"));
             graphicsContext.fillText(text.getText(), drawX, drawY);
             graphicsContext.restore();
+        }
+    }
+
+    private static final class LabelFpsTracker {
+        private long lastFrameNs;
+        private int lastFps;
+
+        private void update(long now) {
+            if (lastFrameNs <= 0L) {
+                lastFrameNs = now;
+                lastFps = 0;
+                return;
+            }
+            long delta = now - lastFrameNs;
+            lastFrameNs = now;
+            if (delta <= 0L) {
+                return;
+            }
+            lastFps = (int) Math.round(1_000_000_000.0 / delta);
+        }
+
+        private int getLastFps() {
+            return lastFps;
         }
     }
 }

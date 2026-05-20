@@ -29,7 +29,7 @@ public class InputHandler {
     }
 
     public void attach(Scene scene) {
-        scene.setOnKeyPressed(event -> {
+        scene.addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, event -> {
             KeyCode code = event.getCode();
             if (!pressedKeys.contains(code)) {
                 justPressedKeys.add(code);
@@ -37,14 +37,14 @@ public class InputHandler {
             pressedKeys.add(code);
         });
 
-        scene.setOnKeyReleased(event -> {
+        scene.addEventFilter(javafx.scene.input.KeyEvent.KEY_RELEASED, event -> {
             KeyCode code = event.getCode();
             pressedKeys.remove(code);
             justPressedKeys.remove(code);
         });
 
         // onKeyTyped cho input text on dinh hon keycode (chu, so, space...).
-        scene.setOnKeyTyped(event -> {
+        scene.addEventFilter(javafx.scene.input.KeyEvent.KEY_TYPED, event -> {
             String ch = event.getCharacter();
             if (ch != null && !ch.isEmpty()) {
                 typedCharacters.append(ch);
@@ -52,17 +52,17 @@ public class InputHandler {
         });
 
         // Cap nhat vi tri chuot cho hover menu.
-        scene.setOnMouseMoved(event -> {
+        scene.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_MOVED, event -> {
             mouseX = event.getX();
             mouseY = event.getY();
         });
-        scene.setOnMouseDragged(event -> {
+        scene.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_DRAGGED, event -> {
             mouseX = event.getX();
             mouseY = event.getY();
         });
 
         // Click trai 1-lan/frame de xu ly chon menu.
-        scene.setOnMouseClicked(event -> {
+        scene.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_CLICKED, event -> {
             mouseX = event.getX();
             mouseY = event.getY();
             if (event.getButton() == MouseButton.PRIMARY) {

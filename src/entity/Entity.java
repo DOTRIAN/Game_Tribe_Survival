@@ -117,6 +117,13 @@ public abstract class Entity {
         }
     }
 
+    // setHpForLoad:
+    // - Input: hp da luu truoc do.
+    // - Tac dong: phuc hoi mau khi load save, co clamp de tranh du lieu loi.
+    public void setHpForLoad(int restoredHp) {
+        this.hp = Math.max(0, Math.min(maxHp, restoredHp));
+    }
+
     public boolean isAlive() {
         return hp > 0;
     }

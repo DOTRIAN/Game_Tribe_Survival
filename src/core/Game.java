@@ -1,10 +1,19 @@
 package core;
 
+import build.AssetManager;
+import build.BuildManager;
+import build.BuildMode;
+import entity.BaseCamp;
+import entity.BossEnemy;
 import entity.Enemy;
 import entity.OrcEnemy;
 import entity.Player;
 import entity.SkeletonEnemy;
+import event.GameEvent;
+import event.GameEventBus;
+import event.GameEventType;
 import input.InputHandler;
+import inventory.Inventory;
 import javafx.application.Platform;
 import javafx.scene.input.KeyCode;
 import javafx.stage.Stage;
@@ -15,16 +24,16 @@ import map.TiledMapLoader;
 import system.CollisionSystem;
 import system.DamageResult;
 import system.DamageSystem;
-import system.level.Level;
-import system.level.LevelManager;
-import system.level.LevelResult;
 import system.resource.DropResult;
 import system.resource.ResourceContractValidator;
 import system.resource.ResourceHitResult;
 import system.resource.ResourceManager;
 import system.resource.TileResourceAdapter;
+import system.save.WorldSaveService;
 import ui.FloatingDamageText;
 import ui.Renderer;
+import world.InfiniteWorldManager;
+import world.WorldChunk;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -32,372 +41,514 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
+/**
+ * Game:
+ * - Core game loop state cho mode sinh ton vo han.
+ * - Khong con choi theo man; nguoi choi sinh ton trong 1 world lien tuc.
+ * - Dieu kien thang: giet boss.
+ * - Dieu kien thua: player chet hoac base camp bi pha.
+ * - Co save/load session de thoat game vao lai choi tiep.
+ */
 public class Game {
-    // Phai dong bo voi CAMERA_ZOOM trong Renderer de camera center dung khi co zoom.
-    // Neu doi zoom ben Renderer, nho doi gia tri nay theo.
+    private enum GameOverReason {
+        PLAYER_DIED,
+        BASE_CAMP_DESTROYED
+    }
+    // Zoom phai dong bo voi Renderer de tinh camera dung.
     private static final double CAMERA_ZOOM = 1.5;
+
+    // Cac moc spawn theo gameplay sinh ton.
+    private static final long ENEMY_SPAWN_INTERVAL_NS = 600_000_000L;
+    private static final long AUTOSAVE_INTERVAL_NS = 20_000_000_000L;
+    private static final int BOSS_SPAWN_DAY = 6;
+
+    // World save file cho mode sinh ton.
+    private static final String SURVIVAL_SAVE_FILE = "data/survival_world.json";
 
     private final GameLoop gameLoop;
     private final Renderer renderer;
     private final InputHandler inputHandler;
+    private final AssetManager wallAssetManager;
+    private final BuildManager buildManager;
+    private final build.CollisionManager buildCollisionManager;
     private final Player player;
-    // Danh sach quai runtime (quan ly theo da hinh Enemy).
+    private final BaseCamp baseCamp;
     private final List<Enemy> enemies;
+    private BossEnemy bossEnemy;
+
     private final List<MapObjectData> mapCollisions;
     private final ResourceManager resourceManager;
     private final TileCollisionResolver tileCollisionResolver;
     private final DayNightCycle dayNightCycle;
-    // Tai nguyen nguoi choi da thu thap (hien thi HUD text tam thoi).
-    private final Map<String, Integer> collectedResources;
     private final List<FloatingDamageText> floatingDamageTexts;
-    private final LevelManager levelManager;
+
+    // Inventory la state gameplay chinh cho he thu thap/craft.
+    private final Inventory inventory;
+    private final GameEventBus eventBus;
+    private final WorldSaveService worldSaveService;
+    private final InfiniteWorldManager infiniteWorldManager;
+
     private GameState gameState;
+    private MapData mapData;
+    private long worldStartedAtNs;
+    private long lastEnemySpawnAtNs;
+    private long lastAutoSaveAtNs;
+    private long lastUpdateNowNs;
+    private long victoryAtNs;
+    private GameOverReason gameOverReason;
 
-    // ===== Enemy Spawn Config =====
-    // Ban ngay: chi spawn orc it (1-2 con).
-    private static final int DAY_ORC_TARGET_MIN = 1;
-    private static final int DAY_ORC_TARGET_MAX = 2;
-    private static final int DAY_SKELETON_TARGET = 0;
-    // Ban dem: ca 2 loai deu xuat hien nhieu.
-    private static final int NIGHT_ORC_TARGET_MIN = 7;
-    private static final int NIGHT_ORC_TARGET_MAX = 8;
-    private static final int NIGHT_SKELETON_TARGET_MIN = 7;
-    private static final int NIGHT_SKELETON_TARGET_MAX = 8;
-    // Moi lan spawn theo nhip de thay quai vao dan tu ranh map.
-    private static final long ENEMY_SPAWN_INTERVAL_NS = 650_000_000L;
+    private double cameraX;
+    private double cameraY;
+    private double worldWidth;
+    private double worldHeight;
 
+    private final Random random;
+
+    // Menu state de giu tuong thich UI hien tai.
     private static final int MENU_PLAY = 0;
     private static final int MENU_GUIDE = 1;
     private static final int MENU_EXIT = 2;
     private static final int MENU_COUNT = 3;
-
-    // ===== Mouse Hitbox cho menu WELCOME =====
-    // Cac gia tri nay map 1-1 voi toa do ve button trong Renderer.
-    private static final double MENU_BUTTON_X = 350;
-    private static final double MENU_BUTTON_Y_START = 246; // itemY - 24 voi itemY ban dau = 270
-    private static final double MENU_BUTTON_WIDTH = 260;
-    private static final double MENU_BUTTON_HEIGHT = 42;
-    private static final double MENU_BUTTON_GAP = 58;
-
-    private long lastEnemySpawnAtNs;
-    private double cameraX;
-    private double cameraY;
-    // Kich thuoc world thuc te dang dung cho movement/camera.
-    // Neu co map tiled thi lay theo pixel size cua map, neu khong thi fallback GameConfig.
-    private double worldWidth;
-    private double worldHeight;
-    // Vi tri spawn hien tai cua player (tinh theo center cua world thuc te).
-    private double playerStartX;
-    private double playerStartY;
     private int menuIndex;
-    private int selectedLevelIndex;
-    private MapData mapData;
-    private long levelStartedAtNs;
-    private LevelResult lastLevelResult;
-
     private long welcomeFlashUntilNs;
-    private static final long WELCOME_FLASH_DURATION_NS = 120_000_000L; // flash nhe khi enter o Welcome
-    private static final long WELCOME_TRANSITION_DELAY_NS = 220_000_000L; // tre de thay duoc hieu ung chuyen man
-    private int pendingWelcomeAction; // -1: khong co action dang cho
+    private int pendingWelcomeAction;
 
-    // ===== Name Input Config =====
-    // Gioi han do dai ten de tranh ten qua dai de vo UI khi ve tren dau player.
+    // Name input state.
     private static final int MAX_PLAYER_NAME_LENGTH = 14;
-    // Buffer tam trong man hinh nhap ten.
     private final StringBuilder playerNameBuffer;
-    private final Random random;
-    // Moc thoi gian frame truoc de tinh delta time (phuc vu energy drain/regen).
-    private long lastUpdateNowNs;
 
-    // ===== Energy / Progression Config =====
-    // Tieu hao nang luong khi nhan vat THUC SU di chuyen (don vi: energy/second).
+    // Stats energy cho loop di chuyen/sinh ton.
     private static final double MOVE_ENERGY_DRAIN_PER_SECOND = 2.2;
-    // Hoi nang luong nhe khi dung im.
     private static final double IDLE_ENERGY_REGEN_PER_SECOND = 0.9;
-    // Danh thuong khong ton nang luong; skill F ton nang luong o muc nhe.
     private static final double SKILL_F_ENERGY_COST = 3.0;
-    // Thu thap "food" se hoi nang luong manh hon.
     private static final double FOOD_ENERGY_BONUS = 15.0;
     private static final long DAMAGE_TEXT_LIFETIME_NS = 650_000_000L;
+    // Hotbar hien tai de mo rong dan:
+    // - Slot 0: stone_wall.
+    // - Cac slot khac de trong cho item build/craft sau nay.
+    private static final String STONE_WALL_ITEM_ID = "stone_wall";
+    private static final String COIN_ITEM_ID = "coin";
+    private static final String WOOD_WALL_ITEM_ID = "wood_wall";
+    private static final String POTION_ITEM_ID = "potion";
+    private static final String TORCH_ITEM_ID = "torch";
+    private static final String BASIC_SWORD_ITEM_ID = "basic_sword";
+    private static final String PICKAXE_ITEM_ID = "pickaxe";
+    private static final String CARROT_ITEM_ID = "carrot";
+    private static final int STARTING_STONE_WALL_AMOUNT = 20;
+    private static final int STARTING_COIN_AMOUNT = 120;
+
+    // selectedHotbarIndex:
+    // - Luu slot nguoi choi dang chon tren thanh hotbar.
+    // - Tac dong gameplay: sau nay build mode va item use se dua vao slot nay.
+    private int selectedHotbarIndex;
+    private boolean hasLoadedSaveSnapshot;
+    private boolean pendingStartFreshWorld;
 
     public Game(Stage stage) {
+        // Constructor:
+        // - Khoi tao tat ca subsystem runtime cho 1 session sinh ton.
         this.inputHandler = new InputHandler();
-        // Spawn tam thoi; sau khi load map se reset lai vao dung center world thuc te.
+        this.wallAssetManager = new AssetManager();
         this.player = new Player(100, 100, 58, 58, 1, 100);
-        this.renderer = new Renderer(stage, inputHandler);
+        this.baseCamp = new BaseCamp(0, 0, 116, 116, 500);
         this.gameLoop = new GameLoop(this);
-        this.gameState = GameState.WELCOME;
         this.enemies = new ArrayList<>();
-        this.lastEnemySpawnAtNs = 0L;
-        this.cameraX = 0;
-        this.cameraY = 0;
-        this.worldWidth = GameConfig.WORLD_WIDTH;
-        this.worldHeight = GameConfig.WORLD_HEIGHT;
-        this.playerStartX = 100;
-        this.playerStartY = 100;
+        this.resourceManager = new ResourceManager();
+        this.dayNightCycle = new DayNightCycle();
+        this.floatingDamageTexts = new ArrayList<>();
+        this.inventory = new Inventory();
+        this.eventBus = new GameEventBus();
+        this.worldSaveService = new WorldSaveService(SURVIVAL_SAVE_FILE);
+        this.random = new Random();
+        this.infiniteWorldManager = new InfiniteWorldManager(20260520L);
+
+        this.gameState = GameState.WELCOME;
         this.menuIndex = 0;
         this.welcomeFlashUntilNs = 0L;
         this.pendingWelcomeAction = -1;
         this.playerNameBuffer = new StringBuilder("Player");
-        this.selectedLevelIndex = 0;
-        this.levelStartedAtNs = -1L;
-        this.lastLevelResult = null;
-        this.random = new Random();
+
+        // World size tam thoi; neu load duoc map se bi ghi de bang kich thuoc map pixel that.
+        this.worldWidth = 1_000_000;
+        this.worldHeight = 1_000_000;
+        this.worldStartedAtNs = System.nanoTime();
+        this.lastEnemySpawnAtNs = 0L;
+        this.lastAutoSaveAtNs = 0L;
         this.lastUpdateNowNs = -1L;
-        this.resourceManager = new ResourceManager();
-        this.dayNightCycle = new DayNightCycle();
-        this.collectedResources = new LinkedHashMap<>();
-        this.floatingDamageTexts = new ArrayList<>();
-        this.levelManager = LevelManager.getInstance();
-        this.levelManager.loadLevels("resources/levels/level_data.json");
-        this.levelManager.loadProgress();
+        this.victoryAtNs = -1L;
+        this.gameOverReason = GameOverReason.PLAYER_DIED;
+        this.selectedHotbarIndex = 0;
+        this.hasLoadedSaveSnapshot = false;
+        this.pendingStartFreshWorld = false;
 
-        MapData loadedMap = null;
-        try {
-            // Uu tien map moi tu team ve map.
-            loadedMap = new TiledMapLoader().load("assets/Map_Game/map.tmx");
-        } catch (Exception exception) {
-            System.out.println("Cannot load assets/Map_Game/map.tmx: " + exception.getMessage());
-            try {
-                // Fallback map cu de tranh chan pipeline gameplay.
-                loadedMap = new TiledMapLoader().load("assets/maps/mapdemo.tmx");
-            } catch (Exception fallbackException) {
-                // Neu map loi thi game van chay theo luong cu.
-                System.out.println("Cannot load fallback tiled map: " + fallbackException.getMessage());
-            }
-        }
-
+        MapData loadedMap = tryLoadMap();
         this.mapData = loadedMap;
-        List<MapObjectData> runtimeCollisionObjects = new ArrayList<>();
         if (loadedMap != null) {
-            runtimeCollisionObjects.addAll(loadedMap.getCollisionObjects());
-            // Adapter: map Tile Properties -> resource objects runtime.
-            // Chi them vao runtime list, khong sua file map goc.
-            runtimeCollisionObjects.addAll(new TileResourceAdapter().buildResourceObjects(loadedMap));
-        }
-        this.mapCollisions = runtimeCollisionObjects;
-        this.resourceManager.loadFromMapObjects(this.mapCollisions);
-        List<String> contractErrors = new ResourceContractValidator().validate(this.mapCollisions);
-        if (!contractErrors.isEmpty()) {
-            System.out.println("=== Resource contract warnings ===");
-            for (String error : contractErrors) {
-                System.out.println(error);
-            }
-        }
-        this.renderer.setMapData(loadedMap);
-        this.tileCollisionResolver = loadedMap == null ? null : new TileCollisionResolver(loadedMap, resourceManager);
-
-        // Neu load duoc map tiled: dung kich thuoc map pixel lam world boundary thuc te.
-        if (loadedMap != null) {
+            // Neu map load thanh cong, world boundary phai khop map de camera/player nam dung vi tri.
             this.worldWidth = loadedMap.getPixelWidth();
             this.worldHeight = loadedMap.getPixelHeight();
         }
+        List<MapObjectData> runtimeObjects = new ArrayList<>();
+        if (loadedMap != null) {
+            runtimeObjects.addAll(loadedMap.getCollisionObjects());
+            runtimeObjects.addAll(new TileResourceAdapter().buildResourceObjects(loadedMap));
+        }
+        this.mapCollisions = runtimeObjects;
+        this.resourceManager.loadFromMapObjects(this.mapCollisions);
+        this.tileCollisionResolver = loadedMap == null ? null : new TileCollisionResolver(loadedMap, resourceManager);
+        this.buildCollisionManager = new build.CollisionManager(
+                loadedMap,
+                this.mapCollisions,
+                this.tileCollisionResolver,
+                this.resourceManager,
+                this.worldWidth,
+                this.worldHeight
+        );
+        this.buildManager = new BuildManager(wallAssetManager, buildCollisionManager);
+        this.renderer = new Renderer(stage, inputHandler, wallAssetManager);
+        this.renderer.setMapData(loadedMap);
+        wireUiCallbacks();
 
-        // Spawn player o GIUA world thuc te (uu tien map tiled 120x80 neu co).
-        recalculatePlayerStartAtWorldCenter();
-        player.reset(playerStartX, playerStartY);
-        updateCamera();
-        dayNightCycle.reset(System.nanoTime());
+        validateResourceContracts();
+        resetWorldPosition();
+        boolean loadedFromSave = applyLoadedSaveIfAny();
+        this.hasLoadedSaveSnapshot = loadedFromSave;
+        if (!loadedFromSave) {
+            seedStartingBuildItems();
+        } else {
+            ensureStoneWallSlotHasVisibleAmount();
+        }
+        setSelectedHotbarIndex(selectedHotbarIndex);
+        renderer.setContinueAvailable(hasLoadedSaveSnapshot);
+        renderer.setSettingsBackAction(this::closeSettingsFromUi);
+
+        // Event system: hien tai chi log cac event quan trong de debug gameplay.
+        eventBus.subscribe(event -> {
+            if (event.getType() == GameEventType.WORLD_SAVED || event.getType() == GameEventType.BOSS_KILLED) {
+                System.out.println("[Event] " + event.getType() + " " + event.getPayload());
+            }
+        });
     }
 
     public void start() {
         gameLoop.start();
     }
 
+    /**
+     * wireUiCallbacks:
+     * - Noi button/menu/shop/hotbar JavaFX vao gameplay state that.
+     * - Vi sao can: UI moi khong con ve tay tren Canvas, nen event click phai day thang vao Game.
+     */
+    private void wireUiCallbacks() {
+        renderer.setMenuActions(
+                this::openNewGameNameScreen,
+                this::continueSavedWorld,
+                () -> gameState = GameState.GUIDE,
+                this::openSettingsFromMenu,
+                Platform::exit
+        );
+        renderer.setNameActions(this::confirmEnteredNameAndStart, this::backToWelcomeMenu);
+        renderer.setHotbarSelectionListener(this::setSelectedHotbarIndex);
+        renderer.setShopBuyListener(this::purchaseShopItem);
+        renderer.setInventoryCloseAction(() -> renderer.setInventoryVisible(false));
+    }
+
     public void update(long now) {
         if (lastUpdateNowNs < 0) {
             lastUpdateNowNs = now;
         }
-        // Tach update() thanh nhieu ham state-specific de:
-        // 1) de doc/de review tung man hinh
-        // 2) de debug regression nhanh (loi nam o state nao ro rang)
-        // 3) de sau nay co the dua tung khoi sang subsystem rieng
-        //    (UI flow, input flow, combat flow) ma khong pha logic con lai.
+
         switch (gameState) {
-            case GAME_OVER:
-                handleGameOverState();
-                break;
             case WELCOME:
                 handleWelcomeState(now);
-                break;
-            case NAME_INPUT:
-                handleNameInputState();
                 break;
             case GUIDE:
                 handleGuideState();
                 break;
-            case LEVEL_SELECT:
-                handleLevelSelectState();
-                break;
-            case LEVEL_COMPLETE:
-                handleLevelCompleteState();
-                break;
-            case PAUSED:
-                handlePausedState();
+            case NAME_INPUT:
+                handleNameInputState();
                 break;
             case PLAYING:
-                // Neu ham nay tra true: frame da early-return (vi pause),
-                // khong chay inputHandler.update() lan nua.
                 if (handlePlayingState(now)) {
                     return;
                 }
                 break;
+            case PAUSED:
+                handlePausedState(now);
+                break;
+            case GAME_OVER:
+                handleGameOverState();
+                break;
+            case LEVEL_COMPLETE:
+                handleVictoryState(now);
+                break;
             default:
                 break;
         }
+
         inputHandler.update();
     }
 
-    private void handleGameOverState() {
-        if (inputHandler.isJustPressed(KeyCode.R)) {
-            restartGame();
+    public void render(long now) {
+        // objectiveStatus dung lai slot hien level objective de hien mission sinh ton.
+        String objectiveStatus = buildSurvivalObjectiveStatus(now);
+
+        renderer.render(
+                gameState,
+                player,
+                enemies,
+                now,
+                cameraX,
+                cameraY,
+                menuIndex,
+                now < welcomeFlashUntilNs,
+                playerNameBuffer.toString(),
+                MAX_PLAYER_NAME_LENGTH,
+                null,
+                null,
+                0,
+                null,
+                objectiveStatus,
+                null,
+                resourceManager.getAllResources(),
+                inventory.snapshot(),
+                selectedHotbarIndex,
+                inventory.getAmount(STONE_WALL_ITEM_ID),
+                buildManager,
+                floatingDamageTexts,
+                dayNightCycle.getDarknessAlpha(now),
+                dayNightCycle.isNight(now),
+                dayNightCycle.getPhaseName(now),
+                worldWidth,
+                worldHeight
+        );
+    }
+
+    public GameState getGameState() {
+        return gameState;
+    }
+
+    public Player getPlayer() {
+        return player;
+    }
+
+    private MapData tryLoadMap() {
+        try {
+            // Yeu cau moi: uu tien map chinh trong assets/Map_Game.
+            return new TiledMapLoader().load("assets/Map_Game/map.tmx");
+        } catch (Exception firstError) {
+            // Giu fallback de game khong vo ngay ca khi map team dang sua.
+            System.out.println("Cannot load assets/Map_Game/map.tmx: " + firstError.getMessage());
+            try {
+                return new TiledMapLoader().load("assets/maps/mapdemo.tmx");
+            } catch (Exception secondError) {
+                System.out.println("Cannot load fallback map: " + secondError.getMessage());
+                return null;
+            }
         }
+    }
+
+    private void validateResourceContracts() {
+        List<String> errors = new ResourceContractValidator().validate(mapCollisions);
+        if (errors.isEmpty()) {
+            return;
+        }
+        System.out.println("=== Resource contract warnings ===");
+        for (String error : errors) {
+            System.out.println(error);
+        }
+    }
+
+    private void resetWorldPosition() {
+        // Dat player va base camp vao trung tam world de luong spawn nhat quan.
+        // Spawn player va base camp vao trung tam world hien tai.
+        // Neu world = map tiled thi day chinh la trung tam map trong assets/Map_Game.
+        double centerX = worldWidth * 0.5;
+        double centerY = worldHeight * 0.5;
+        double[] safeSpawn = findNearestSafeSpawn(centerX - player.getWidth() * 0.5, centerY - player.getHeight() * 0.5);
+        player.reset(safeSpawn[0], safeSpawn[1]);
+        baseCamp.setPosition(safeSpawn[0] - 72, safeSpawn[1] - 72);
+        baseCamp.clampPosition(0, 0, worldWidth, worldHeight);
+        dayNightCycle.reset(System.nanoTime());
+        updateCamera();
+    }
+
+    // findNearestSafeSpawn:
+    // - Input: vi tri spawn mong muon.
+    // - Output: vi tri khong bi block collision de player di duoc ngay.
+    private double[] findNearestSafeSpawn(double preferredX, double preferredY) {
+        double baseX = Math.max(0, Math.min(worldWidth - player.getWidth(), preferredX));
+        double baseY = Math.max(0, Math.min(worldHeight - player.getHeight(), preferredY));
+        if (!isBlockedAt(baseX, baseY)) {
+            return new double[]{baseX, baseY};
+        }
+
+        double step = 32;
+        int radiusSteps = 16;
+        for (int r = 1; r <= radiusSteps; r++) {
+            for (int ix = -r; ix <= r; ix++) {
+                for (int iy = -r; iy <= r; iy++) {
+                    if (Math.abs(ix) != r && Math.abs(iy) != r) {
+                        continue;
+                    }
+                    double testX = Math.max(0, Math.min(worldWidth - player.getWidth(), baseX + ix * step));
+                    double testY = Math.max(0, Math.min(worldHeight - player.getHeight(), baseY + iy * step));
+                    if (!isBlockedAt(testX, testY)) {
+                        return new double[]{testX, testY};
+                    }
+                }
+            }
+        }
+        return new double[]{baseX, baseY};
+    }
+
+    // isBlockedAt:
+    // - Input: toa do player test.
+    // - Output: true neu vi tri khong hop le do va cham collision object/tile.
+    private boolean isBlockedAt(double x, double y) {
+        double px = x + player.getWidth() * 0.22;
+        double py = y + player.getHeight() * 0.30;
+        double pw = player.getWidth() * 0.56;
+        double ph = player.getHeight() * 0.62;
+
+        for (MapObjectData object : mapCollisions) {
+            if (!"Collision".equalsIgnoreCase(object.getType())) {
+                continue;
+            }
+            if (object.intersects(px, py, pw, ph)) {
+                return true;
+            }
+        }
+
+        if (tileCollisionResolver != null && tileCollisionResolver.isBlocked(px, py, pw, ph)) {
+            return true;
+        }
+        return buildCollisionManager.intersectsPlacedWall(px, py, pw, ph, buildManager.getWalls());
     }
 
     private void handleWelcomeState(long now) {
-        // Ho tro hover + click chuot trong WELCOME.
-        updateWelcomeMenuHoverByMouse();
-
-        if (pendingWelcomeAction == -1) {
-            if (inputHandler.isJustPressed(KeyCode.UP) || inputHandler.isJustPressed(KeyCode.W)) {
-                menuIndex = (menuIndex - 1 + MENU_COUNT) % MENU_COUNT;
-            }
-            if (inputHandler.isJustPressed(KeyCode.DOWN) || inputHandler.isJustPressed(KeyCode.S)) {
-                menuIndex = (menuIndex + 1) % MENU_COUNT;
-            }
-        }
-
-        if (pendingWelcomeAction == -1 && inputHandler.isMouseLeftJustClicked()) {
-            int clickedIndex = findWelcomeMenuIndexAt(inputHandler.getMouseX(), inputHandler.getMouseY());
-            if (clickedIndex != -1) {
-                menuIndex = clickedIndex;
-                welcomeFlashUntilNs = now + WELCOME_FLASH_DURATION_NS;
-                pendingWelcomeAction = menuIndex;
-            }
-        }
-
-        if (inputHandler.isJustPressed(KeyCode.H)) {
-            gameState = GameState.GUIDE;
-        } else if (inputHandler.isJustPressed(KeyCode.ENTER)) {
-            welcomeFlashUntilNs = now + WELCOME_FLASH_DURATION_NS;
-            pendingWelcomeAction = menuIndex;
-        }
-
-        long transitionAtNs = welcomeFlashUntilNs + WELCOME_TRANSITION_DELAY_NS;
-        if (pendingWelcomeAction != -1 && now >= transitionAtNs) {
-            if (pendingWelcomeAction == MENU_PLAY) {
-                gameState = GameState.NAME_INPUT;
-            } else if (pendingWelcomeAction == MENU_GUIDE) {
-                gameState = GameState.GUIDE;
-            } else if (pendingWelcomeAction == MENU_EXIT) {
-                Platform.exit();
-            }
-            pendingWelcomeAction = -1;
-        }
-    }
-
-    private void handleNameInputState() {
-        if (inputHandler.isJustPressed(KeyCode.ESCAPE)) {
-            gameState = GameState.WELCOME;
-            pendingWelcomeAction = -1;
+        if (inputHandler.isJustPressed(KeyCode.ESCAPE) && renderer.closeTopOverlay()) {
+            renderer.saveSettings();
             return;
         }
-
-        if (inputHandler.isJustPressed(KeyCode.BACK_SPACE) && playerNameBuffer.length() > 0) {
-            playerNameBuffer.deleteCharAt(playerNameBuffer.length() - 1);
+        if (renderer.isSettingsVisible()) {
+            if (inputHandler.isJustPressed(KeyCode.F11)) {
+                renderer.toggleFullscreen();
+            }
+            return;
         }
-
-        if (inputHandler.isJustPressed(KeyCode.SPACE)
-                && playerNameBuffer.length() < MAX_PLAYER_NAME_LENGTH
-                && playerNameBuffer.length() > 0
-                && playerNameBuffer.charAt(playerNameBuffer.length() - 1) != ' ') {
-            playerNameBuffer.append(' ');
+        if (inputHandler.isJustPressed(KeyCode.F11)) {
+            renderer.toggleFullscreen();
         }
-
-        appendTypedCharacters();
-
         if (inputHandler.isJustPressed(KeyCode.ENTER)) {
-            String normalizedName = normalizePlayerName(playerNameBuffer.toString());
-            player.setPlayerName(normalizedName);
-            selectedLevelIndex = findIndexByLevelId(levelManager.getFirstUnlockedLevelId());
-            gameState = GameState.LEVEL_SELECT;
+            openNewGameNameScreen();
+        }
+        if (inputHandler.isJustPressed(KeyCode.H)) {
+            gameState = GameState.GUIDE;
         }
     }
 
     private void handleGuideState() {
+        if (inputHandler.isJustPressed(KeyCode.F11)) {
+            renderer.toggleFullscreen();
+        }
         if (inputHandler.isJustPressed(KeyCode.ESCAPE)) {
             gameState = GameState.WELCOME;
         } else if (inputHandler.isJustPressed(KeyCode.ENTER)) {
-            selectedLevelIndex = findIndexByLevelId(levelManager.getFirstUnlockedLevelId());
-            gameState = GameState.LEVEL_SELECT;
+            gameState = GameState.NAME_INPUT;
         }
     }
 
-    private void handleLevelSelectState() {
-        List<Level> levels = levelManager.getAllLevels();
-        if (levels.isEmpty()) {
-            return;
-        }
-        if (selectedLevelIndex < 0 || selectedLevelIndex >= levels.size()) {
-            selectedLevelIndex = findIndexByLevelId(levelManager.getFirstUnlockedLevelId());
-        }
-
-        if (inputHandler.isJustPressed(KeyCode.UP) || inputHandler.isJustPressed(KeyCode.W)) {
-            selectedLevelIndex = (selectedLevelIndex - 1 + levels.size()) % levels.size();
-        }
-        if (inputHandler.isJustPressed(KeyCode.DOWN) || inputHandler.isJustPressed(KeyCode.S)) {
-            selectedLevelIndex = (selectedLevelIndex + 1) % levels.size();
+    private void handleNameInputState() {
+        if (inputHandler.isJustPressed(KeyCode.F11)) {
+            renderer.toggleFullscreen();
         }
         if (inputHandler.isJustPressed(KeyCode.ESCAPE)) {
-            gameState = GameState.WELCOME;
-            return;
-        }
-        if (!inputHandler.isJustPressed(KeyCode.ENTER)) {
+            backToWelcomeMenu();
             return;
         }
 
-        Level selectedLevel = levels.get(selectedLevelIndex);
-        if (!levelManager.selectLevel(selectedLevel.getId())) {
-            return;
-        }
-        startSelectedLevel();
-    }
+        String enteredName = renderer.getEnteredName();
+        playerNameBuffer.setLength(0);
+        playerNameBuffer.append(enteredName == null ? "" : enteredName);
+        renderer.updateNameLength(playerNameBuffer.length(), MAX_PLAYER_NAME_LENGTH);
 
-    private void handleLevelCompleteState() {
         if (inputHandler.isJustPressed(KeyCode.ENTER)) {
-            selectedLevelIndex = findIndexByLevelId(levelManager.getSuggestedNextLevelId());
-            gameState = GameState.LEVEL_SELECT;
-            return;
-        }
-        if (inputHandler.isJustPressed(KeyCode.ESCAPE)) {
-            gameState = GameState.LEVEL_SELECT;
+            confirmEnteredNameAndStart();
         }
     }
 
-    private void handlePausedState() {
-        if (inputHandler.isJustPressed(KeyCode.P)) {
-            gameState = GameState.PLAYING;
-        } else if (inputHandler.isJustPressed(KeyCode.ESCAPE)) {
-            gameState = GameState.WELCOME;
-            menuIndex = 0;
-        }
-    }
-
-    // Tra ve true neu frame dung tai day (vi vua bam ESC de pause).
     private boolean handlePlayingState(long now) {
-        if (inputHandler.isJustPressed(KeyCode.ESCAPE)) {
+        if (inputHandler.isJustPressed(KeyCode.F11)) {
+            renderer.toggleFullscreen();
+        }
+        if (inputHandler.isJustPressed(KeyCode.M)) {
+            renderer.toggleMinimap();
+        }
+        if (inputHandler.isJustPressed(KeyCode.B)) {
+            renderer.toggleShop();
+        }
+        if (inputHandler.isJustPressed(KeyCode.I)) {
+            renderer.toggleInventory();
+        }
+
+        if (inputHandler.isJustPressed(KeyCode.ESCAPE) && renderer.closeTopOverlay()) {
+            renderer.hideToast();
+            inputHandler.update();
+            return true;
+        }
+
+        if (buildManager.getBuildMode() == BuildMode.BUILD_WALL_MODE && inputHandler.isJustPressed(KeyCode.ESCAPE)) {
+            buildManager.cancelBuildMode();
+        } else if (inputHandler.isJustPressed(KeyCode.ESCAPE)) {
+            saveWorldSnapshot();
             gameState = GameState.PAUSED;
             inputHandler.update();
             return true;
         }
 
-        double oldPlayerX = player.getX();
-        double oldPlayerY = player.getY();
+        // Hotbar input:
+        // - Cho phep doi slot bang phim so va click truc tiep len thanh item.
+        // - Vi sao can: user dang choi game sinh ton nay, khong phai demo rieng.
+        boolean hotbarClickConsumed = updateHotbarSelectionInput();
+        // Q rotate:
+        // - Mỗi lần bấm Q se doi huong N -> E -> S -> W.
+        // - Preview se cap nhat ngay sau do trong cung frame.
+        if (inputHandler.isJustPressed(KeyCode.Q)) {
+            buildManager.rotateWall();
+        }
+        boolean mouseOverUi = renderer.isMouseOverUi(inputHandler.getMouseX(), inputHandler.getMouseY());
+        boolean blockingOverlayVisible = renderer.isBlockingOverlayVisible();
+        // Build preview:
+        // - Chuyen mouse screen-space sang world-space qua camera/zoom.
+        // - Snap ve grid de preview va wall that nam dung tren tile map.
+        // - Chuot de len UI thi an preview de khong dat nham vao hotbar/minimap/HUD.
+        buildManager.updatePreview(
+                inputHandler.getMouseX(),
+                inputHandler.getMouseY(),
+                cameraX,
+                cameraY,
+                CAMERA_ZOOM,
+                mouseOverUi,
+                player,
+                inventory.getAmount(STONE_WALL_ITEM_ID)
+        );
 
-        boolean moveLeft = !player.isAttacking() && inputHandler.isPressed(KeyCode.A);
-        boolean moveRight = !player.isAttacking() && inputHandler.isPressed(KeyCode.D);
-        boolean moveUp = !player.isAttacking() && inputHandler.isPressed(KeyCode.W);
-        boolean moveDown = !player.isAttacking() && inputHandler.isPressed(KeyCode.S);
+        // Update loop chinh:
+        // 1) Xu ly input/di chuyen
+        // 2) Xu ly combat, resource, AI
+        // 3) Xu ly spawn/event/save
+        double oldX = player.getX();
+        double oldY = player.getY();
+
+        boolean moveLeft = !blockingOverlayVisible && !player.isAttacking() && inputHandler.isPressed(KeyCode.A);
+        boolean moveRight = !blockingOverlayVisible && !player.isAttacking() && inputHandler.isPressed(KeyCode.D);
+        boolean moveUp = !blockingOverlayVisible && !player.isAttacking() && inputHandler.isPressed(KeyCode.W);
+        boolean moveDown = !blockingOverlayVisible && !player.isAttacking() && inputHandler.isPressed(KeyCode.S);
+        boolean movingByInput = moveLeft || moveRight || moveUp || moveDown;
+        // SPACE + WASD => Running, con WASD thuong => Walking.
+        boolean sprinting = movingByInput && inputHandler.isPressed(KeyCode.SPACE);
+        player.setSprinting(sprinting);
 
         if (moveLeft) {
             player.moveLeft();
@@ -412,408 +563,241 @@ public class Game {
             player.moveDown();
         }
 
-        if (inputHandler.isPressed(KeyCode.J)) {
-            player.takeDamage(1);
-        }
-        if (inputHandler.isPressed(KeyCode.K)) {
-            player.heal(1);
-        }
-
-        // Input tan cong:
-        // - Click chuot trai -> HIT (4 frame Hit_Base) theo yeu cau moi.
-        // - Phim F -> SLICE (giu lai de test/legacy, sau nay map voi vu khi).
-        if (inputHandler.isMouseLeftJustClicked()) {
-            performPlayerAttack(now, Player.AttackAnimationType.HIT);
-        } else if (inputHandler.isJustPressed(KeyCode.F)) {
-            // Skill F yeu cau du nang luong moi duoc kich hoat.
+        if (!blockingOverlayVisible && !hotbarClickConsumed && inputHandler.isMouseLeftJustClicked() && !mouseOverUi) {
+            if (buildManager.getBuildMode() == BuildMode.BUILD_WALL_MODE) {
+                // Dat wall:
+                // - Chi dat khi click tren world, khong de len UI.
+                // - BuildManager se validate occupied tile/collision truoc khi tao wall.
+                // - Dat thanh cong moi tru 1 stone_wall trong inventory.
+                if (buildManager.tryPlaceSelectedItem(player, inventory.getAmount(STONE_WALL_ITEM_ID))) {
+                    inventory.consumeItem(STONE_WALL_ITEM_ID, 1);
+                }
+            } else {
+                performPlayerAttack(now, Player.AttackAnimationType.HIT);
+            }
+        } else if (!blockingOverlayVisible && inputHandler.isJustPressed(KeyCode.F)) {
             if (player.consumeEnergy(SKILL_F_ENERGY_COST)) {
                 performPlayerAttack(now, Player.AttackAnimationType.SLICE);
             }
+        }
+
+        player.clampPosition(0, 0, worldWidth, worldHeight);
+        if (isPlayerCollidingWithMapCollision()) {
+            player.setPosition(oldX, oldY);
+        }
+
+        boolean moving = oldX != player.getX() || oldY != player.getY();
+        player.updateAnimation(now, moving, moveUp, moveDown, moveLeft, moveRight);
+        updateEnergyByMovement(now, moving, sprinting);
+
+        // Chunk map update:
+        // - Moi chunk moi vao tam nhin se sinh them resource de world "vo han".
+        for (WorldChunk chunk : infiniteWorldManager.updateAndGetNewChunks(player.getX(), player.getY())) {
+            injectChunkResources(chunk);
         }
 
         resourceManager.update(now);
         cleanupExpiredDamageTexts(now);
         updateEnemySpawning(now);
         updateEnemies(now);
-        player.clampPosition(0, 0, worldWidth, worldHeight);
 
-        if (isPlayerCollidingWithMapCollision()) {
-            player.setPosition(oldPlayerX, oldPlayerY);
+        if (bossEnemy != null && !bossEnemy.isAlive()) {
+            victoryAtNs = now;
+            gameState = GameState.LEVEL_COMPLETE;
+            eventBus.publish(new GameEvent(GameEventType.BOSS_KILLED, Map.of("day", getCurrentSurvivalDay(now))));
         }
 
-        boolean playerMoving = oldPlayerX != player.getX() || oldPlayerY != player.getY();
-        player.updateAnimation(now, playerMoving, moveUp, moveDown, moveLeft, moveRight);
-        updateEnergyByMovement(now, playerMoving);
-        checkLevelCompletion(now);
-        if (!player.isAlive()) {
+        if (!player.isAlive() || !baseCamp.isAlive()) {
+            // Luu ly do thua de UI hien dung thong diep thay vi mac dinh "player chet".
+            gameOverReason = !player.isAlive() ? GameOverReason.PLAYER_DIED : GameOverReason.BASE_CAMP_DESTROYED;
             gameState = GameState.GAME_OVER;
         }
 
+        if (now - lastAutoSaveAtNs >= AUTOSAVE_INTERVAL_NS) {
+            saveWorldSnapshot();
+            lastAutoSaveAtNs = now;
+        }
+
         updateCamera();
         return false;
     }
 
-    private void updateCamera() {
-        // Khi zoom > 1, viewport world thuc te nho hon man hinh.
-        // Vi vay tam camera phai dua tren "viewport world sau zoom":
-        // viewWorldWidth  = screenWidth  / zoom
-        // viewWorldHeight = screenHeight / zoom
-        double viewWorldWidth = GameConfig.WIDTH / CAMERA_ZOOM;
-        double viewWorldHeight = GameConfig.HEIGHT / CAMERA_ZOOM;
-
-        cameraX = player.getX() + player.getWidth() / 2 - viewWorldWidth / 2;
-        cameraY = player.getY() + player.getHeight() / 2 - viewWorldHeight / 2;
-
-        if (cameraX < 0) {
-            cameraX = 0;
+    private void handlePausedState(long now) {
+        if (inputHandler.isJustPressed(KeyCode.F11)) {
+            renderer.toggleFullscreen();
         }
-        if (cameraY < 0) {
-            cameraY = 0;
-        }
-
-        // Camera phai clamp theo world thuc te (map tiled neu co),
-        // neu khong se sinh ra "ban do ao" va gioi han di chuyen sai.
-        double maxCameraX = worldWidth - viewWorldWidth;
-        double maxCameraY = worldHeight - viewWorldHeight;
-
-        if (maxCameraX < 0) {
-            maxCameraX = 0;
-        }
-        if (maxCameraY < 0) {
-            maxCameraY = 0;
-        }
-
-        if (cameraX > maxCameraX) {
-            cameraX = maxCameraX;
-        }
-        if (cameraY > maxCameraY) {
-            cameraY = maxCameraY;
+        if (inputHandler.isJustPressed(KeyCode.P)) {
+            gameState = GameState.PLAYING;
+        } else if (inputHandler.isJustPressed(KeyCode.ESCAPE)) {
+            saveWorldSnapshot();
+            gameState = GameState.WELCOME;
+        } else if (inputHandler.isJustPressed(KeyCode.F5)) {
+            saveWorldSnapshot();
+            lastAutoSaveAtNs = now;
         }
     }
 
-    public void render(long now) {
-        boolean welcomeFlashing = now < welcomeFlashUntilNs;
-        renderer.render(
-                gameState,
-                player,
-                enemies,
-                now,
-                cameraX,
-                cameraY,
-                menuIndex,
-                welcomeFlashing,
-                playerNameBuffer.toString(),
-                MAX_PLAYER_NAME_LENGTH,
-                levelManager.getAllLevels(),
-                levelManager.getPlayerProgress(),
-                selectedLevelIndex,
-                levelManager.getCurrentLevel(),
-                buildCurrentObjectiveStatus(now),
-                lastLevelResult,
-                resourceManager.getAllResources(),
-                collectedResources,
-                floatingDamageTexts,
-                dayNightCycle.getDarknessAlpha(now),
-                dayNightCycle.isNight(now),
-                dayNightCycle.getPhaseName(now),
-                worldWidth,
-                worldHeight
-        );
+    private void handleGameOverState() {
+        if (inputHandler.isJustPressed(KeyCode.F11)) {
+            renderer.toggleFullscreen();
+        }
+        if (inputHandler.isJustPressed(KeyCode.R)) {
+            restartSurvival();
+        }
     }
 
-    public GameState getGameState() {
-        return gameState;
+    private void handleVictoryState(long now) {
+        if (inputHandler.isJustPressed(KeyCode.F11)) {
+            renderer.toggleFullscreen();
+        }
+        // Sau khi thang boss: Enter de tao world moi, ESC de quay menu.
+        if (inputHandler.isJustPressed(KeyCode.ENTER)) {
+            restartSurvival();
+        }
+        if (inputHandler.isJustPressed(KeyCode.ESCAPE)) {
+            saveWorldSnapshot();
+            gameState = GameState.WELCOME;
+        }
+
+        // Auto-save ngay sau khi thang de luu moc chien thang.
+        if (victoryAtNs > 0 && now - victoryAtNs < 1_000_000_000L) {
+            saveWorldSnapshot();
+            victoryAtNs = -1L;
+        }
     }
 
-    public void setGameState(GameState gameState) {
-        this.gameState = gameState;
+    private void openNewGameNameScreen() {
+        pendingStartFreshWorld = true;
+        renderer.hideToast();
+        renderer.setInventoryVisible(false);
+        renderer.setShopVisible(false);
+        gameState = GameState.NAME_INPUT;
     }
 
-    public Player getPlayer() {
-        return player;
-    }
-
-    private void restartGame() {
-        // Moi lan vao game/reset, spawn dung giua world hien tai.
-        recalculatePlayerStartAtWorldCenter();
-        player.reset(playerStartX, playerStartY);
-        enemies.clear();
-        floatingDamageTexts.clear();
+    private void continueSavedWorld() {
+        if (!hasLoadedSaveSnapshot) {
+            renderer.showToast("No saved world");
+            return;
+        }
+        pendingStartFreshWorld = false;
+        renderer.hideToast();
         gameState = GameState.PLAYING;
-        menuIndex = 0;
-        pendingWelcomeAction = -1; // dam bao khong con action cho tu menu
+    }
+
+    private void openSettingsFromMenu() {
+        renderer.setSettingsVisible(true);
+    }
+
+    private void closeSettingsFromUi() {
+        renderer.setSettingsVisible(false);
+        renderer.saveSettings();
+    }
+
+    private void backToWelcomeMenu() {
+        renderer.showNameError("");
+        pendingStartFreshWorld = false;
+        gameState = GameState.WELCOME;
+    }
+
+    /**
+     * confirmEnteredNameAndStart:
+     * - Validate ten nhan vat tu TextField JavaFX.
+     * - Neu hop le thi vao world; PLAY tao world moi, CONTINUE giu save hien tai.
+     */
+    private void confirmEnteredNameAndStart() {
+        String normalizedName = normalizePlayerName(renderer.getEnteredName());
+        if (normalizedName == null || normalizedName.isBlank()) {
+            renderer.showNameError("Name must not be empty.");
+            return;
+        }
+        if (normalizedName.length() > MAX_PLAYER_NAME_LENGTH) {
+            renderer.showNameError("Name must be at most " + MAX_PLAYER_NAME_LENGTH + " characters.");
+            return;
+        }
+
+        playerNameBuffer.setLength(0);
+        playerNameBuffer.append(normalizedName);
+        player.setPlayerName(normalizedName);
+        renderer.showNameError("");
+
+        if (pendingStartFreshWorld) {
+            restartSurvival();
+            pendingStartFreshWorld = false;
+            hasLoadedSaveSnapshot = true;
+            renderer.setContinueAvailable(true);
+            return;
+        }
+        gameState = GameState.PLAYING;
+    }
+
+    /**
+     * purchaseShopItem:
+     * - Input: itemId tu nut Buy.
+     * - Output: update inventory neu du coin.
+     * - Tac dong gameplay: shop tang item that, panel inventory/hotbar se tu cap nhat frame sau.
+     */
+    private void purchaseShopItem(String itemId) {
+        if (itemId == null || itemId.isBlank()) {
+            return;
+        }
+
+        int price = switch (itemId) {
+            case STONE_WALL_ITEM_ID -> 6;
+            case WOOD_WALL_ITEM_ID -> 4;
+            case POTION_ITEM_ID -> 12;
+            case TORCH_ITEM_ID -> 8;
+            case BASIC_SWORD_ITEM_ID -> 18;
+            case PICKAXE_ITEM_ID -> 14;
+            case CARROT_ITEM_ID -> 3;
+            default -> -1;
+        };
+
+        if (price < 0) {
+            renderer.showToast("Unknown item");
+            return;
+        }
+        if (inventory.getAmount(COIN_ITEM_ID) < price) {
+            renderer.showToast("Not enough coins");
+            return;
+        }
+
+        inventory.consumeItem(COIN_ITEM_ID, price);
+        inventory.addItem(itemId, 1);
+        renderer.showToast("Bought " + prettifyItemName(itemId));
+    }
+
+    private void restartSurvival() {
+        // Reset world moi: clear enemy/resource procedural va inventory.
+        enemies.clear();
+        bossEnemy = null;
+        buildManager.clearWalls();
+        inventory.restore(Map.of());
+        seedStartingBuildItems();
+        selectedHotbarIndex = 0;
+        floatingDamageTexts.clear();
+        resourceManager.loadFromMapObjects(mapCollisions);
+        // Hoi mau day cho player va nha chinh de thoat khoi vong lap GAME_OVER.
+        player.setHpForLoad(player.getMaxHp());
+        player.setEnergyForLoad(player.getMaxEnergy());
+        baseCamp.setHpForLoad(baseCamp.getMaxHp());
+        worldStartedAtNs = System.nanoTime();
         lastEnemySpawnAtNs = 0L;
         lastUpdateNowNs = -1L;
-        levelStartedAtNs = levelManager.getCurrentLevel() == null ? -1L : System.nanoTime();
-        // Update camera ngay luc reset de frame dau tien vao game da focus dung vao player.
-        updateCamera();
-        dayNightCycle.reset(System.nanoTime());
-    }
+        selectedHotbarIndex = 0;
+        setSelectedHotbarIndex(selectedHotbarIndex);
 
-    private void startSelectedLevel() {
-        restartGame();
-        collectedResources.clear();
-        levelStartedAtNs = System.nanoTime();
+        resetWorldPosition();
         gameState = GameState.PLAYING;
     }
 
-    private void recalculatePlayerStartAtWorldCenter() {
-        // Center cua map/world tinh theo pixel:
-        // centerX = worldWidth / 2, centerY = worldHeight / 2
-        // Vi player co kich thuoc rieng, can tru di nua width/height de dat tam player vao giua.
-        playerStartX = worldWidth / 2 - player.getWidth() / 2;
-        playerStartY = worldHeight / 2 - player.getHeight() / 2;
-    }
-
-    // Khong con tree/wolf test class: enemy duoc quan ly boi List<Enemy>.
-
-    private boolean isPlayerCollidingWithMapCollision() {
-        double px = getPlayerCollisionX();
-        double py = getPlayerCollisionY();
-        double pw = getPlayerCollisionWidth();
-        double ph = getPlayerCollisionHeight();
-
-        // 1) Collision theo Object Layer / object runtime adapter.
-        for (MapObjectData object : mapCollisions) {
-            // Chi check object dung vai tro collision.
-            if (!"Collision".equalsIgnoreCase(object.getType())) {
-                continue;
-            }
-
-            // Neu object nay la resource va da bi pha thi bo qua collision,
-            // giup player di xuyen qua sau khi "chat/dao" xong.
-            if (isResourceObject(object) && !isResourceAlive(object.getId())) {
-                continue;
-            }
-            if (object.intersects(px, py, pw, ph)) {
-                return true;
-            }
-        }
-
-        // 2) Collision theo Tile Properties (fallback/chinh cho map moi khong co Object Layer).
-        if (tileCollisionResolver != null && tileCollisionResolver.isBlocked(px, py, pw, ph)) {
-            return true;
-        }
-
-        return false;
-    }
-
-    private double getPlayerCollisionX() {
-        // Thu nho hitbox ngang de sprite 48x48 khong bi block qua som.
-        return player.getX() + player.getWidth() * 0.22;
-    }
-
-    private double getPlayerCollisionY() {
-        // Day hitbox xuong duoi de uu tien phan "chan" va cham world object.
-        return player.getY() + player.getHeight() * 0.30;
-    }
-
-    private double getPlayerCollisionWidth() {
-        return player.getWidth() * 0.56;
-    }
-
-    private double getPlayerCollisionHeight() {
-        return player.getHeight() * 0.62;
-    }
-
-    // Duyet A..Z va append ky tu vua bam.
-    // Cac phim duoc luu theo enum KeyCode.A ... KeyCode.Z.
-    private void appendLetterFromKeyboard() {
-        if (playerNameBuffer.length() >= MAX_PLAYER_NAME_LENGTH) {
-            return;
-        }
-
-        for (char c = 'A'; c <= 'Z'; c++) {
-            KeyCode code = KeyCode.getKeyCode(String.valueOf(c));
-            if (code != null && inputHandler.isJustPressed(code)) {
-                playerNameBuffer.append(c);
-                return; // Moi frame chi them 1 ky tu de input on dinh.
-            }
-        }
-    }
-
-    // Duyet 0..9 va append so vao ten.
-    private void appendDigitFromKeyboard() {
-        if (playerNameBuffer.length() >= MAX_PLAYER_NAME_LENGTH) {
-            return;
-        }
-
-        // Ho tro day du 2 cum phim so:
-        // 1) Hang so tren cung ban phim: DIGIT0..DIGIT9
-        // 2) Cum numpad: NUMPAD0..NUMPAD9
-        // Ly do bo sung: tuy layout may, nguoi dung co the bam numpad
-        // va neu chi bat DIGIT thi se co cam giac "khong nhap duoc so".
-        for (int d = 0; d <= 9; d++) {
-            KeyCode digitCode = KeyCode.getKeyCode("DIGIT" + d);
-            KeyCode numpadCode = KeyCode.getKeyCode("NUMPAD" + d);
-
-            boolean digitPressed = digitCode != null && inputHandler.isJustPressed(digitCode);
-            boolean numpadPressed = numpadCode != null && inputHandler.isJustPressed(numpadCode);
-
-            if (digitPressed || numpadPressed) {
-                playerNameBuffer.append(d);
-                return;
-            }
-        }
-    }
-
-    // Chuan hoa ten truoc khi save vao player:
-    // - trim bo khoang trang dau/cuoi
-    // - neu rong thi fallback "Player"
-    private String normalizePlayerName(String rawName) {
-        if (rawName == null) {
-            return "Player";
-        }
-        String trimmed = rawName.trim();
-        if (trimmed.isEmpty()) {
-            return "Player";
-        }
-        if (trimmed.length() > MAX_PLAYER_NAME_LENGTH) {
-            return trimmed.substring(0, MAX_PLAYER_NAME_LENGTH);
-        }
-        return trimmed;
-    }
-
-    // Xu ly ky tu text da duoc nhap trong frame hien tai.
-    // Chi cho phep: chu cai, so va dau cach.
-    private void appendTypedCharacters() {
-        if (playerNameBuffer.length() >= MAX_PLAYER_NAME_LENGTH) {
-            return;
-        }
-
-        String typed = inputHandler.consumeTypedCharacters();
-        if (typed == null || typed.isEmpty()) {
-            return;
-        }
-
-        for (int i = 0; i < typed.length(); i++) {
-            if (playerNameBuffer.length() >= MAX_PLAYER_NAME_LENGTH) {
-                break;
-            }
-
-            char ch = typed.charAt(i);
-
-            // Bo qua ky tu dieu khien (Enter, Backspace, ...)
-            if (Character.isISOControl(ch)) {
-                continue;
-            }
-
-            // Cho phep chu cai va so.
-            if (Character.isLetterOrDigit(ch)) {
-                playerNameBuffer.append(Character.toUpperCase(ch));
-                continue;
-            }
-
-            // Cho phep 1 dau cach, nhung khong dat o dau ten va khong lap lai lien tiep.
-            if (ch == ' '
-                    && playerNameBuffer.length() > 0
-                    && playerNameBuffer.charAt(playerNameBuffer.length() - 1) != ' ') {
-                playerNameBuffer.append(' ');
-            }
-        }
-    }
-
-    // Cap nhat item menu dang duoc hover boi chuot.
-    private void updateWelcomeMenuHoverByMouse() {
-        int hoveredIndex = findWelcomeMenuIndexAt(inputHandler.getMouseX(), inputHandler.getMouseY());
-        if (hoveredIndex != -1 && pendingWelcomeAction == -1) {
-            menuIndex = hoveredIndex;
-        }
-    }
-
-    // Tra ve index menu neu diem (mx,my) nam trong 1 button WELCOME.
-    // -1 nghia la chuot dang ngoai vung button.
-    private int findWelcomeMenuIndexAt(double mx, double my) {
-        for (int i = 0; i < MENU_COUNT; i++) {
-            double top = MENU_BUTTON_Y_START + i * MENU_BUTTON_GAP;
-            boolean insideX = mx >= MENU_BUTTON_X && mx <= MENU_BUTTON_X + MENU_BUTTON_WIDTH;
-            boolean insideY = my >= top && my <= top + MENU_BUTTON_HEIGHT;
-            if (insideX && insideY) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    // Xu ly 1 lan tan cong cua player:
-    // 1) Bat state slash animation
-    // 2) Lay hitbox tan cong theo huong nhan vat
-    // 3) Apply damage len resource dau tien giao hitbox
-    // 4) Neu resource vo -> nhan drop vao kho thu thap tam thoi
-    private void performPlayerAttack(long now, Player.AttackAnimationType attackType) {
-        if (!player.startAttack(now, attackType)) {
-            return;
-        }
-
-        // Damage theo loai don danh:
-        // - HIT (danh thuong) = 1
-        // - SLICE (skill F)   = 2
-        int attackDamage = attackType == Player.AttackAnimationType.SLICE ? 2 : 1;
-
-        double[] attackBox = player.buildAttackHitbox();
-        boolean hitEnemy = applyAttackToFirstEnemy(attackBox[0], attackBox[1], attackBox[2], attackBox[3], attackDamage, now);
-        if (hitEnemy) {
-            System.out.println("[Combat] Hit enemy for " + attackDamage + " damage.");
-            return;
-        }
-
-        // API moi tra ve ResourceHitResult (co ca damage + destroyed + drop).
-        ResourceHitResult hitResult = resourceManager.hitFirstResourceIntersecting(
-                attackBox[0],
-                attackBox[1],
-                attackBox[2],
-                attackBox[3],
-                attackDamage,
-                now
-        );
-
-        if (hitResult == null) {
-            System.out.println("[Resource] Attack missed resource.");
-            return;
-        }
-        spawnResourceDamageText(hitResult, now);
-
-        if (!hitResult.isDestroyed() || hitResult.getDropResult() == null) {
-            System.out.println("[Resource] Hit resource for " + hitResult.getDamageApplied() + " damage.");
-            return;
-        }
-
-        DropResult dropResult = hitResult.getDropResult();
-        addCollectedItem(dropResult.getItemId(), dropResult.getAmount());
-        System.out.println("[Resource] Destroyed -> drop " + dropResult.getItemId() + " x" + dropResult.getAmount());
-    }
-
-    // Apply damage len enemy dau tien giao hitbox.
-    private boolean applyAttackToFirstEnemy(double x, double y, double w, double h, int damage, long nowNs) {
-        for (Enemy enemy : enemies) {
-            if (enemy == null || !enemy.isAlive()) {
-                continue;
-            }
-            // intersects() da duoc tach ve CollisionSystem de dong bo AABB logic.
-            if (!CollisionSystem.intersects(enemy, x, y, w, h)) {
-                continue;
-            }
-            DamageResult result = DamageSystem.applyDamage(player, enemy, damage, nowNs);
-            spawnEnemyDamageText(enemy, result, nowNs);
-            return true;
-        }
-        return false;
-    }
-
-    // Spawn manager:
-    // - Ban ngay: it orc (1-2), khong skeleton.
-    // - Ban dem: ca orc + skeleton deu nhieu (7-8 moi loai).
-    // - Spawn tu ria map (4 phia) roi duoi vao player.
     private void updateEnemySpawning(long now) {
         if (now - lastEnemySpawnAtNs < ENEMY_SPAWN_INTERVAL_NS) {
             return;
         }
 
-        boolean night = dayNightCycle.isNight(now);
-        int targetOrc = night ? randomBetween(NIGHT_ORC_TARGET_MIN, NIGHT_ORC_TARGET_MAX)
-                : randomBetween(DAY_ORC_TARGET_MIN, DAY_ORC_TARGET_MAX);
-        int targetSkeleton = night ? randomBetween(NIGHT_SKELETON_TARGET_MIN, NIGHT_SKELETON_TARGET_MAX)
-                : DAY_SKELETON_TARGET;
+        boolean isNight = dayNightCycle.isNight(now);
+        int targetOrc = isNight ? 8 : 2;
+        int targetSkeleton = isNight ? 8 : 0;
 
         int aliveOrc = countAliveEnemyByType("ORC");
         int aliveSkeleton = countAliveEnemyByType("SKELETON");
@@ -822,16 +806,22 @@ public class Game {
             double[] spawn = randomEdgeSpawnPoint();
             enemies.add(new OrcEnemy(spawn[0], spawn[1]));
         }
-
         if (aliveSkeleton < targetSkeleton) {
             double[] spawn = randomEdgeSpawnPoint();
             enemies.add(new SkeletonEnemy(spawn[0], spawn[1]));
         }
 
+        // Spawn boss 1 lan khi dat moc ngay.
+        if (bossEnemy == null && getCurrentSurvivalDay(now) >= BOSS_SPAWN_DAY) {
+            double[] spawn = randomEdgeSpawnPoint();
+            bossEnemy = new BossEnemy(spawn[0], spawn[1]);
+            enemies.add(bossEnemy);
+            eventBus.publish(new GameEvent(GameEventType.BOSS_SPAWNED, Map.of("x", spawn[0], "y", spawn[1])));
+        }
+
         lastEnemySpawnAtNs = now;
     }
 
-    // Update AI va attack cua moi enemy, dong thoi don enemy chet de list gon.
     private void updateEnemies(long now) {
         List<Enemy> dead = new ArrayList<>();
         for (Enemy enemy : enemies) {
@@ -842,32 +832,266 @@ public class Game {
                 dead.add(enemy);
                 continue;
             }
-            enemy.update(now, player, worldWidth, worldHeight);
+
+            // AI quai:
+            // - Enemy duoi muc tieu gan nhat giua player va base camp.
+            boolean chaseCamp = distance(enemy.getCenterX(), enemy.getCenterY(), baseCamp.getCenterX(), baseCamp.getCenterY())
+                    < distance(enemy.getCenterX(), enemy.getCenterY(), player.getCenterX(), player.getCenterY());
+            double oldEnemyX = enemy.getX();
+            double oldEnemyY = enemy.getY();
+            if (chaseCamp) {
+                moveEnemyToward(enemy, baseCamp);
+            } else {
+                enemy.update(now, player, worldWidth, worldHeight);
+            }
+            if (isEnemyCollidingWithPlacedWall(enemy)) {
+                enemy.setPosition(oldEnemyX, oldEnemyY);
+            }
+
             enemy.tryAttackPlayer(player, now);
+            tryAttackBaseCamp(enemy, now);
         }
+
         if (!dead.isEmpty()) {
             enemies.removeAll(dead);
         }
     }
 
-    private int countAliveEnemyByType(String type) {
-        int count = 0;
+    private void moveEnemyToward(Enemy enemy, BaseCamp target) {
+        double dx = target.getCenterX() - enemy.getCenterX();
+        double dy = target.getCenterY() - enemy.getCenterY();
+        double distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance < 1) {
+            return;
+        }
+        enemy.setPosition(
+                enemy.getX() + (dx / distance) * enemy.getSpeed(),
+                enemy.getY() + (dy / distance) * enemy.getSpeed()
+        );
+        enemy.clampPosition(0, 0, worldWidth, worldHeight);
+    }
+
+    private void tryAttackBaseCamp(Enemy enemy, long now) {
+        if (enemy == null || !enemy.isAlive() || !baseCamp.isAlive()) {
+            return;
+        }
+        if (!CollisionSystem.intersects(enemy, baseCamp)) {
+            return;
+        }
+
+        // Damage base camp theo loai quai de tao khac biet threat.
+        int damage = "BOSS".equalsIgnoreCase(enemy.getEnemyType()) ? 6 : 1;
+        DamageSystem.applyDamage(enemy, baseCamp, damage);
+        eventBus.publish(new GameEvent(GameEventType.BASE_CAMP_DAMAGED, Map.of("damage", damage, "hp", baseCamp.getHp())));
+    }
+
+    private void performPlayerAttack(long now, Player.AttackAnimationType attackType) {
+        if (!player.startAttack(now, attackType)) {
+            return;
+        }
+
+        int attackDamage = attackType == Player.AttackAnimationType.SLICE ? 2 : 1;
+        double[] attackBox = player.buildAttackHitbox();
+
+        boolean hitEnemy = applyAttackToFirstEnemy(attackBox[0], attackBox[1], attackBox[2], attackBox[3], attackDamage, now);
+        if (hitEnemy) {
+            return;
+        }
+
+        ResourceHitResult hitResult = resourceManager.hitFirstResourceIntersecting(
+                attackBox[0],
+                attackBox[1],
+                attackBox[2],
+                attackBox[3],
+                attackDamage,
+                now
+        );
+
+        if (hitResult == null) {
+            return;
+        }
+        spawnResourceDamageText(hitResult, now);
+
+        if (!hitResult.isDestroyed() || hitResult.getDropResult() == null) {
+            return;
+        }
+        DropResult drop = hitResult.getDropResult();
+        inventory.addItem(drop.getItemId(), drop.getAmount());
+        player.addExperience(1);
+        if (isFoodItem(drop.getItemId())) {
+            player.recoverEnergy(FOOD_ENERGY_BONUS);
+        }
+
+        eventBus.publish(new GameEvent(GameEventType.RESOURCE_COLLECTED,
+                Map.of("item", drop.getItemId(), "amount", drop.getAmount())));
+    }
+
+    private boolean applyAttackToFirstEnemy(double x, double y, double w, double h, int damage, long nowNs) {
         for (Enemy enemy : enemies) {
             if (enemy == null || !enemy.isAlive()) {
                 continue;
             }
-            if (type.equalsIgnoreCase(enemy.getEnemyType())) {
+            if (!CollisionSystem.intersects(enemy, x, y, w, h)) {
+                continue;
+            }
+            DamageResult result = DamageSystem.applyDamage(player, enemy, damage, nowNs);
+            spawnEnemyDamageText(enemy, result, nowNs);
+            return true;
+        }
+        return false;
+    }
+
+    private void updateEnergyByMovement(long now, boolean moving, boolean sprinting) {
+        double deltaSeconds = (now - lastUpdateNowNs) / 1_000_000_000.0;
+        if (deltaSeconds < 0) {
+            deltaSeconds = 0;
+        }
+        if (deltaSeconds > 0.25) {
+            deltaSeconds = 0.25;
+        }
+        lastUpdateNowNs = now;
+
+        if (moving) {
+            double drainRate = sprinting ? MOVE_ENERGY_DRAIN_PER_SECOND * 2.0 : MOVE_ENERGY_DRAIN_PER_SECOND;
+            player.consumeEnergy(drainRate * deltaSeconds);
+        } else {
+            player.recoverEnergy(IDLE_ENERGY_REGEN_PER_SECOND * deltaSeconds);
+        }
+    }
+
+    private void injectChunkResources(WorldChunk chunk) {
+        for (WorldChunk.GeneratedResource generated : chunk.getResources()) {
+            resourceManager.addGeneratedResource(
+                    generated.objectId,
+                    generated.kind,
+                    generated.type,
+                    generated.x,
+                    generated.y,
+                    generated.width,
+                    generated.height
+            );
+        }
+    }
+
+    private boolean applyLoadedSaveIfAny() {
+        Map<String, Object> save = worldSaveService.load();
+        if (save == null) {
+            return false;
+        }
+
+        // Load player/base camp/inventory state de tiep tuc session cu.
+        player.setPosition(
+                WorldSaveService.toDouble(save.get("playerX"), player.getX()),
+                WorldSaveService.toDouble(save.get("playerY"), player.getY())
+        );
+        // Clamp vi tri save cu vao world hien tai de tranh camera bi "bay" ra ngoai map.
+        player.clampPosition(0, 0, worldWidth, worldHeight);
+        player.setHpForLoad(WorldSaveService.toInt(save.get("playerHp"), player.getMaxHp()));
+        player.setEnergyForLoad(WorldSaveService.toDouble(save.get("playerEnergy"), player.getMaxEnergy()));
+
+        baseCamp.setHpForLoad(WorldSaveService.toInt(save.get("baseCampHp"), baseCamp.getMaxHp()));
+        inventory.restore(WorldSaveService.parseInventory(save.get("inventory")));
+
+        long elapsedNs = WorldSaveService.toLong(save.get("elapsedNs"), 0L);
+        worldStartedAtNs = System.nanoTime() - Math.max(0L, elapsedNs);
+
+        boolean bossDefeated = WorldSaveService.toInt(save.get("bossDefeated"), 0) == 1;
+        if (!bossDefeated && getCurrentSurvivalDay(System.nanoTime()) >= BOSS_SPAWN_DAY) {
+            double[] spawn = randomEdgeSpawnPoint();
+            bossEnemy = new BossEnemy(spawn[0], spawn[1]);
+            enemies.add(bossEnemy);
+        }
+
+        eventBus.publish(new GameEvent(GameEventType.WORLD_LOADED, Map.of("file", SURVIVAL_SAVE_FILE)));
+        return true;
+    }
+
+    private void saveWorldSnapshot() {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("playerX", player.getX());
+        snapshot.put("playerY", player.getY());
+        snapshot.put("playerHp", player.getHp());
+        snapshot.put("playerEnergy", player.getEnergy());
+        snapshot.put("baseCampHp", baseCamp.getHp());
+        snapshot.put("elapsedNs", Math.max(0L, System.nanoTime() - worldStartedAtNs));
+        snapshot.put("bossDefeated", (bossEnemy != null && !bossEnemy.isAlive()) ? 1 : 0);
+        snapshot.put("inventory", WorldSaveService.buildInventorySnapshot(inventory));
+
+        if (worldSaveService.save(snapshot)) {
+            eventBus.publish(new GameEvent(GameEventType.WORLD_SAVED, Map.of("file", SURVIVAL_SAVE_FILE)));
+        }
+    }
+
+    private void updateCamera() {
+        double viewWidth = renderer.getViewportWidth() / CAMERA_ZOOM;
+        double viewHeight = renderer.getViewportHeight() / CAMERA_ZOOM;
+
+        cameraX = player.getX() + player.getWidth() * 0.5 - viewWidth * 0.5;
+        cameraY = player.getY() + player.getHeight() * 0.5 - viewHeight * 0.5;
+
+        if (cameraX < 0) {
+            cameraX = 0;
+        }
+        if (cameraY < 0) {
+            cameraY = 0;
+        }
+
+        double maxCameraX = Math.max(0, worldWidth - viewWidth);
+        double maxCameraY = Math.max(0, worldHeight - viewHeight);
+        if (cameraX > maxCameraX) {
+            cameraX = maxCameraX;
+        }
+        if (cameraY > maxCameraY) {
+            cameraY = maxCameraY;
+        }
+    }
+
+    private boolean isPlayerCollidingWithMapCollision() {
+        double px = player.getX() + player.getWidth() * 0.22;
+        double py = player.getY() + player.getHeight() * 0.30;
+        double pw = player.getWidth() * 0.56;
+        double ph = player.getHeight() * 0.62;
+
+        for (MapObjectData object : mapCollisions) {
+            if (!"Collision".equalsIgnoreCase(object.getType())) {
+                continue;
+            }
+            if (object.intersects(px, py, pw, ph)) {
+                return true;
+            }
+        }
+        if (tileCollisionResolver != null && tileCollisionResolver.isBlocked(px, py, pw, ph)) {
+            return true;
+        }
+        return buildCollisionManager.intersectsPlacedWall(px, py, pw, ph, buildManager.getWalls());
+    }
+
+    private boolean isEnemyCollidingWithPlacedWall(Enemy enemy) {
+        if (enemy == null) {
+            return false;
+        }
+        return buildCollisionManager.intersectsPlacedWall(
+                enemy.getX(),
+                enemy.getY(),
+                enemy.getWidth(),
+                enemy.getHeight(),
+                buildManager.getWalls()
+        );
+    }
+
+    private int countAliveEnemyByType(String type) {
+        int count = 0;
+        for (Enemy enemy : enemies) {
+            if (enemy != null && enemy.isAlive() && type.equalsIgnoreCase(enemy.getEnemyType())) {
                 count++;
             }
         }
         return count;
     }
 
-    // Spawn tu 4 ria map:
-    // 0=top, 1=right, 2=bottom, 3=left.
     private double[] randomEdgeSpawnPoint() {
         int side = random.nextInt(4);
-        double margin = 4;
+        double margin = 12;
         double x;
         double y;
 
@@ -887,115 +1111,99 @@ public class Game {
         return new double[]{x, y};
     }
 
-    private int randomBetween(int min, int max) {
-        if (max <= min) {
-            return min;
+    private String buildSurvivalObjectiveStatus(long now) {
+        int day = getCurrentSurvivalDay(now);
+        String bossStatus;
+        if (bossEnemy == null) {
+            bossStatus = day >= BOSS_SPAWN_DAY ? "Boss: spawning" : "Boss unlock day " + BOSS_SPAWN_DAY;
+        } else {
+            bossStatus = bossEnemy.isAlive() ? "Boss HP: " + bossEnemy.getHp() : "Boss defeated";
         }
-        return min + random.nextInt(max - min + 1);
+        return "Day " + day
+                + " | Base HP " + baseCamp.getHp() + "/" + baseCamp.getMaxHp()
+                + " | " + bossStatus;
     }
 
-    private void addCollectedItem(String itemId, int amount) {
-        if (itemId == null || itemId.isBlank() || amount <= 0) {
-            return;
+    // getGameOverMessage:
+    // - Output: thong diep GAME OVER theo dung nguyen nhan thua.
+    public String getGameOverMessage() {
+        if (gameOverReason == GameOverReason.BASE_CAMP_DESTROYED) {
+            return "Base camp is destroyed.";
         }
-        int oldAmount = collectedResources.getOrDefault(itemId, 0);
-        collectedResources.put(itemId, oldAmount + amount);
-        // Moi lan thu thap tai nguyen: +1 EXP theo yeu cau MVP.
-        player.addExperience(1);
-        // Food cho hoi nang luong manh hon dung im.
-        if (isFoodItem(itemId)) {
-            player.recoverEnergy(FOOD_ENERGY_BONUS);
-        }
+        return "Player is dead.";
     }
 
-    private void updateEnergyByMovement(long now, boolean playerMoving) {
-        // Delta second theo frame de drain/regen on dinh, khong phu thuoc FPS.
-        double deltaSeconds = (now - lastUpdateNowNs) / 1_000_000_000.0;
-        if (deltaSeconds < 0) {
-            deltaSeconds = 0;
-        }
-        if (deltaSeconds > 0.25) {
-            // Clamp anti-spike: tranh frame hut qua nhieu energy khi co pause lag.
-            deltaSeconds = 0.25;
-        }
-        lastUpdateNowNs = now;
-
-        if (playerMoving) {
-            player.consumeEnergy(MOVE_ENERGY_DRAIN_PER_SECOND * deltaSeconds);
-            return;
-        }
-        player.recoverEnergy(IDLE_ENERGY_REGEN_PER_SECOND * deltaSeconds);
+    private int getCurrentSurvivalDay(long now) {
+        long elapsedNs = Math.max(0L, now - worldStartedAtNs);
+        long dayLengthNs = (120L + 20L + 80L + 25L) * 1_000_000_000L;
+        return (int) (elapsedNs / dayLengthNs) + 1;
     }
 
-    private boolean isFoodItem(String itemId) {
-        String normalized = itemId.trim().toLowerCase();
-        return normalized.contains("meat")
-                || normalized.contains("carrot")
-                || normalized.contains("vegetable")
-                || normalized.contains("food");
-    }
+    private int findWelcomeMenuIndexAt(double mx, double my) {
+        double buttonX = 350;
+        double buttonY = 246;
+        double buttonW = 260;
+        double buttonH = 42;
+        double gap = 58;
 
-    private int findIndexByLevelId(int levelId) {
-        List<Level> levels = levelManager.getAllLevels();
-        for (int i = 0; i < levels.size(); i++) {
-            if (levels.get(i).getId() == levelId) {
+        for (int i = 0; i < MENU_COUNT; i++) {
+            double top = buttonY + i * gap;
+            if (mx >= buttonX && mx <= buttonX + buttonW && my >= top && my <= top + buttonH) {
                 return i;
             }
         }
-        return 0;
+        return -1;
     }
 
-    private String buildCurrentObjectiveStatus(long nowNs) {
-        Level currentLevel = levelManager.getCurrentLevel();
-        if (currentLevel == null) {
+    private void updateWelcomeMenuHoverByMouse() {
+        int hovered = findWelcomeMenuIndexAt(inputHandler.getMouseX(), inputHandler.getMouseY());
+        if (hovered != -1 && pendingWelcomeAction == -1) {
+            menuIndex = hovered;
+        }
+    }
+
+    private String normalizePlayerName(String rawName) {
+        if (rawName == null) {
             return "";
         }
-        long elapsedNs = levelStartedAtNs <= 0 ? 0L : Math.max(0L, nowNs - levelStartedAtNs);
-        return currentLevel.buildObjectiveStatus(collectedResources, elapsedNs);
+        String trimmed = rawName.trim();
+        if (trimmed.isEmpty()) {
+            return "";
+        }
+        if (trimmed.length() > MAX_PLAYER_NAME_LENGTH) {
+            return trimmed.substring(0, MAX_PLAYER_NAME_LENGTH);
+        }
+        return trimmed;
     }
 
-    private void checkLevelCompletion(long nowNs) {
-        Level currentLevel = levelManager.getCurrentLevel();
-        if (currentLevel == null || levelStartedAtNs <= 0) {
+    private void appendTypedCharacters() {
+        if (playerNameBuffer.length() >= MAX_PLAYER_NAME_LENGTH) {
             return;
         }
-        long elapsedNs = Math.max(0L, nowNs - levelStartedAtNs);
-        if (!currentLevel.areObjectivesCompleted(collectedResources, elapsedNs)) {
+
+        String typed = inputHandler.consumeTypedCharacters();
+        if (typed == null || typed.isEmpty()) {
             return;
         }
 
-        int collectedCount = collectedResources.values().stream().mapToInt(Integer::intValue).sum();
-        lastLevelResult = LevelResult.createForCompletion(
-                currentLevel,
-                elapsedNs / 1_000_000_000L,
-                0,
-                collectedCount
-        );
-        levelManager.completeLevel(lastLevelResult);
-        gameState = GameState.LEVEL_COMPLETE;
-    }
-
-    // Detect object co schema resource theo contract/property map.
-    private boolean isResourceObject(MapObjectData object) {
-        if (object == null || object.getProperties() == null) {
-            return false;
+        for (int i = 0; i < typed.length(); i++) {
+            if (playerNameBuffer.length() >= MAX_PLAYER_NAME_LENGTH) {
+                break;
+            }
+            char ch = typed.charAt(i);
+            if (Character.isISOControl(ch)) {
+                continue;
+            }
+            if (Character.isLetterOrDigit(ch)) {
+                playerNameBuffer.append(Character.toUpperCase(ch));
+                continue;
+            }
+            if (ch == ' '
+                    && playerNameBuffer.length() > 0
+                    && playerNameBuffer.charAt(playerNameBuffer.length() - 1) != ' ') {
+                playerNameBuffer.append(' ');
+            }
         }
-        String kind = object.getProperties().get("kind");
-        String dropItem = object.getProperties().get("dropItem");
-        String maxHp = object.getProperties().get("maxHp");
-        String hpLegacy = object.getProperties().get("hp");
-        return hasText(kind) || hasText(dropItem) || hasText(maxHp) || hasText(hpLegacy);
-    }
-
-    private boolean isResourceAlive(int objectId) {
-        if (resourceManager.getResourceById(objectId) == null) {
-            return true;
-        }
-        return resourceManager.getResourceById(objectId).isAlive();
-    }
-
-    private boolean hasText(String value) {
-        return value != null && !value.trim().isEmpty();
     }
 
     private void spawnEnemyDamageText(Enemy enemy, DamageResult result, long nowNs) {
@@ -1028,5 +1236,112 @@ public class Game {
 
     private void cleanupExpiredDamageTexts(long nowNs) {
         floatingDamageTexts.removeIf(text -> text == null || text.isExpired(nowNs));
+    }
+
+    private boolean isFoodItem(String itemId) {
+        String normalized = itemId == null ? "" : itemId.trim().toLowerCase();
+        return normalized.contains("meat")
+                || normalized.contains("carrot")
+                || normalized.contains("vegetable")
+                || normalized.contains("food");
+    }
+
+    private String prettifyItemName(String itemId) {
+        return switch (itemId) {
+            case STONE_WALL_ITEM_ID -> "Stone Wall";
+            case WOOD_WALL_ITEM_ID -> "Wood Wall";
+            case POTION_ITEM_ID -> "Potion";
+            case TORCH_ITEM_ID -> "Torch";
+            case BASIC_SWORD_ITEM_ID -> "Basic Sword";
+            case PICKAXE_ITEM_ID -> "Pickaxe";
+            case COIN_ITEM_ID -> "Coin";
+            case CARROT_ITEM_ID -> "Carrot";
+            default -> itemId;
+        };
+    }
+
+    private double distance(double ax, double ay, double bx, double by) {
+        double dx = bx - ax;
+        double dy = by - ay;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    // seedStartingBuildItems:
+    // - Cap phat so luong stone wall mac dinh khi vao world moi.
+    // - Input: khong co, doc/truoc tiep state inventory hien tai.
+    // - Output: inventory co san 20 stone_wall neu truoc do chua co.
+    // - Tac dong gameplay: nguoi choi vao game la thay hotbar khong rong va co vat lieu de thu he xay.
+    private void seedStartingBuildItems() {
+        if (inventory.getAmount(STONE_WALL_ITEM_ID) > 0) {
+            if (inventory.getAmount(COIN_ITEM_ID) <= 0) {
+                inventory.addItem(COIN_ITEM_ID, STARTING_COIN_AMOUNT);
+            }
+            return;
+        }
+        inventory.addItem(STONE_WALL_ITEM_ID, STARTING_STONE_WALL_AMOUNT);
+        inventory.addItem(COIN_ITEM_ID, STARTING_COIN_AMOUNT);
+    }
+
+    // ensureStoneWallSlotHasVisibleAmount:
+    // - Giu cho hotbar slot dau co du lieu de render dung voi save cu.
+    // - Neu save cu khong co stone wall thi cap 20 de user thay item ngay.
+    private void ensureStoneWallSlotHasVisibleAmount() {
+        if (inventory.getAmount(STONE_WALL_ITEM_ID) <= 0) {
+            inventory.addItem(STONE_WALL_ITEM_ID, STARTING_STONE_WALL_AMOUNT);
+        }
+        if (inventory.getAmount(COIN_ITEM_ID) <= 0) {
+            inventory.addItem(COIN_ITEM_ID, STARTING_COIN_AMOUNT);
+        }
+    }
+
+    // updateHotbarSelectionInput:
+    // - Doc phim 1..9 va click hotbar de doi slot dang chon.
+    // - Input: state input frame hien tai.
+    // - Output: cap nhat selectedHotbarIndex.
+    // - Tac dong gameplay: chuan bi nen cho build mode va su dung item theo slot.
+    private boolean updateHotbarSelectionInput() {
+        if (inputHandler.isJustPressed(KeyCode.DIGIT1)) {
+            setSelectedHotbarIndex(0);
+        } else if (inputHandler.isJustPressed(KeyCode.DIGIT2)) {
+            setSelectedHotbarIndex(1);
+        } else if (inputHandler.isJustPressed(KeyCode.DIGIT3)) {
+            setSelectedHotbarIndex(2);
+        } else if (inputHandler.isJustPressed(KeyCode.DIGIT4)) {
+            setSelectedHotbarIndex(3);
+        } else if (inputHandler.isJustPressed(KeyCode.DIGIT5)) {
+            setSelectedHotbarIndex(4);
+        } else if (inputHandler.isJustPressed(KeyCode.DIGIT6)) {
+            setSelectedHotbarIndex(5);
+        } else if (inputHandler.isJustPressed(KeyCode.DIGIT7)) {
+            setSelectedHotbarIndex(6);
+        } else if (inputHandler.isJustPressed(KeyCode.DIGIT8)) {
+            setSelectedHotbarIndex(7);
+        } else if (inputHandler.isJustPressed(KeyCode.DIGIT9)) {
+            setSelectedHotbarIndex(8);
+        }
+
+        if (!inputHandler.isMouseLeftJustClicked()) {
+            return false;
+        }
+
+        int clickedSlot = renderer.findHotbarSlotAt(inputHandler.getMouseX(), inputHandler.getMouseY());
+        if (clickedSlot >= 0) {
+            setSelectedHotbarIndex(clickedSlot);
+            return true;
+        }
+        return false;
+    }
+
+    private void setSelectedHotbarIndex(int slotIndex) {
+        if (slotIndex < 0 || slotIndex >= 9) {
+            return;
+        }
+        // Slot -> item:
+        // - Hien tai chi slot 1 chua stone_wall.
+        // - Chon slot nay se thong bao cho BuildManager bat BUILD_WALL_MODE.
+        // - Cac slot khac de null de game thoat khoi che do xay.
+        selectedHotbarIndex = slotIndex;
+        String selectedItemId = slotIndex == 0 ? STONE_WALL_ITEM_ID : null;
+        buildManager.selectItem(selectedItemId);
     }
 }

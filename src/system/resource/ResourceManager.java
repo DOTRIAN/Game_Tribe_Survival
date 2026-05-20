@@ -226,6 +226,56 @@ public class ResourceManager {
         return Collections.unmodifiableList(alive);
     }
 
+    /**
+     * addGeneratedResource:
+     * - Input: resource procedural sinh tu chunk map vo han.
+     * - Output: ResourceNode vua duoc tao hoac node cu neu objectId da ton tai.
+     * - Tac dong: bo sung tai nguyen runtime de nguoi choi co the khai thac o vung moi.
+     */
+    public ResourceNode addGeneratedResource(int objectId,
+                                             String kind,
+                                             ResourceType explicitType,
+                                             double x,
+                                             double y,
+                                             double width,
+                                             double height) {
+        if (resourcesById.containsKey(objectId)) {
+            return resourcesById.get(objectId);
+        }
+
+        String normalizedKind = kind == null ? "unknown" : kind.trim().toLowerCase();
+        ResourceDefinition definition = definitionsByKind.get(normalizedKind);
+        if (definition == null) {
+            definition = new ResourceDefinition(
+                    normalizedKind,
+                    explicitType == null ? guessTypeFromKind(normalizedKind) : explicitType,
+                    2,
+                    "wood",
+                    1,
+                    2,
+                    -1
+            );
+        }
+
+        ResourceNode node = new ResourceNode(
+                objectId,
+                normalizedKind,
+                explicitType == null ? definition.getResourceType() : explicitType,
+                x,
+                y,
+                width,
+                height,
+                definition.getDefaultDropItem(),
+                definition.getDefaultDropMin(),
+                definition.getDefaultDropMax(),
+                definition.getDefaultRespawnSeconds(),
+                definition.getDefaultMaxHp(),
+                Collections.emptySet()
+        );
+        resourcesById.put(objectId, node);
+        return node;
+    }
+
     private int rollDropAmount(int min, int max) {
         int a = Math.max(0, min);
         int b = Math.max(a, max);

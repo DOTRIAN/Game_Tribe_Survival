@@ -178,6 +178,26 @@ public class Hud {
                 ENERGY_BAR_Y + 22);
     }
 
+    /**
+     * containsScreenPoint:
+     * - Input: toa do chuot theo screen-space va viewport width.
+     * - Output: true neu diem nam trong HUD trai hoac panel tai nguyen ben phai.
+     * - Tac dong gameplay: chan click xay dung tren phan UI, tranh dat wall khi dang bam HUD.
+     */
+    public boolean containsScreenPoint(double mouseX, double mouseY, double viewportWidth) {
+        boolean overLeftPanel = mouseX >= PANEL_X
+                && mouseX <= PANEL_X + PANEL_WIDTH
+                && mouseY >= PANEL_Y
+                && mouseY <= PANEL_Y + PANEL_HEIGHT;
+
+        double resourcePanelX = viewportWidth - RESOURCE_PANEL_MARGIN_RIGHT - RESOURCE_PANEL_WIDTH;
+        boolean overRightPanel = mouseX >= resourcePanelX
+                && mouseX <= resourcePanelX + RESOURCE_PANEL_WIDTH
+                && mouseY >= RESOURCE_PANEL_Y
+                && mouseY <= RESOURCE_PANEL_Y + RESOURCE_PANEL_HEIGHT;
+        return overLeftPanel || overRightPanel;
+    }
+
     // Do rong text theo font hien tai cua GraphicsContext.
     // JavaFX Canvas khong co ham do text truc tiep, nen dung Text helper.
     private double measureTextWidth(GraphicsContext graphicsContext, String text) {

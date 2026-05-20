@@ -38,6 +38,9 @@ public class Player extends Entity {
     private final SpriteAnimation walkDownAnimation;
     private final SpriteAnimation walkSideAnimation;
     private final SpriteAnimation walkUpAnimation;
+    private final SpriteAnimation runDownAnimation;
+    private final SpriteAnimation runSideAnimation;
+    private final SpriteAnimation runUpAnimation;
     private final SpriteAnimation sliceDownAnimation;
     private final SpriteAnimation sliceSideAnimation;
     private final SpriteAnimation sliceUpAnimation;
@@ -55,6 +58,8 @@ public class Player extends Entity {
     private long attackStartedAtNs;
     private long attackDurationNs;
     private AttackAnimationType currentAttackType;
+    private boolean sprinting;
+    private static final double SPRINT_SPEED_MULTIPLIER = 1.8;
 
     public Player(double x, double y, double width, double height, double speed, int maxHp) {
         super(x, y, width, height, speed, maxHp);
@@ -67,101 +72,134 @@ public class Player extends Entity {
         this.levelUpEffectDurationNs = 2_200_000_000L;
         this.lastLeveledUpTo = 1;
 
+        // Idle: 3360x2880, hang*cot = 4*4 => cols=4, rows=4.
         this.idleDownAnimation = new SpriteAnimation(
                 SpriteSheetLoader.loadGrid(
-                        "file:assets/tilesets/Pixel Crawler - Free Pack/Entities/Characters/Body_A/Animations/Idle_Base/Idle_Down-Sheet.png",
+                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Front - Idle.png",
                         4,
-                        1
+                        4
                 ),
-                180_000_000L
+                90_000_000L
         );
         this.idleSideAnimation = new SpriteAnimation(
                 SpriteSheetLoader.loadGrid(
-                        "file:assets/tilesets/Pixel Crawler - Free Pack/Entities/Characters/Body_A/Animations/Idle_Base/Idle_Side-Sheet.png",
+                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Right - Idle.png",
                         4,
-                        1
+                        4
                 ),
-                180_000_000L
+                90_000_000L
         );
         this.idleUpAnimation = new SpriteAnimation(
                 SpriteSheetLoader.loadGrid(
-                        "file:assets/tilesets/Pixel Crawler - Free Pack/Entities/Characters/Body_A/Animations/Idle_Base/Idle_Up-Sheet.png",
+                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Back - Idle.png",
                         4,
-                        1
-                ),
-                180_000_000L
-        );
-        this.walkDownAnimation = new SpriteAnimation(
-                SpriteSheetLoader.loadGrid(
-                        "file:assets/tilesets/Pixel Crawler - Free Pack/Entities/Characters/Body_A/Animations/Walk_Base/Walk_Down-Sheet.png",
-                        6,
-                        1
+                        4
                 ),
                 90_000_000L
+        );
+
+        // Walking: 3360x3600, hang*cot = 5*4 => cols=4, rows=5.
+        this.walkDownAnimation = new SpriteAnimation(
+                SpriteSheetLoader.loadGrid(
+                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Front - Walking.png",
+                        4,
+                        5
+                ),
+                85_000_000L
         );
         this.walkSideAnimation = new SpriteAnimation(
                 SpriteSheetLoader.loadGrid(
-                        "file:assets/tilesets/Pixel Crawler - Free Pack/Entities/Characters/Body_A/Animations/Walk_Base/Walk_Side-Sheet.png",
-                        6,
-                        1
+                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Right - Walking.png",
+                        4,
+                        5
                 ),
-                90_000_000L
+                85_000_000L
         );
         this.walkUpAnimation = new SpriteAnimation(
                 SpriteSheetLoader.loadGrid(
-                        "file:assets/tilesets/Pixel Crawler - Free Pack/Entities/Characters/Body_A/Animations/Walk_Base/Walk_Up-Sheet.png",
-                        6,
-                        1
+                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Back - Walking.png",
+                        4,
+                        5
                 ),
-                90_000_000L
+                85_000_000L
         );
+
+        // Running: 3360x2160, hang*cot = 4*3 => cols=3, rows=4.
+        this.runDownAnimation = new SpriteAnimation(
+                SpriteSheetLoader.loadGrid(
+                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Front - Running.png",
+                        4,
+                        3
+                ),
+                75_000_000L
+        );
+        this.runSideAnimation = new SpriteAnimation(
+                SpriteSheetLoader.loadGrid(
+                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Right - Running.png",
+                        4,
+                        3
+                ),
+                75_000_000L
+        );
+        this.runUpAnimation = new SpriteAnimation(
+                SpriteSheetLoader.loadGrid(
+                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Back - Running.png",
+                        4,
+                        3
+                ),
+                75_000_000L
+        );
+
+        // Attacking: 4200x1440, hang*cot = 2*5 => cols=5, rows=2.
         this.sliceDownAnimation = new SpriteAnimation(
                 SpriteSheetLoader.loadGrid(
-                        "file:assets/tilesets/Pixel Crawler - Free Pack/Entities/Characters/Body_A/Animations/Slice_Base/Slice_Down-Sheet.png",
-                        8,
-                        1
+                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Front - Attacking.png",
+                        5,
+                        2
                 ),
-                80_000_000L
+                70_000_000L
         );
         this.sliceSideAnimation = new SpriteAnimation(
                 SpriteSheetLoader.loadGrid(
-                        "file:assets/tilesets/Pixel Crawler - Free Pack/Entities/Characters/Body_A/Animations/Slice_Base/Slice_Side-Sheet.png",
-                        8,
-                        1
+                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Right - Attacking.png",
+                        5,
+                        2
                 ),
-                80_000_000L
+                70_000_000L
         );
         this.sliceUpAnimation = new SpriteAnimation(
                 SpriteSheetLoader.loadGrid(
-                        "file:assets/tilesets/Pixel Crawler - Free Pack/Entities/Characters/Body_A/Animations/Slice_Base/Slice_Up-Sheet.png",
-                        8,
-                        1
+                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Back - Attacking.png",
+                        5,
+                        2
                 ),
-                80_000_000L
+                70_000_000L
         );
+
+        // Hurt dang cung format voi attacking (4200x1440, 2*5).
         this.hitDownAnimation = new SpriteAnimation(
                 SpriteSheetLoader.loadGrid(
-                        "file:assets/tilesets/Pixel Crawler - Free Pack/Entities/Characters/Body_A/Animations/Hit_Base/Hit_Down-Sheet.png",
-                        4,
-                        1
+                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Front - Hurt.png",
+                        5,
+                        2
                 ),
-                90_000_000L
+                65_000_000L
         );
         this.hitSideAnimation = new SpriteAnimation(
                 SpriteSheetLoader.loadGrid(
-                        "file:assets/tilesets/Pixel Crawler - Free Pack/Entities/Characters/Body_A/Animations/Hit_Base/Hit_Side-Sheet.png",
-                        4,
-                        1
+                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Right - Hurt.png",
+                        5,
+                        2
                 ),
-                90_000_000L
+                65_000_000L
         );
         this.hitUpAnimation = new SpriteAnimation(
                 SpriteSheetLoader.loadGrid(
-                        "file:assets/tilesets/Pixel Crawler - Free Pack/Entities/Characters/Body_A/Animations/Hit_Base/Hit_Up-Sheet.png",
-                        4,
-                        1
+                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Back - Hurt.png",
+                        5,
+                        2
                 ),
-                90_000_000L
+                65_000_000L
         );
 
         this.facingDirection = FacingDirection.DOWN;
@@ -172,22 +210,23 @@ public class Player extends Entity {
         this.attackStartedAtNs = 0L;
         this.attackDurationNs = 360_000_000L;
         this.currentAttackType = AttackAnimationType.HIT;
+        this.sprinting = false;
     }
 
     public void moveLeft() {
-        x -= speed;
+        x -= getCurrentMoveSpeed();
     }
 
     public void moveRight() {
-        x += speed;
+        x += getCurrentMoveSpeed();
     }
 
     public void moveUp() {
-        y -= speed;
+        y -= getCurrentMoveSpeed();
     }
 
     public void moveDown() {
-        y += speed;
+        y += getCurrentMoveSpeed();
     }
 
     public double getEnergy() {
@@ -245,6 +284,13 @@ public class Player extends Entity {
         this.playerName = playerName;
     }
 
+    // setEnergyForLoad:
+    // - Input: energy duoc restore tu file save.
+    // - Tac dong: phuc hoi tai nguyen sinh ton khi vao lai world.
+    public void setEnergyForLoad(double restoredEnergy) {
+        this.energy = Math.max(0, Math.min(maxEnergy, restoredEnergy));
+    }
+
     public void updateAnimation(long now, boolean moving, boolean moveUp, boolean moveDown, boolean moveLeft, boolean moveRight) {
         // Neu dang tan cong, khoa animation movement va uu tien animation tan cong.
         if (attacking) {
@@ -297,12 +343,22 @@ public class Player extends Entity {
 
         SpriteAnimation activeAnimation;
         if (moving) {
-            if (facingDirection == FacingDirection.UP) {
-                activeAnimation = walkUpAnimation;
-            } else if (facingDirection == FacingDirection.SIDE) {
-                activeAnimation = walkSideAnimation;
+            if (sprinting) {
+                if (facingDirection == FacingDirection.UP) {
+                    activeAnimation = runUpAnimation;
+                } else if (facingDirection == FacingDirection.SIDE) {
+                    activeAnimation = runSideAnimation;
+                } else {
+                    activeAnimation = runDownAnimation;
+                }
             } else {
-                activeAnimation = walkDownAnimation;
+                if (facingDirection == FacingDirection.UP) {
+                    activeAnimation = walkUpAnimation;
+                } else if (facingDirection == FacingDirection.SIDE) {
+                    activeAnimation = walkSideAnimation;
+                } else {
+                    activeAnimation = walkDownAnimation;
+                }
             }
         } else {
             if (facingDirection == FacingDirection.UP) {
@@ -350,6 +406,14 @@ public class Player extends Entity {
 
     public boolean isAttacking() {
         return attacking;
+    }
+
+    public void setSprinting(boolean sprinting) {
+        this.sprinting = sprinting;
+    }
+
+    private double getCurrentMoveSpeed() {
+        return sprinting ? speed * SPRINT_SPEED_MULTIPLIER : speed;
     }
 
     // Tru nang luong, tra ve false neu khong du de thuc hien hanh dong.
