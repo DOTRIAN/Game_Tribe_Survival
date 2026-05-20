@@ -98,7 +98,7 @@
             "selectedLayer": 2,
             "viewCenter": {
                 "x": 960.6666666666666,
-                "y": 694
+                "y": 640.6666666666666
             }
         },
         "C:/Users/Admin/Downloads/Map_Game/tileset.tsx": {
@@ -161,8 +161,8 @@
             "scale": 4,
             "selectedLayer": 3,
             "viewCenter": {
-                "x": 960,
-                "y": 639.625
+                "x": 960.125,
+                "y": 639.375
             }
         }
     },
