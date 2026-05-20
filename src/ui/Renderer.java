@@ -1,9 +1,9 @@
 package ui;
 
 import build.AssetManager;
-import build.BuildManager;
-import build.Wall;
-import build.WallPreview;
+import buildsystem.core.BuildManager;
+import buildsystem.object.BuildObject;
+import buildsystem.core.BuildPreview;
 import core.GameState;
 import entity.Enemy;
 import entity.Player;
@@ -51,6 +51,7 @@ public class Renderer {
     private final UIManager uiManager;
     private final SettingsManager settingsManager;
     private final GameSettings settings;
+    private final AssetManager buildAssetManager;
     private final Image welcomeBackgroundImage;
     private final Image gameBackgroundImage;
     private final LabelFpsTracker fpsTracker;
@@ -62,6 +63,7 @@ public class Renderer {
         this.graphicsContext = canvas.getGraphicsContext2D();
         this.settingsManager = new SettingsManager();
         this.settings = settingsManager.load();
+        this.buildAssetManager = buildAssetManager;
         this.welcomeBackgroundImage = new Image("file:assets/backgrounds/menu_bg1.png");
         this.gameBackgroundImage = new Image("file:assets/backgrounds/grass03.png");
         this.fpsTracker = new LabelFpsTracker();
@@ -129,6 +131,7 @@ public class Renderer {
                 player,
                 collectedResources,
                 selectedHotbarIndex,
+                buildManager,
                 worldWidth,
                 worldHeight,
                 cameraX,
@@ -306,8 +309,8 @@ public class Renderer {
             drawBackgroundCover(gameBackgroundImage, viewportWidth / CAMERA_ZOOM, viewportHeight / CAMERA_ZOOM);
         }
 
-        renderWallPreview(buildManager, cameraX, cameraY);
-        renderPlacedWalls(buildManager, cameraX, cameraY);
+        renderBuildPreview(buildManager, cameraX, cameraY);
+        renderPlacedBuildObjects(buildManager, cameraX, cameraY);
 
         player.draw(graphicsContext, cameraX, cameraY);
         renderLevelUpEffect(player, cameraX, cameraY, now);
@@ -353,34 +356,34 @@ public class Renderer {
         }
     }
 
-    private void renderPlacedWalls(BuildManager buildManager, double cameraX, double cameraY) {
+    private void renderPlacedBuildObjects(BuildManager buildManager, double cameraX, double cameraY) {
         if (buildManager == null) {
             return;
         }
-        for (Wall wall : buildManager.getWalls()) {
-            if (wall == null) {
+        for (BuildObject object : buildManager.getPlacedObjects()) {
+            if (object == null) {
                 continue;
             }
-            double screenX = wall.getRenderX() - cameraX;
-            double screenY = wall.getRenderY() - cameraY;
-            if (wall.getImage() != null && !wall.getImage().isError()) {
-                drawRotatedImage(wall.getImage(), screenX, screenY, wall.getWidth(), wall.getHeight(), wall.getRotationDegrees());
+            double screenX = object.getRenderX() - cameraX;
+            double screenY = object.getRenderY() - cameraY;
+            if (buildImageFor(object) != null && !buildImageFor(object).isError()) {
+                drawRotatedImage(buildImageFor(object), screenX, screenY, object.getRenderWidth(), object.getRenderHeight(), object.getRotationDegrees());
                 if (DEBUG_DRAW_WALL_BOUNDS) {
                     graphicsContext.setStroke(Color.color(0.0, 1.0, 1.0, 0.75));
-                    graphicsContext.strokeRect(screenX, screenY, wall.getWidth(), wall.getHeight());
+                    graphicsContext.strokeRect(screenX, screenY, object.getRenderWidth(), object.getRenderHeight());
                 }
                 continue;
             }
             graphicsContext.setFill(Color.color(0.75, 0.75, 0.75, 0.85));
-            graphicsContext.fillRect(screenX, screenY, wall.getWidth(), wall.getHeight());
+            graphicsContext.fillRect(screenX, screenY, object.getRenderWidth(), object.getRenderHeight());
         }
     }
 
-    private void renderWallPreview(BuildManager buildManager, double cameraX, double cameraY) {
+    private void renderBuildPreview(BuildManager buildManager, double cameraX, double cameraY) {
         if (buildManager == null || !buildManager.isPreviewVisible()) {
             return;
         }
-        WallPreview preview = buildManager.getWallPreview();
+        BuildPreview preview = buildManager.getPreview();
         if (preview == null || !preview.isVisible()) {
             return;
         }
@@ -412,6 +415,17 @@ public class Renderer {
             graphicsContext.fillText("rotation=" + preview.getRotationLabel() + " (" + (int) preview.getRotationDegrees() + ")", 16, getViewportHeight() - 86);
             graphicsContext.fillText("spriteKey=" + preview.getSpriteKey(), 16, getViewportHeight() - 70);
             graphicsContext.fillText("neighborMask=" + preview.getNeighborMask(), 16, getViewportHeight() - 54);
+        }
+    }
+
+    private Image buildImageFor(BuildObject object) {
+        if (object == null || object.getSpriteKey() == null) {
+            return null;
+        }
+        try {
+            return buildAssetManager.getSprite(object.getSpriteKey());
+        } catch (Exception ignored) {
+            return null;
         }
     }
 
@@ -583,3 +597,4 @@ public class Renderer {
         }
     }
 }
+

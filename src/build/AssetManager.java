@@ -1,5 +1,6 @@
 package build;
 
+import buildsystem.core.BuildAssetResolver;
 import javafx.scene.image.Image;
 
 import java.nio.file.Path;
@@ -9,10 +10,10 @@ import java.util.Map;
 
 /**
  * AssetManager:
- * - Chi load DUY NHAT 1 sprite sheet tuong.jpg.
- * - Sau do cat sprite va map lai theo ten cu/ten moi de phan con lai cua game van goi theo key.
+ * - Hien tai van load sprite sheet tuong.jpg, nhung da expose qua BuildAssetResolver de buildsystem khong phu thuoc package cu.
+ * - Khi sau nay co sprite atlas rieng cho trap/chest/torch/turret, chi can mo rong implementation nay.
  */
-public class AssetManager {
+public class AssetManager implements BuildAssetResolver {
     private static final Path WALL_ASSET_ROOT = Path.of("D:\\IT\\Game_TEST\\assets\\stone_wall");
 
     // spriteCache:
@@ -27,17 +28,20 @@ public class AssetManager {
 
     /**
      * getWallImage:
-     * - Input: ten sprite logic.
-     * - Output: Image da crop/cache.
-     * - Tac dong gameplay: hotbar, wall that va resolver dung chung cung mot nguon sprite.
+     * - Alias cu giu tuong thich code renderer/UI cu.
      */
     public Image getWallImage(String assetKey) {
+        return getSprite(assetKey);
+    }
+
+    @Override
+    public Image getSprite(String assetKey) {
         if (assetKey == null || assetKey.isBlank()) {
-            throw new IllegalArgumentException("assetKey must not be blank");
+            return null;
         }
         Image image = spriteCache.get(assetKey);
         if (image == null) {
-            System.out.println("Missing wall sprite key: " + assetKey);
+            System.out.println("Missing build sprite key: " + assetKey);
         }
         return image;
     }

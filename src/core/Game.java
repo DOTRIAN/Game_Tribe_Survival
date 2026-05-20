@@ -1,8 +1,9 @@
 package core;
 
 import build.AssetManager;
-import build.BuildManager;
-import build.BuildMode;
+import buildsystem.core.BuildManager;
+import buildsystem.core.BuildMode;
+import buildsystem.core.BuildController;
 import entity.BaseCamp;
 import entity.BossEnemy;
 import entity.Enemy;
@@ -70,6 +71,7 @@ public class Game {
     private final InputHandler inputHandler;
     private final AssetManager wallAssetManager;
     private final BuildManager buildManager;
+    private final BuildController buildController;
     private final build.CollisionManager buildCollisionManager;
     private final Player player;
     private final BaseCamp baseCamp;
@@ -205,6 +207,7 @@ public class Game {
                 this.worldHeight
         );
         this.buildManager = new BuildManager(wallAssetManager, buildCollisionManager);
+        this.buildController = new BuildController(buildManager);
         this.renderer = new Renderer(stage, inputHandler, wallAssetManager);
         this.renderer.setMapData(loadedMap);
         wireUiCallbacks();
@@ -218,6 +221,7 @@ public class Game {
         } else {
             ensureStoneWallSlotHasVisibleAmount();
         }
+        buildManager.syncToolbar(inventory.snapshot());
         setSelectedHotbarIndex(selectedHotbarIndex);
         renderer.setContinueAvailable(hasLoadedSaveSnapshot);
         renderer.setSettingsBackAction(this::closeSettingsFromUi);
@@ -423,7 +427,7 @@ public class Game {
         if (tileCollisionResolver != null && tileCollisionResolver.isBlocked(px, py, pw, ph)) {
             return true;
         }
-        return buildCollisionManager.intersectsPlacedWall(px, py, pw, ph, buildManager.getWalls());
+        return buildCollisionManager.intersectsPlacedBuildObject(px, py, pw, ph, buildManager.getPlacedObjects());
     }
 
     private void handleWelcomeState(long now) {
@@ -498,7 +502,7 @@ public class Game {
             return true;
         }
 
-        if (buildManager.getBuildMode() == BuildMode.BUILD_WALL_MODE && inputHandler.isJustPressed(KeyCode.ESCAPE)) {
+        if (buildManager.getBuildMode() == BuildMode.BUILDING && inputHandler.isJustPressed(KeyCode.ESCAPE)) {
             buildManager.cancelBuildMode();
         } else if (inputHandler.isJustPressed(KeyCode.ESCAPE)) {
             saveWorldSnapshot();
@@ -512,10 +516,10 @@ public class Game {
         // - Vi sao can: user dang choi game sinh ton nay, khong phai demo rieng.
         boolean hotbarClickConsumed = updateHotbarSelectionInput();
         // Q rotate:
-        // - Mỗi lần bấm Q se doi huong N -> E -> S -> W.
+        // - M峄梚 l岷 b岷 Q se doi huong N -> E -> S -> W.
         // - Preview se cap nhat ngay sau do trong cung frame.
         if (inputHandler.isJustPressed(KeyCode.Q)) {
-            buildManager.rotateWall();
+            buildController.onRotatePressed();
         }
         boolean mouseOverUi = renderer.isMouseOverUi(inputHandler.getMouseX(), inputHandler.getMouseY());
         boolean blockingOverlayVisible = renderer.isBlockingOverlayVisible();
@@ -523,7 +527,7 @@ public class Game {
         // - Chuyen mouse screen-space sang world-space qua camera/zoom.
         // - Snap ve grid de preview va wall that nam dung tren tile map.
         // - Chuot de len UI thi an preview de khong dat nham vao hotbar/minimap/HUD.
-        buildManager.updatePreview(
+        buildController.onCursorMoved(
                 inputHandler.getMouseX(),
                 inputHandler.getMouseY(),
                 cameraX,
@@ -531,7 +535,7 @@ public class Game {
                 CAMERA_ZOOM,
                 mouseOverUi,
                 player,
-                inventory.getAmount(STONE_WALL_ITEM_ID)
+                inventory
         );
 
         // Update loop chinh:
@@ -564,14 +568,12 @@ public class Game {
         }
 
         if (!blockingOverlayVisible && !hotbarClickConsumed && inputHandler.isMouseLeftJustClicked() && !mouseOverUi) {
-            if (buildManager.getBuildMode() == BuildMode.BUILD_WALL_MODE) {
+            if (buildManager.getBuildMode() == BuildMode.BUILDING) {
                 // Dat wall:
                 // - Chi dat khi click tren world, khong de len UI.
                 // - BuildManager se validate occupied tile/collision truoc khi tao wall.
                 // - Dat thanh cong moi tru 1 stone_wall trong inventory.
-                if (buildManager.tryPlaceSelectedItem(player, inventory.getAmount(STONE_WALL_ITEM_ID))) {
-                    inventory.consumeItem(STONE_WALL_ITEM_ID, 1);
-                }
+                buildController.onPrimaryClickPlace(player, inventory);
             } else {
                 performPlayerAttack(now, Player.AttackAnimationType.HIT);
             }
@@ -763,6 +765,7 @@ public class Game {
 
         inventory.consumeItem(COIN_ITEM_ID, price);
         inventory.addItem(itemId, 1);
+        buildManager.syncToolbar(inventory.snapshot());
         renderer.showToast("Bought " + prettifyItemName(itemId));
     }
 
@@ -770,9 +773,10 @@ public class Game {
         // Reset world moi: clear enemy/resource procedural va inventory.
         enemies.clear();
         bossEnemy = null;
-        buildManager.clearWalls();
+        buildManager.clearObjects();
         inventory.restore(Map.of());
         seedStartingBuildItems();
+        buildManager.syncToolbar(inventory.snapshot());
         selectedHotbarIndex = 0;
         floatingDamageTexts.clear();
         resourceManager.loadFromMapObjects(mapCollisions);
@@ -991,6 +995,7 @@ public class Game {
 
         baseCamp.setHpForLoad(WorldSaveService.toInt(save.get("baseCampHp"), baseCamp.getMaxHp()));
         inventory.restore(WorldSaveService.parseInventory(save.get("inventory")));
+        buildManager.restoreFromSaveData(save.get("buildObjects"));
 
         long elapsedNs = WorldSaveService.toLong(save.get("elapsedNs"), 0L);
         worldStartedAtNs = System.nanoTime() - Math.max(0L, elapsedNs);
@@ -1016,6 +1021,7 @@ public class Game {
         snapshot.put("elapsedNs", Math.max(0L, System.nanoTime() - worldStartedAtNs));
         snapshot.put("bossDefeated", (bossEnemy != null && !bossEnemy.isAlive()) ? 1 : 0);
         snapshot.put("inventory", WorldSaveService.buildInventorySnapshot(inventory));
+        snapshot.put("buildObjects", buildManager.exportSaveData());
 
         if (worldSaveService.save(snapshot)) {
             eventBus.publish(new GameEvent(GameEventType.WORLD_SAVED, Map.of("file", SURVIVAL_SAVE_FILE)));
@@ -1063,19 +1069,19 @@ public class Game {
         if (tileCollisionResolver != null && tileCollisionResolver.isBlocked(px, py, pw, ph)) {
             return true;
         }
-        return buildCollisionManager.intersectsPlacedWall(px, py, pw, ph, buildManager.getWalls());
+        return buildCollisionManager.intersectsPlacedBuildObject(px, py, pw, ph, buildManager.getPlacedObjects());
     }
 
     private boolean isEnemyCollidingWithPlacedWall(Enemy enemy) {
         if (enemy == null) {
             return false;
         }
-        return buildCollisionManager.intersectsPlacedWall(
+        return buildCollisionManager.intersectsPlacedBuildObject(
                 enemy.getX(),
                 enemy.getY(),
                 enemy.getWidth(),
                 enemy.getHeight(),
-                buildManager.getWalls()
+                buildManager.getPlacedObjects()
         );
     }
 
@@ -1279,6 +1285,11 @@ public class Game {
             return;
         }
         inventory.addItem(STONE_WALL_ITEM_ID, STARTING_STONE_WALL_AMOUNT);
+        inventory.addItem(WOOD_WALL_ITEM_ID, 12);
+        inventory.addItem(TORCH_ITEM_ID, 8);
+        inventory.addItem("spike_trap", 6);
+        inventory.addItem("chest", 2);
+        inventory.addItem("workbench", 1);
         inventory.addItem(COIN_ITEM_ID, STARTING_COIN_AMOUNT);
     }
 
@@ -1292,6 +1303,7 @@ public class Game {
         if (inventory.getAmount(COIN_ITEM_ID) <= 0) {
             inventory.addItem(COIN_ITEM_ID, STARTING_COIN_AMOUNT);
         }
+        buildManager.syncToolbar(inventory.snapshot());
     }
 
     // updateHotbarSelectionInput:
@@ -1341,7 +1353,7 @@ public class Game {
         // - Chon slot nay se thong bao cho BuildManager bat BUILD_WALL_MODE.
         // - Cac slot khac de null de game thoat khoi che do xay.
         selectedHotbarIndex = slotIndex;
-        String selectedItemId = slotIndex == 0 ? STONE_WALL_ITEM_ID : null;
-        buildManager.selectItem(selectedItemId);
+        buildController.onToolbarSlotSelected(slotIndex, inventory);
     }
 }
+
