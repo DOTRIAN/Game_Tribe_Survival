@@ -39,6 +39,21 @@ public class MiniMap {
     private static final Color ENEMY_DOT = Color.web("#ff7866");
 
     /**
+     * containsScreenPoint:
+     * - Input: toa do chuot man hinh va viewport.
+     * - Output: true neu chuot dang nam tren panel minimap.
+     * - Tac dong gameplay: giup he build bo qua click UI o goc phai duoi.
+     */
+    public boolean containsScreenPoint(double mouseX, double mouseY, double viewportWidth, double viewportHeight) {
+        double panelX = viewportWidth - PANEL_MARGIN_RIGHT - PANEL_WIDTH;
+        double panelY = viewportHeight - PANEL_MARGIN_BOTTOM - PANEL_HEIGHT;
+        return mouseX >= panelX
+                && mouseX <= panelX + PANEL_WIDTH
+                && mouseY >= panelY
+                && mouseY <= panelY + PANEL_HEIGHT;
+    }
+
+    /**
      * render:
      * - Ve minimap tren screen-space (khong scale theo camera zoom gameplay).
      * - worldW/worldH la kich thuoc world thuc te dang dung.
