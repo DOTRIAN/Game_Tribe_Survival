@@ -73,7 +73,7 @@ public class MinimapOverlay extends StackPane {
         // Innermost radar field
         gc.setFill(Color.color(0.1, 0.12, 0.14, 1.0));
         gc.fillRoundRect(mapX, mapY, mapW, mapH, 8, 8);
-        gc.setStroke(Color.color(255, 255, 255, 0.05));
+        gc.setStroke(Color.color(1, 1, 1, 0.05));
         gc.strokeRoundRect(mapX, mapY, mapW, mapH, 8, 8);
 
         double scaleX = mapW / worldW;

@@ -48,23 +48,44 @@ public class TiledMapLoader {
             Element tilesetRef = (Element) tilesetNodes.item(i);
             int firstGid = parseInt(tilesetRef.getAttribute("firstgid"), 0);
             String source = tilesetRef.getAttribute("source");
+            Element tsxRoot;
+            File baseDir;
             if (source == null || source.isEmpty()) {
-                continue;
+                // Ho tro map nhung tileset inline (khong tach .tsx).
+                tsxRoot = tilesetRef;
+                baseDir = mapDirectory;
+            } else {
+                File tsxFile = new File(mapDirectory, source);
+                Document tsxDoc = parseXml(tsxFile);
+                tsxRoot = tsxDoc.getDocumentElement();
+                baseDir = tsxFile.getParentFile();
             }
 
-            File tsxFile = new File(mapDirectory, source);
-            Document tsxDoc = parseXml(tsxFile);
-            Element tsxRoot = tsxDoc.getDocumentElement();
-
-            int columns = parseInt(tsxRoot.getAttribute("columns"), 1);
             int tileWidth = parseInt(tsxRoot.getAttribute("tilewidth"), 16);
             int tileHeight = parseInt(tsxRoot.getAttribute("tileheight"), 16);
-            int tileCount = parseInt(tsxRoot.getAttribute("tilecount"), 0);
 
             Element imageElement = (Element) tsxRoot.getElementsByTagName("image").item(0);
+            if (imageElement == null) {
+                continue;
+            }
             String imageSource = imageElement.getAttribute("source");
-            File imageFile = new File(tsxFile.getParentFile(), imageSource);
+            File imageFile = new File(baseDir, imageSource);
             Image tilesetImage = new Image(imageFile.toURI().toString());
+
+            int columns = parseInt(tsxRoot.getAttribute("columns"), 0);
+            if (columns <= 0 && tileWidth > 0 && tilesetImage.getWidth() > 0) {
+                columns = Math.max(1, (int) (tilesetImage.getWidth() / tileWidth));
+            }
+            if (columns <= 0) {
+                columns = 1;
+            }
+
+            int tileCount = parseInt(tsxRoot.getAttribute("tilecount"), 0);
+            if (tileCount <= 0 && tileWidth > 0 && tileHeight > 0 && tilesetImage.getWidth() > 0 && tilesetImage.getHeight() > 0) {
+                int rows = Math.max(1, (int) (tilesetImage.getHeight() / tileHeight));
+                tileCount = Math.max(1, columns * rows);
+            }
+
             Map<Integer, TilesetData.TileAnimationData> animations = readTileAnimations(tsxRoot);
             Map<Integer, Map<String, String>> tileProperties = readTilesetTileProperties(tsxRoot);
 

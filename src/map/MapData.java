@@ -65,8 +65,12 @@ public class MapData {
     }
 
     public TileLayerData findLayerByName(String name) {
+        if (name == null) {
+            return null;
+        }
+        String wanted = name.trim();
         for (TileLayerData layer : tileLayers) {
-            if (layer.getName().equals(name)) {
+            if (layer.getName() != null && layer.getName().trim().equalsIgnoreCase(wanted)) {
                 return layer;
             }
         }

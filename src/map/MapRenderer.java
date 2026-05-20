@@ -42,8 +42,11 @@ public class MapRenderer {
     // - Grounds: nen dat/co/duong
     // - Objects: than cay/da/props o tam thap
     public void renderBelowEntities(GraphicsContext gc, double cameraX, double cameraY, long now) {
-        renderLayerByName(gc, "Grounds", cameraX, cameraY, now, false);
-        renderLayerByName(gc, "Objects", cameraX, cameraY, now, true);
+        boolean drewGround = renderLayerByName(gc, "Grounds", cameraX, cameraY, now, false);
+        boolean drewObjects = renderLayerByName(gc, "Objects", cameraX, cameraY, now, true);
+        if (!drewGround && !drewObjects) {
+            renderAllLayers(gc, cameraX, cameraY, now, false);
+        }
     }
 
     // Render cac layer nam TREN entity.
@@ -51,15 +54,38 @@ public class MapRenderer {
     // Layer duoc dat o day la:
     // - Foreground: tan cay, mai, phan decor o cao do lon hon nhan vat
     public void renderAboveEntities(GraphicsContext gc, double cameraX, double cameraY, long now) {
-        renderLayerByName(gc, "Foreground", cameraX, cameraY, now, true);
+        if (!renderLayerByName(gc, "Foreground", cameraX, cameraY, now, true)) {
+            renderAllLayers(gc, cameraX, cameraY, now, true);
+        }
     }
 
-    private void renderLayerByName(GraphicsContext gc, String layerName, double cameraX, double cameraY, long now, boolean hideDestroyedResourceTiles) {
+    private boolean renderLayerByName(GraphicsContext gc, String layerName, double cameraX, double cameraY, long now, boolean hideDestroyedResourceTiles) {
         TileLayerData layer = mapData.findLayerByName(layerName);
         if (layer == null) {
-            return;
+            return false;
         }
+        renderLayer(gc, layer, cameraX, cameraY, now, hideDestroyedResourceTiles);
+        return true;
+    }
 
+    private void renderAllLayers(GraphicsContext gc, double cameraX, double cameraY, long now, boolean foregroundOnly) {
+        for (TileLayerData layer : mapData.getTileLayers()) {
+            if (layer == null) {
+                continue;
+            }
+            String layerName = layer.getName() == null ? "" : layer.getName().trim();
+            boolean isForegroundLayer = "foreground".equalsIgnoreCase(layerName);
+            if (foregroundOnly && !isForegroundLayer) {
+                continue;
+            }
+            if (!foregroundOnly && isForegroundLayer) {
+                continue;
+            }
+            renderLayer(gc, layer, cameraX, cameraY, now, true);
+        }
+    }
+
+    private void renderLayer(GraphicsContext gc, TileLayerData layer, double cameraX, double cameraY, long now, boolean hideDestroyedResourceTiles) {
         int tileW = mapData.getTileWidth();
         int tileH = mapData.getTileHeight();
 
