@@ -4,7 +4,11 @@ import build.AssetManager;
 import buildsystem.core.BuildManager;
 import buildsystem.core.BuildMode;
 import buildsystem.core.BuildController;
+import buildsystem.core.BuildDamageResult;
 import entity.BaseCamp;
+import entity.CollectibleDrop;
+import entity.DropType;
+import entity.DroppedItem;
 import entity.BossEnemy;
 import entity.Enemy;
 import entity.OrcEnemy;
@@ -16,6 +20,7 @@ import event.GameEventType;
 import input.InputHandler;
 import inventory.Inventory;
 import javafx.application.Platform;
+import javafx.geometry.Point2D;
 import javafx.scene.input.KeyCode;
 import javafx.stage.Stage;
 import map.MapData;
@@ -29,6 +34,7 @@ import system.resource.DropResult;
 import system.resource.ResourceContractValidator;
 import system.resource.ResourceHitResult;
 import system.resource.ResourceManager;
+import system.resource.ResourceType;
 import system.resource.TileResourceAdapter;
 import system.save.WorldSaveService;
 import ui.FloatingDamageText;
@@ -83,6 +89,8 @@ public class Game {
     private final TileCollisionResolver tileCollisionResolver;
     private final DayNightCycle dayNightCycle;
     private final List<FloatingDamageText> floatingDamageTexts;
+    private final List<DroppedItem> droppedItems;
+    private final List<CollectibleDrop> droppedCollectibles;
 
     // Inventory la state gameplay chinh cho he thu thap/craft.
     private final Inventory inventory;
@@ -129,6 +137,7 @@ public class Game {
     // - Slot 0: stone_wall.
     // - Cac slot khac de trong cho item build/craft sau nay.
     private static final String STONE_WALL_ITEM_ID = "stone_wall";
+    private static final String WALL_ITEM_ALIAS = "wall";
     private static final String COIN_ITEM_ID = "coin";
     private static final String WOOD_WALL_ITEM_ID = "wood_wall";
     private static final String POTION_ITEM_ID = "potion";
@@ -136,8 +145,19 @@ public class Game {
     private static final String BASIC_SWORD_ITEM_ID = "basic_sword";
     private static final String PICKAXE_ITEM_ID = "pickaxe";
     private static final String CARROT_ITEM_ID = "carrot";
-    private static final int STARTING_STONE_WALL_AMOUNT = 20;
-    private static final int STARTING_COIN_AMOUNT = 120;
+    private static final int DROP_STACK_MIN = 1;
+    private static final int DROP_STACK_MAX = 5;
+    private static final int COIN_VALUE_PER_ITEM = 5;
+    private static final int XP_VALUE_PER_ITEM = 2;
+    private static final double COLLECTIBLE_SIZE = 18.0;
+    private static final double DROP_MIN_RADIUS = 20.0;
+    private static final double DROP_MAX_RADIUS = 60.0;
+    private static final double DROP_MIN_DISTANCE = 16.0;
+    private static final int DROP_POSITION_MAX_ATTEMPTS = 24;
+    private static final boolean DEBUG_DROP_LOGS = false;
+    private static final int STONE_WALL_PRICE = GameBalance.STONE_WALL_PRICE;
+    private static final int WOOD_WALL_PRICE = GameBalance.WOOD_WALL_PRICE;
+    private static final int TORCH_PRICE = GameBalance.TORCH_PRICE;
 
     // selectedHotbarIndex:
     // - Luu slot nguoi choi dang chon tren thanh hotbar.
@@ -151,6 +171,7 @@ public class Game {
         // - Khoi tao tat ca subsystem runtime cho 1 session sinh ton.
         this.inputHandler = new InputHandler();
         this.wallAssetManager = new AssetManager();
+        CollectibleDrop.preloadAssets();
         this.player = new Player(100, 100, 58, 58, 1, 100);
         this.baseCamp = new BaseCamp(0, 0, 116, 116, 500);
         this.gameLoop = new GameLoop(this);
@@ -158,6 +179,8 @@ public class Game {
         this.resourceManager = new ResourceManager();
         this.dayNightCycle = new DayNightCycle();
         this.floatingDamageTexts = new ArrayList<>();
+        this.droppedItems = new ArrayList<>();
+        this.droppedCollectibles = new ArrayList<>();
         this.inventory = new Inventory();
         this.eventBus = new GameEventBus();
         this.worldSaveService = new WorldSaveService(SURVIVAL_SAVE_FILE);
@@ -218,8 +241,6 @@ public class Game {
         this.hasLoadedSaveSnapshot = loadedFromSave;
         if (!loadedFromSave) {
             seedStartingBuildItems();
-        } else {
-            ensureStoneWallSlotHasVisibleAmount();
         }
         buildManager.syncToolbar(inventory.snapshot());
         setSelectedHotbarIndex(selectedHotbarIndex);
@@ -253,8 +274,24 @@ public class Game {
         );
         renderer.setNameActions(this::confirmEnteredNameAndStart, this::backToWelcomeMenu);
         renderer.setHotbarSelectionListener(this::setSelectedHotbarIndex);
-        renderer.setShopBuyListener(this::purchaseShopItem);
-        renderer.setInventoryCloseAction(() -> renderer.setInventoryVisible(false));
+        renderer.setShopUiActions(
+                itemId -> {
+                    inputHandler.consumeMouseLeftClick();
+                    purchaseShopItem(itemId);
+                },
+                () -> {
+                    inputHandler.consumeMouseLeftClick();
+                    renderer.setShopVisible(true);
+                },
+                () -> {
+                    inputHandler.consumeMouseLeftClick();
+                    renderer.setShopVisible(false);
+                }
+        );
+        renderer.setInventoryCloseAction(() -> {
+            inputHandler.consumeMouseLeftClick();
+            renderer.setInventoryVisible(false);
+        });
     }
 
     public void update(long now) {
@@ -319,6 +356,8 @@ public class Game {
                 selectedHotbarIndex,
                 inventory.getAmount(STONE_WALL_ITEM_ID),
                 buildManager,
+                droppedItems,
+                droppedCollectibles,
                 floatingDamageTexts,
                 dayNightCycle.getDarknessAlpha(now),
                 dayNightCycle.isNight(now),
@@ -573,7 +612,9 @@ public class Game {
                 // - Chi dat khi click tren world, khong de len UI.
                 // - BuildManager se validate occupied tile/collision truoc khi tao wall.
                 // - Dat thanh cong moi tru 1 stone_wall trong inventory.
-                buildController.onPrimaryClickPlace(player, inventory);
+                if (buildController.onPrimaryClickPlace(player, inventory)) {
+                    refreshBuildInventoryUi();
+                }
             } else {
                 performPlayerAttack(now, Player.AttackAnimationType.HIT);
             }
@@ -599,6 +640,8 @@ public class Game {
         }
 
         resourceManager.update(now);
+        updateDroppedItemPickup();
+        checkCollectDroppedItems();
         cleanupExpiredDamageTexts(now);
         updateEnemySpawning(now);
         updateEnemies(now);
@@ -743,11 +786,14 @@ public class Game {
             return;
         }
 
-        int price = switch (itemId) {
-            case STONE_WALL_ITEM_ID -> 6;
-            case WOOD_WALL_ITEM_ID -> 4;
+        String requestedItemId = itemId.trim().toLowerCase();
+        String resolvedItemId = normalizeShopItemId(requestedItemId);
+        int currentCoin = inventory.getAmount(COIN_ITEM_ID);
+        int price = switch (resolvedItemId) {
+            case STONE_WALL_ITEM_ID -> STONE_WALL_PRICE;
+            case WOOD_WALL_ITEM_ID -> WOOD_WALL_PRICE;
             case POTION_ITEM_ID -> 12;
-            case TORCH_ITEM_ID -> 8;
+            case TORCH_ITEM_ID -> TORCH_PRICE;
             case BASIC_SWORD_ITEM_ID -> 18;
             case PICKAXE_ITEM_ID -> 14;
             case CARROT_ITEM_ID -> 3;
@@ -755,18 +801,35 @@ public class Game {
         };
 
         if (price < 0) {
+            logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, false, "unknown-item");
             renderer.showToast("Unknown item");
             return;
         }
-        if (inventory.getAmount(COIN_ITEM_ID) < price) {
+        if (currentCoin < price) {
+            logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, false, "not-enough-coin");
             renderer.showToast("Not enough coins");
             return;
         }
 
-        inventory.consumeItem(COIN_ITEM_ID, price);
-        inventory.addItem(itemId, 1);
-        buildManager.syncToolbar(inventory.snapshot());
-        renderer.showToast("Bought " + prettifyItemName(itemId));
+        if (!inventory.consumeItem(COIN_ITEM_ID, price)) {
+            logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, false, "coin-consume-failed");
+            renderer.showToast("Coin sync failed");
+            return;
+        }
+
+        int beforeAmount = inventory.getAmount(resolvedItemId);
+        inventory.addItem(resolvedItemId, 1);
+        boolean inventoryAddResult = inventory.getAmount(resolvedItemId) == beforeAmount + 1;
+        if (!inventoryAddResult) {
+            inventory.addItem(COIN_ITEM_ID, price);
+            logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, false, "inventory-add-failed");
+            renderer.showToast("Inventory add failed");
+            return;
+        }
+
+        refreshBuildInventoryUi();
+        logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, true, "success");
+        renderer.showToast("Bought " + prettifyItemName(resolvedItemId));
     }
 
     private void restartSurvival() {
@@ -776,9 +839,11 @@ public class Game {
         buildManager.clearObjects();
         inventory.restore(Map.of());
         seedStartingBuildItems();
-        buildManager.syncToolbar(inventory.snapshot());
         selectedHotbarIndex = 0;
+        refreshBuildInventoryUi();
         floatingDamageTexts.clear();
+        droppedItems.clear();
+        droppedCollectibles.clear();
         resourceManager.loadFromMapObjects(mapCollisions);
         // Hoi mau day cho player va nha chinh de thoat khoi vong lap GAME_OVER.
         player.setHpForLoad(player.getMaxHp());
@@ -902,6 +967,27 @@ public class Game {
             return;
         }
 
+        BuildDamageResult buildHitResult = buildManager.hitFirstDamageableIntersecting(
+                attackBox[0],
+                attackBox[1],
+                attackBox[2],
+                attackBox[3],
+                attackDamage,
+                now
+        );
+        if (buildHitResult != null) {
+            spawnBuildDamageText(buildHitResult, now);
+            if (buildHitResult.isDestroyed() && buildHitResult.getDropAmount() > 0 && !buildHitResult.getDropItemId().isBlank()) {
+                spawnDroppedItem(
+                        buildHitResult.getDropItemId(),
+                        buildHitResult.getDropAmount(),
+                        buildHitResult.getObject().getCenterX(),
+                        buildHitResult.getObject().getCenterY()
+                );
+            }
+            return;
+        }
+
         ResourceHitResult hitResult = resourceManager.hitFirstResourceIntersecting(
                 attackBox[0],
                 attackBox[1],
@@ -919,11 +1005,16 @@ public class Game {
         if (!hitResult.isDestroyed() || hitResult.getDropResult() == null) {
             return;
         }
+        ResourceType destroyedType = hitResult.getResourceNode() == null ? ResourceType.UNKNOWN : hitResult.getResourceNode().getResourceType();
         DropResult drop = hitResult.getDropResult();
-        inventory.addItem(drop.getItemId(), drop.getAmount());
-        player.addExperience(1);
-        if (isFoodItem(drop.getItemId())) {
-            player.recoverEnergy(FOOD_ENERGY_BONUS);
+        if (destroyedType == ResourceType.TREE || destroyedType == ResourceType.ROCK) {
+            onResourceDestroyed(hitResult.getResourceNode());
+        } else {
+            inventory.addItem(drop.getItemId(), drop.getAmount());
+            refreshBuildInventoryUi();
+            if (isFoodItem(drop.getItemId())) {
+                player.recoverEnergy(FOOD_ENERGY_BONUS);
+            }
         }
 
         eventBus.publish(new GameEvent(GameEventType.RESOURCE_COLLECTED,
@@ -996,6 +1087,8 @@ public class Game {
         baseCamp.setHpForLoad(WorldSaveService.toInt(save.get("baseCampHp"), baseCamp.getMaxHp()));
         inventory.restore(WorldSaveService.parseInventory(save.get("inventory")));
         buildManager.restoreFromSaveData(save.get("buildObjects"));
+        restoreDroppedItems(save.get("droppedItems"));
+        refreshBuildInventoryUi();
 
         long elapsedNs = WorldSaveService.toLong(save.get("elapsedNs"), 0L);
         worldStartedAtNs = System.nanoTime() - Math.max(0L, elapsedNs);
@@ -1022,6 +1115,7 @@ public class Game {
         snapshot.put("bossDefeated", (bossEnemy != null && !bossEnemy.isAlive()) ? 1 : 0);
         snapshot.put("inventory", WorldSaveService.buildInventorySnapshot(inventory));
         snapshot.put("buildObjects", buildManager.exportSaveData());
+        snapshot.put("droppedItems", exportDroppedItems());
 
         if (worldSaveService.save(snapshot)) {
             eventBus.publish(new GameEvent(GameEventType.WORLD_SAVED, Map.of("file", SURVIVAL_SAVE_FILE)));
@@ -1240,6 +1334,20 @@ public class Game {
         ));
     }
 
+    private void spawnBuildDamageText(BuildDamageResult hitResult, long nowNs) {
+        if (hitResult == null || hitResult.getDamageApplied() <= 0 || hitResult.getObject() == null) {
+            return;
+        }
+        floatingDamageTexts.add(new FloatingDamageText(
+                "-" + hitResult.getDamageApplied(),
+                hitResult.getObject().getCenterX(),
+                hitResult.getObject().getRenderY() - 6,
+                nowNs,
+                DAMAGE_TEXT_LIFETIME_NS,
+                false
+        ));
+    }
+
     private void cleanupExpiredDamageTexts(long nowNs) {
         floatingDamageTexts.removeIf(text -> text == null || text.isExpired(nowNs));
     }
@@ -1266,6 +1374,37 @@ public class Game {
         };
     }
 
+    private void spawnDroppedItem(String itemId, int amount, double centerX, double centerY) {
+        if (itemId == null || itemId.isBlank() || amount <= 0) {
+            return;
+        }
+        String spriteKey = resolveDroppedSpriteKey(itemId);
+        double[] size = resolveDroppedItemSize(itemId);
+        double x = centerX - size[0] / 2.0;
+        double y = centerY - size[1] / 2.0;
+        droppedItems.add(new DroppedItem(itemId, spriteKey, amount, x, y, size[0], size[1]));
+    }
+
+    private String resolveDroppedSpriteKey(String itemId) {
+        if (TORCH_ITEM_ID.equals(itemId)) {
+            return "torch_icon";
+        }
+        if ("stone".equalsIgnoreCase(itemId)) {
+            return "";
+        }
+        return "wall_icon";
+    }
+
+    private double[] resolveDroppedItemSize(String itemId) {
+        if (TORCH_ITEM_ID.equals(itemId)) {
+            return new double[]{GameBalance.DROPPED_TORCH_WIDTH, GameBalance.DROPPED_TORCH_HEIGHT};
+        }
+        if ("stone".equalsIgnoreCase(itemId)) {
+            return new double[]{GameBalance.DROPPED_STONE_WIDTH, GameBalance.DROPPED_STONE_HEIGHT};
+        }
+        return new double[]{GameBalance.DROPPED_ITEM_SIZE, GameBalance.DROPPED_ITEM_SIZE};
+    }
+
     private double distance(double ax, double ay, double bx, double by) {
         double dx = bx - ax;
         double dy = by - ay;
@@ -1273,37 +1412,11 @@ public class Game {
     }
 
     // seedStartingBuildItems:
-    // - Cap phat so luong stone wall mac dinh khi vao world moi.
-    // - Input: khong co, doc/truoc tiep state inventory hien tai.
-    // - Output: inventory co san 20 stone_wall neu truoc do chua co.
-    // - Tac dong gameplay: nguoi choi vao game la thay hotbar khong rong va co vat lieu de thu he xay.
+    // - World moi chi nhan coin de mua build item trong shop.
     private void seedStartingBuildItems() {
-        if (inventory.getAmount(STONE_WALL_ITEM_ID) > 0) {
-            if (inventory.getAmount(COIN_ITEM_ID) <= 0) {
-                inventory.addItem(COIN_ITEM_ID, STARTING_COIN_AMOUNT);
-            }
-            return;
-        }
-        inventory.addItem(STONE_WALL_ITEM_ID, STARTING_STONE_WALL_AMOUNT);
-        inventory.addItem(WOOD_WALL_ITEM_ID, 12);
-        inventory.addItem(TORCH_ITEM_ID, 8);
-        inventory.addItem("spike_trap", 6);
-        inventory.addItem("chest", 2);
-        inventory.addItem("workbench", 1);
-        inventory.addItem(COIN_ITEM_ID, STARTING_COIN_AMOUNT);
-    }
-
-    // ensureStoneWallSlotHasVisibleAmount:
-    // - Giu cho hotbar slot dau co du lieu de render dung voi save cu.
-    // - Neu save cu khong co stone wall thi cap 20 de user thay item ngay.
-    private void ensureStoneWallSlotHasVisibleAmount() {
-        if (inventory.getAmount(STONE_WALL_ITEM_ID) <= 0) {
-            inventory.addItem(STONE_WALL_ITEM_ID, STARTING_STONE_WALL_AMOUNT);
-        }
         if (inventory.getAmount(COIN_ITEM_ID) <= 0) {
-            inventory.addItem(COIN_ITEM_ID, STARTING_COIN_AMOUNT);
+            inventory.addItem(COIN_ITEM_ID, GameBalance.STARTING_COIN_AMOUNT);
         }
-        buildManager.syncToolbar(inventory.snapshot());
     }
 
     // updateHotbarSelectionInput:
@@ -1354,6 +1467,204 @@ public class Game {
         // - Cac slot khac de null de game thoat khoi che do xay.
         selectedHotbarIndex = slotIndex;
         buildController.onToolbarSlotSelected(slotIndex, inventory);
+    }
+
+    private void updateDroppedItemPickup() {
+        if (droppedItems.isEmpty()) {
+            return;
+        }
+        boolean pickedAny = false;
+        double px = player.getX() + player.getWidth() * 0.22;
+        double py = player.getY() + player.getHeight() * 0.30;
+        double pw = player.getWidth() * 0.56;
+        double ph = player.getHeight() * 0.62;
+        List<DroppedItem> picked = new ArrayList<>();
+        for (DroppedItem droppedItem : droppedItems) {
+            if (droppedItem == null) {
+                continue;
+            }
+            if (CollisionSystem.intersects(px, py, pw, ph, droppedItem.getX(), droppedItem.getY(), droppedItem.getWidth(), droppedItem.getHeight())) {
+                inventory.addItem(droppedItem.getItemId(), droppedItem.getAmount());
+                picked.add(droppedItem);
+                pickedAny = true;
+            }
+        }
+        if (!picked.isEmpty()) {
+            droppedItems.removeAll(picked);
+        }
+        if (pickedAny) {
+            refreshBuildInventoryUi();
+        }
+    }
+
+    private void refreshBuildInventoryUi() {
+        buildManager.syncToolbar(inventory.snapshot());
+        setSelectedHotbarIndex(Math.max(0, Math.min(selectedHotbarIndex, 8)));
+    }
+
+    private void onResourceDestroyed(system.resource.ResourceNode resource) {
+        if (resource == null) {
+            return;
+        }
+        if (resource.getResourceType() != ResourceType.TREE && resource.getResourceType() != ResourceType.ROCK) {
+            return;
+        }
+        if (DEBUG_DROP_LOGS) {
+            System.out.println("Resource destroyed at: " + resource.getCenterX() + ", " + resource.getCenterY());
+        }
+        spawnDrops(resource.getCenterX(), resource.getCenterY());
+    }
+
+    private void spawnDrops(double x, double y) {
+        int goldCount = DROP_STACK_MIN + random.nextInt(DROP_STACK_MAX - DROP_STACK_MIN + 1);
+        int xpCount = DROP_STACK_MIN + random.nextInt(DROP_STACK_MAX - DROP_STACK_MIN + 1);
+        List<Point2D> usedPositions = new ArrayList<>();
+
+        for (int i = 0; i < goldCount; i++) {
+            Point2D pos = getNonOverlappingDropPosition(x, y, usedPositions);
+            spawnDropItem(DropType.COIN, pos.getX(), pos.getY());
+            usedPositions.add(pos);
+        }
+        for (int i = 0; i < xpCount; i++) {
+            Point2D pos = getNonOverlappingDropPosition(x, y, usedPositions);
+            spawnDropItem(DropType.XP, pos.getX(), pos.getY());
+            usedPositions.add(pos);
+        }
+    }
+
+    private void spawnDropItem(DropType type, double x, double y) {
+        int value = type == DropType.COIN ? COIN_VALUE_PER_ITEM : XP_VALUE_PER_ITEM;
+        droppedCollectibles.add(new CollectibleDrop(type, x, y, value, COLLECTIBLE_SIZE));
+        if (DEBUG_DROP_LOGS) {
+            System.out.println("Spawn drop: " + type + " at " + x + ", " + y);
+        }
+    }
+
+    private Point2D getNonOverlappingDropPosition(double centerX, double centerY, List<Point2D> usedPositions) {
+        Point2D fallback = new Point2D(
+                centerX - COLLECTIBLE_SIZE * 0.5,
+                centerY - COLLECTIBLE_SIZE * 0.5
+        );
+        if (usedPositions == null) {
+            return fallback;
+        }
+
+        for (int attempt = 0; attempt < DROP_POSITION_MAX_ATTEMPTS; attempt++) {
+            double angle = random.nextDouble() * Math.PI * 2.0;
+            double radius = DROP_MIN_RADIUS + random.nextDouble() * (DROP_MAX_RADIUS - DROP_MIN_RADIUS);
+            double px = centerX + Math.cos(angle) * radius - COLLECTIBLE_SIZE * 0.5;
+            double py = centerY + Math.sin(angle) * radius - COLLECTIBLE_SIZE * 0.5;
+            Point2D candidate = new Point2D(px, py);
+
+            boolean overlaps = false;
+            for (Point2D used : usedPositions) {
+                if (used != null && distance(candidate.getX(), candidate.getY(), used.getX(), used.getY()) < DROP_MIN_DISTANCE) {
+                    overlaps = true;
+                    break;
+                }
+            }
+            if (!overlaps) {
+                return candidate;
+            }
+        }
+        return fallback;
+    }
+
+    private void checkCollectDroppedItems() {
+        if (droppedCollectibles.isEmpty()) {
+            return;
+        }
+        double px = player.getX() + player.getWidth() * 0.22;
+        double py = player.getY() + player.getHeight() * 0.30;
+        double pw = player.getWidth() * 0.56;
+        double ph = player.getHeight() * 0.62;
+
+        List<CollectibleDrop> picked = new ArrayList<>();
+        for (CollectibleDrop item : droppedCollectibles) {
+            if (item == null) {
+                continue;
+            }
+            if (!CollisionSystem.intersects(px, py, pw, ph, item.getX(), item.getY(), item.getWidth(), item.getHeight())) {
+                continue;
+            }
+            if (item.getType() == DropType.COIN) {
+                addCoin(item.getValue());
+            } else {
+                addXp(item.getValue());
+            }
+            if (DEBUG_DROP_LOGS) {
+                System.out.println("Collected: " + item.getType() + " value=" + item.getValue());
+            }
+            picked.add(item);
+        }
+        if (!picked.isEmpty()) {
+            droppedCollectibles.removeAll(picked);
+        }
+    }
+
+    private void addCoin(int amount) {
+        if (amount <= 0) {
+            return;
+        }
+        inventory.addItem(COIN_ITEM_ID, amount);
+        refreshBuildInventoryUi();
+    }
+
+    private void addXp(int amount) {
+        if (amount <= 0) {
+            return;
+        }
+        player.addExperience(amount);
+    }
+
+    private String normalizeShopItemId(String itemId) {
+        if (itemId == null || itemId.isBlank()) {
+            return "";
+        }
+        return switch (itemId.trim().toLowerCase()) {
+            case WALL_ITEM_ALIAS -> STONE_WALL_ITEM_ID;
+            default -> itemId.trim().toLowerCase();
+        };
+    }
+
+    private void logShopPurchase(String requestedItemId,
+                                 String resolvedItemId,
+                                 int price,
+                                 int currentCoin,
+                                 boolean inventoryAddResult,
+                                 String reasonFailed) {
+        System.out.println("[ShopDebug] itemId=" + requestedItemId
+                + " resolvedItemId=" + resolvedItemId
+                + " price=" + price
+                + " currentCoin=" + currentCoin
+                + " inventoryAddResult=" + inventoryAddResult
+                + " reasonFailed=" + reasonFailed);
+    }
+
+    private List<Map<String, Object>> exportDroppedItems() {
+        List<Map<String, Object>> snapshot = new ArrayList<>();
+        for (DroppedItem droppedItem : droppedItems) {
+            if (droppedItem != null) {
+                snapshot.add(droppedItem.toSaveMap());
+            }
+        }
+        return snapshot;
+    }
+
+    private void restoreDroppedItems(Object rawValue) {
+        droppedItems.clear();
+        if (!(rawValue instanceof List<?> list)) {
+            return;
+        }
+        for (Object entry : list) {
+            if (!(entry instanceof Map<?, ?> map)) {
+                continue;
+            }
+            DroppedItem droppedItem = DroppedItem.fromSaveMap(map);
+            if (droppedItem != null) {
+                droppedItems.add(droppedItem);
+            }
+        }
     }
 }
 

@@ -51,21 +51,23 @@ public class ResourcePanel extends VBox {
 
         if (inventorySnapshot == null || inventorySnapshot.isEmpty()) {
             rowsBox.getChildren().add(buildRow("coin", 0, itemMetaMap));
-            rowsBox.getChildren().add(buildRow("stone_wall", 0, itemMetaMap));
-            rowsBox.getChildren().add(buildRow("wood", 0, itemMetaMap));
-            rowsBox.getChildren().add(buildRow("stone", 0, itemMetaMap));
-            rowsBox.getChildren().add(buildRow("carrot", 0, itemMetaMap));
             return;
         }
 
-        // Pinned order displays first
+        // Coin luon hien; item khac chi hien khi dang co so luong duong.
         for (String itemId : PINNED_ORDER) {
-            rowsBox.getChildren().add(buildRow(itemId, inventorySnapshot.getOrDefault(itemId, 0), itemMetaMap));
+            int amount = inventorySnapshot.getOrDefault(itemId, 0);
+            if (!"coin".equals(itemId) && amount <= 0) {
+                continue;
+            }
+            rowsBox.getChildren().add(buildRow(itemId, amount, itemMetaMap));
         }
 
-        // Add other collected items dynamically
         for (Map.Entry<String, Integer> entry : inventorySnapshot.entrySet()) {
             if (PINNED_ORDER.contains(entry.getKey())) {
+                continue;
+            }
+            if (entry.getValue() == null || entry.getValue() <= 0) {
                 continue;
             }
             rowsBox.getChildren().add(buildRow(entry.getKey(), entry.getValue(), itemMetaMap));
@@ -86,6 +88,7 @@ public class ResourcePanel extends VBox {
             imageView.setFitWidth(16);
             imageView.setFitHeight(16);
             imageView.setPreserveRatio(true);
+            imageView.setSmooth(false);
             row.getChildren().add(imageView);
         } else {
             row.getChildren().add(iconFallback);

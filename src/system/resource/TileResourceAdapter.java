@@ -1,5 +1,6 @@
 package system.resource;
 
+import core.GameBalance;
 import map.MapData;
 import map.MapObjectData;
 import map.TileLayerData;
@@ -103,11 +104,7 @@ public class TileResourceAdapter {
     }
 
     private MapObjectData buildStoneObject(Cluster cluster, MapData mapData, TilePropertyCatalog catalog, int objectId, int tileW, int tileH) {
-        int maxHp = 10;
-        for (Cell cell : cluster.cells) {
-            int gid = getTopVisualGidAt(cell.x, cell.y, mapData.findLayerByName("Objects"), mapData.findLayerByName("Foreground"));
-            maxHp = Math.max(maxHp, catalog.getIntProperty(gid, 10, "stone_Hp", "Hp", "hp", "maxHp"));
-        }
+        int maxHp = GameBalance.ROCK_HITS_TO_BREAK;
 
         Map<String, String> props = new HashMap<>();
         props.put("kind", "rock_small");

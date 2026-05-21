@@ -73,6 +73,9 @@ public class BuildManager {
                 continue;
             }
             int count = inventorySnapshot == null ? 0 : inventorySnapshot.getOrDefault(definition.getItemId(), 0);
+            if (count <= 0) {
+                continue;
+            }
             slots.add(new BuildHotbarSlot(definition, count, definition.getBuildCost()));
         }
         toolbar.setSlots(slots);
@@ -88,6 +91,14 @@ public class BuildManager {
         BuildHotbarSlot slot = toolbar.getSelectedSlot();
         if (slot == null) {
             cancelBuildMode();
+            return;
+        }
+        int available = inventory == null ? 0 : inventory.getAmount(slot.getDefinition().getItemId());
+        if (available < slot.getDefinition().getBuildCost()) {
+            buildMode = BuildMode.NONE;
+            selectedDefinition = null;
+            preview.setVisible(false);
+            preview.setValid(false);
             return;
         }
         selectItem(slot.getDefinition().getItemId());
@@ -231,6 +242,12 @@ public class BuildManager {
         );
         addPlacedObject(object);
         syncToolbar(inventory.snapshot());
+        if (inventory.getAmount(selectedDefinition.getItemId()) < selectedDefinition.getBuildCost()) {
+            buildMode = BuildMode.NONE;
+            selectedDefinition = null;
+            preview.setVisible(false);
+            preview.setValid(false);
+        }
         return true;
     }
 
@@ -241,6 +258,55 @@ public class BuildManager {
         objectsById.put(object.getId(), object);
         objectsByTile.put(tileKey(object.getTileX(), object.getTileY()), object);
         refreshObjectAndNeighbors(object.getTileX(), object.getTileY());
+    }
+
+    public BuildDamageResult hitFirstDamageableIntersecting(double x,
+                                                            double y,
+                                                            double width,
+                                                            double height,
+                                                            int damage,
+                                                            long nowNs) {
+        if (damage <= 0) {
+            return null;
+        }
+        for (BuildObject object : new ArrayList<>(objectsById.values())) {
+            if (object == null || !object.isAlive()) {
+                continue;
+            }
+            if (!intersectsRect(
+                    x,
+                    y,
+                    width,
+                    height,
+                    object.getRenderX(),
+                    object.getRenderY(),
+                    object.getRenderWidth(),
+                    object.getRenderHeight())) {
+                continue;
+            }
+
+            int applied = Math.min(object.getHealth(), Math.max(0, damage));
+            if (applied <= 0) {
+                continue;
+            }
+
+            object.setHealth(object.getHealth() - applied);
+            object.triggerHitFlash(nowNs, 130_000_000L, Color.rgb(255, 196, 92));
+
+            boolean destroyed = !object.isAlive();
+            String dropItemId = "";
+            int dropAmount = 0;
+            if (destroyed) {
+                BuildDefinition definition = registry.findByType(object.getType());
+                if (definition != null) {
+                    dropItemId = definition.getItemId();
+                    dropAmount = 1;
+                }
+                removePlacedObject(object);
+            }
+            return new BuildDamageResult(object, applied, destroyed, dropItemId, dropAmount);
+        }
+        return null;
     }
 
     public void restoreFromSaveData(Object savedData) {
@@ -346,6 +412,15 @@ public class BuildManager {
         refresh(tileX, tileY - 1);
     }
 
+    private void removePlacedObject(BuildObject object) {
+        if (object == null) {
+            return;
+        }
+        objectsById.remove(object.getId());
+        objectsByTile.remove(tileKey(object.getTileX(), object.getTileY()));
+        refreshObjectAndNeighbors(object.getTileX(), object.getTileY());
+    }
+
     private void refresh(int tileX, int tileY) {
         BuildObject object = objectsByTile.get(tileKey(tileX, tileY));
         if (object == null) {
@@ -369,6 +444,14 @@ public class BuildManager {
 
     private String tileKey(int tileX, int tileY) {
         return tileX + ":" + tileY;
+    }
+
+    private boolean intersectsRect(double ax, double ay, double aw, double ah,
+                                   double bx, double by, double bw, double bh) {
+        return ax < bx + bw
+                && ax + aw > bx
+                && ay < by + bh
+                && ay + ah > by;
     }
 
     private String rotationLabelFromDegrees(double degrees) {

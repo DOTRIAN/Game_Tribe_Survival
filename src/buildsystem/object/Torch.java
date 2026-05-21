@@ -5,6 +5,7 @@ import buildsystem.component.LightComponent;
 import buildsystem.component.RotationComponent;
 import buildsystem.core.BuildDefinition;
 import buildsystem.core.BuildObjectSeed;
+import core.GameBalance;
 
 /** Torch object mau cho lighting system dat xuong world. */
 public class Torch extends BuildObject {
@@ -16,14 +17,14 @@ public class Torch extends BuildObject {
                 seed.getTileWidth(),
                 seed.getTileHeight(),
                 definition.getAutoTileGroup(),
-                seed.getTileWidth(),
-                seed.getTileHeight(),
+                GameBalance.TORCH_WORLD_WIDTH,
+                GameBalance.TORCH_WORLD_HEIGHT,
                 0,
-                0,
+                (seed.getTileHeight() - GameBalance.TORCH_WORLD_HEIGHT) / 2.0,
                 seed.getSpriteKey(),
                 seed.getRotationDegrees(),
                 seed.getHealth());
-        addComponent(new LightComponent(140, 0.8));
+        addComponent(new LightComponent(GameBalance.TORCH_LIGHT_RADIUS, GameBalance.TORCH_LIGHT_INTENSITY));
         addComponent(new HealthComponent(seed.getHealth(), definition.getHealth()));
         addComponent(new RotationComponent(seed.getRotationDegrees()));
     }

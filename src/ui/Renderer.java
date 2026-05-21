@@ -1,10 +1,14 @@
 package ui;
 
 import build.AssetManager;
+import buildsystem.component.LightComponent;
 import buildsystem.core.BuildManager;
 import buildsystem.object.BuildObject;
 import buildsystem.core.BuildPreview;
+import core.GameBalance;
 import core.GameState;
+import entity.CollectibleDrop;
+import entity.DroppedItem;
 import entity.Enemy;
 import entity.Player;
 import input.InputHandler;
@@ -13,6 +17,7 @@ import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.effect.BlendMode;
 import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
 import javafx.scene.layout.AnchorPane;
 import javafx.scene.layout.StackPane;
 import javafx.scene.paint.Color;
@@ -31,6 +36,7 @@ import system.level.PlayerProgress;
 import system.resource.ResourceNode;
 
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.IntConsumer;
@@ -55,18 +61,21 @@ public class Renderer {
     private final Image welcomeBackgroundImage;
     private final Image gameBackgroundImage;
     private final LabelFpsTracker fpsTracker;
+    private final Map<String, Image> tintedBuildImageCache;
     private MapRenderer mapRenderer;
 
     public Renderer(Stage stage, InputHandler inputHandler, AssetManager buildAssetManager) {
         this.stage = stage;
         this.canvas = new Canvas();
         this.graphicsContext = canvas.getGraphicsContext2D();
+        this.graphicsContext.setImageSmoothing(false);
         this.settingsManager = new SettingsManager();
         this.settings = settingsManager.load();
         this.buildAssetManager = buildAssetManager;
         this.welcomeBackgroundImage = new Image("file:assets/backgrounds/menu_bg1.png");
         this.gameBackgroundImage = new Image("file:assets/backgrounds/grass03.png");
         this.fpsTracker = new LabelFpsTracker();
+        this.tintedBuildImageCache = new LinkedHashMap<>();
 
         StackPane root = new StackPane();
         root.setStyle("-fx-background-color: #0f1114;");
@@ -117,6 +126,8 @@ public class Renderer {
                        List<ResourceNode> allResources, Map<String, Integer> collectedResources,
                        int selectedHotbarIndex, int stoneWallCount,
                        BuildManager buildManager,
+                       List<DroppedItem> droppedItems,
+                       List<CollectibleDrop> droppedCollectibles,
                        List<FloatingDamageText> floatingDamageTexts,
                        double darknessAlpha, boolean isNight, String dayNightPhase,
                        double worldWidth, double worldHeight) {
@@ -144,6 +155,7 @@ public class Renderer {
 
         graphicsContext.setFill(Color.web("#121416"));
         graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
+        graphicsContext.setImageSmoothing(false);
 
         if (gameState == GameState.WELCOME || gameState == GameState.NAME_INPUT || gameState == GameState.GUIDE || uiManager.isSettingsVisible()) {
             drawBackgroundCover(welcomeBackgroundImage, viewportWidth, viewportHeight);
@@ -154,7 +166,7 @@ public class Renderer {
 
         if (gameState == GameState.PLAYING || gameState == GameState.PAUSED || gameState == GameState.GAME_OVER || gameState == GameState.LEVEL_COMPLETE) {
             renderGameplay(player, enemies, now, cameraX, cameraY, currentLevel, objectiveStatus,
-                    allResources, collectedResources, buildManager, floatingDamageTexts,
+                    allResources, collectedResources, buildManager, droppedItems, droppedCollectibles, floatingDamageTexts,
                     darknessAlpha, isNight, dayNightPhase, worldWidth, worldHeight, viewportWidth, viewportHeight);
             return;
         }
@@ -182,8 +194,8 @@ public class Renderer {
         uiManager.configureHotbarAction(listener);
     }
 
-    public void setShopBuyListener(Consumer<String> listener) {
-        uiManager.configureShopAction(listener);
+    public void setShopUiActions(Consumer<String> onBuy, Runnable onOpen, Runnable onClose) {
+        uiManager.configureShopAction(onBuy, onOpen, onClose);
     }
 
     public void setInventoryCloseAction(Runnable listener) {
@@ -291,6 +303,8 @@ public class Renderer {
                                 List<ResourceNode> allResources,
                                 Map<String, Integer> collectedResources,
                                 BuildManager buildManager,
+                                List<DroppedItem> droppedItems,
+                                List<CollectibleDrop> droppedCollectibles,
                                 List<FloatingDamageText> floatingDamageTexts,
                                 double darknessAlpha,
                                 boolean isNight,
@@ -310,7 +324,9 @@ public class Renderer {
         }
 
         renderBuildPreview(buildManager, cameraX, cameraY);
-        renderPlacedBuildObjects(buildManager, cameraX, cameraY);
+        renderPlacedBuildObjects(buildManager, cameraX, cameraY, now);
+        renderDroppedItems(droppedItems, cameraX, cameraY, now);
+        renderCollectibleItems(droppedCollectibles, cameraX, cameraY, now);
 
         player.draw(graphicsContext, cameraX, cameraY);
         renderLevelUpEffect(player, cameraX, cameraY, now);
@@ -332,7 +348,7 @@ public class Renderer {
         }
         graphicsContext.restore();
 
-        renderNightOverlayAndLights(player, cameraX, cameraY, darknessAlpha, isNight);
+        renderNightOverlayAndLights(player, buildManager, cameraX, cameraY, darknessAlpha, isNight);
 
         graphicsContext.setFill(Color.color(1, 1, 1, 0.82));
         graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 12));
@@ -356,7 +372,7 @@ public class Renderer {
         }
     }
 
-    private void renderPlacedBuildObjects(BuildManager buildManager, double cameraX, double cameraY) {
+    private void renderPlacedBuildObjects(BuildManager buildManager, double cameraX, double cameraY, long nowNs) {
         if (buildManager == null) {
             return;
         }
@@ -366,8 +382,18 @@ public class Renderer {
             }
             double screenX = object.getRenderX() - cameraX;
             double screenY = object.getRenderY() - cameraY;
-            if (buildImageFor(object) != null && !buildImageFor(object).isError()) {
-                drawRotatedImage(buildImageFor(object), screenX, screenY, object.getRenderWidth(), object.getRenderHeight(), object.getRotationDegrees());
+            Image objectImage = buildImageFor(object, nowNs);
+            if (objectImage != null && !objectImage.isError()) {
+                drawRotatedImage(objectImage, screenX, screenY, object.getRenderWidth(), object.getRenderHeight(), object.getRotationDegrees());
+                if (object.isHitFlashActive(nowNs)) {
+                    Image tinted = buildTintedBySourceAlpha(objectImage, object.getHitFlashColor());
+                    if (tinted != null) {
+                        graphicsContext.save();
+                        graphicsContext.setGlobalAlpha(0.58);
+                        drawRotatedImage(tinted, screenX, screenY, object.getRenderWidth(), object.getRenderHeight(), object.getRotationDegrees());
+                        graphicsContext.restore();
+                    }
+                }
                 if (DEBUG_DRAW_WALL_BOUNDS) {
                     graphicsContext.setStroke(Color.color(0.0, 1.0, 1.0, 0.75));
                     graphicsContext.strokeRect(screenX, screenY, object.getRenderWidth(), object.getRenderHeight());
@@ -376,6 +402,53 @@ public class Renderer {
             }
             graphicsContext.setFill(Color.color(0.75, 0.75, 0.75, 0.85));
             graphicsContext.fillRect(screenX, screenY, object.getRenderWidth(), object.getRenderHeight());
+        }
+    }
+
+    private void renderDroppedItems(List<DroppedItem> droppedItems, double cameraX, double cameraY, long nowNs) {
+        if (droppedItems == null) {
+            return;
+        }
+        for (DroppedItem droppedItem : droppedItems) {
+            if (droppedItem == null) {
+                continue;
+            }
+            double bobOffset = Math.sin(nowNs / 140_000_000.0) * 1.25;
+            Image image = buildAssetManager.getSprite(droppedItem.getSpriteKey());
+            if (image != null && !image.isError()) {
+                graphicsContext.drawImage(
+                        image,
+                        droppedItem.getX() - cameraX,
+                        droppedItem.getY() - cameraY + bobOffset,
+                        droppedItem.getRenderWidth(),
+                        droppedItem.getRenderHeight()
+                );
+                continue;
+            }
+        }
+    }
+
+    private void renderCollectibleItems(List<CollectibleDrop> droppedCollectibles, double cameraX, double cameraY, long nowNs) {
+        if (droppedCollectibles == null) {
+            return;
+        }
+        for (CollectibleDrop collectible : droppedCollectibles) {
+            if (collectible == null) {
+                continue;
+            }
+            collectible.updateAnimation(nowNs);
+            ImageView sprite = collectible.getImageView();
+            if (sprite == null || sprite.getImage() == null || sprite.getImage().isError()) {
+                continue;
+            }
+            double bobOffset = Math.sin(nowNs / 140_000_000.0 + collectible.getX() * 0.03) * 1.0;
+            graphicsContext.drawImage(
+                    sprite.getImage(),
+                    collectible.getX() - cameraX,
+                    collectible.getY() - cameraY + bobOffset,
+                    collectible.getWidth(),
+                    collectible.getHeight()
+            );
         }
     }
 
@@ -418,9 +491,15 @@ public class Renderer {
         }
     }
 
-    private Image buildImageFor(BuildObject object) {
+    private Image buildImageFor(BuildObject object, long nowNs) {
         if (object == null || object.getSpriteKey() == null) {
             return null;
+        }
+        if ("torch".equalsIgnoreCase(object.getType().name().toLowerCase())) {
+            Image animatedFrame = buildAssetManager.getAnimationFrame("torch", nowNs, GameBalance.TORCH_ANIMATION_FRAME_NS);
+            if (animatedFrame != null && !animatedFrame.isError()) {
+                return animatedFrame;
+            }
         }
         try {
             return buildAssetManager.getSprite(object.getSpriteKey());
@@ -478,7 +557,7 @@ public class Renderer {
         }
     }
 
-    private void renderNightOverlayAndLights(Player player, double cameraX, double cameraY, double darknessAlpha, boolean isNight) {
+    private void renderNightOverlayAndLights(Player player, BuildManager buildManager, double cameraX, double cameraY, double darknessAlpha, boolean isNight) {
         if (darknessAlpha <= 0.001) {
             return;
         }
@@ -498,11 +577,66 @@ public class Renderer {
         double playerLightRadius = isNight ? 120 : 170;
         drawRadialLight(playerScreenX, playerScreenY, playerLightRadius, Color.color(1.0, 0.96, 0.86, 0.58));
 
+        if (buildManager != null) {
+            for (BuildObject object : buildManager.getPlacedObjects()) {
+                if (object == null) {
+                    continue;
+                }
+                LightComponent lightComponent = object.getComponent(LightComponent.class);
+                if (lightComponent == null) {
+                    continue;
+                }
+                double screenX = (object.getCenterX() - cameraX) * CAMERA_ZOOM;
+                double screenY = (object.getCenterY() - cameraY) * CAMERA_ZOOM;
+                double radius = lightComponent.getRadius() * CAMERA_ZOOM;
+                double alpha = Math.max(0.18, Math.min(0.85, lightComponent.getIntensity() * 0.72));
+                drawRadialLight(screenX, screenY, radius, Color.color(1.0, 0.82, 0.46, alpha));
+            }
+        }
+
         double bonfireWorldX = 1060;
         double bonfireWorldY = 520;
         drawRadialLight((bonfireWorldX - cameraX) * CAMERA_ZOOM, (bonfireWorldY - cameraY) * CAMERA_ZOOM, 180, Color.color(1.0, 0.80, 0.40, 0.62));
         graphicsContext.restore();
         graphicsContext.setGlobalBlendMode(BlendMode.SRC_OVER);
+    }
+
+    private Image buildTintedBySourceAlpha(Image source, Color tint) {
+        if (source == null || source.isError() || tint == null) {
+            return null;
+        }
+        int w = (int) source.getWidth();
+        int h = (int) source.getHeight();
+        if (w <= 0 || h <= 0) {
+            return null;
+        }
+        int tintR = (int) Math.round(tint.getRed() * 255.0);
+        int tintG = (int) Math.round(tint.getGreen() * 255.0);
+        int tintB = (int) Math.round(tint.getBlue() * 255.0);
+        String key = System.identityHashCode(source) + ":" + tintR + ":" + tintG + ":" + tintB;
+        Image cached = tintedBuildImageCache.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        javafx.scene.image.PixelReader reader = source.getPixelReader();
+        if (reader == null) {
+            return null;
+        }
+        javafx.scene.image.WritableImage tinted = new javafx.scene.image.WritableImage(w, h);
+        javafx.scene.image.PixelWriter writer = tinted.getPixelWriter();
+        for (int py = 0; py < h; py++) {
+            for (int px = 0; px < w; px++) {
+                Color src = reader.getColor(px, py);
+                double alpha = src.getOpacity();
+                if (alpha <= 0.001) {
+                    writer.setColor(px, py, Color.TRANSPARENT);
+                    continue;
+                }
+                writer.setColor(px, py, Color.color(tint.getRed(), tint.getGreen(), tint.getBlue(), alpha));
+            }
+        }
+        tintedBuildImageCache.put(key, tinted);
+        return tinted;
     }
 
     private void drawRadialLight(double x, double y, double radius, Color centerColor) {

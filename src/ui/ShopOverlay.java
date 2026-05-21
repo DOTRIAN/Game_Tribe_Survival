@@ -26,6 +26,7 @@ public class ShopOverlay extends StackPane {
     private final Button closeButton;
     private final VBox listBox;
     private Consumer<String> buyListener;
+    private String lastShopFingerprint;
 
     public ShopOverlay() {
         getStyleClass().add("screen-overlay");
@@ -49,6 +50,7 @@ public class ShopOverlay extends StackPane {
         header.getChildren().addAll(title, spacer, coinLabel, closeButton);
 
         this.listBox = new VBox(10);
+        this.lastShopFingerprint = "";
         ScrollPane scrollPane = new ScrollPane(listBox);
         scrollPane.setFitToWidth(true);
         scrollPane.setMaxHeight(370);
@@ -69,12 +71,32 @@ public class ShopOverlay extends StackPane {
     public void updateShop(Map<String, Integer> inventorySnapshot, List<ItemUiMeta> shopItems) {
         int coins = inventorySnapshot == null ? 0 : inventorySnapshot.getOrDefault("coin", 0);
         coinLabel.setText("Coins: " + coins);
-        listBox.getChildren().clear();
 
         if (shopItems == null) {
+            listBox.getChildren().clear();
+            lastShopFingerprint = "";
             return;
         }
+
+        StringBuilder fingerprintBuilder = new StringBuilder();
+        fingerprintBuilder.append(coins).append('|');
+        for (ItemUiMeta item : shopItems) {
+            if (item == null) {
+                continue;
+            }
+            fingerprintBuilder.append(item.getItemId()).append(':').append(item.getPrice()).append(';');
+        }
+        String nextFingerprint = fingerprintBuilder.toString();
+        if (nextFingerprint.equals(lastShopFingerprint) && !listBox.getChildren().isEmpty()) {
+            return;
+        }
+
+        listBox.getChildren().clear();
+        lastShopFingerprint = nextFingerprint;
         for (ItemUiMeta item : new ArrayList<>(shopItems)) {
+            if (item == null) {
+                continue;
+            }
             listBox.getChildren().add(buildCard(item));
         }
     }
@@ -93,6 +115,7 @@ public class ShopOverlay extends StackPane {
             imageView.setFitWidth(34);
             imageView.setFitHeight(34);
             imageView.setPreserveRatio(true);
+            imageView.setSmooth(false);
             iconPane.getChildren().add(imageView);
         } else {
             Label iconLabel = new Label(item.getPlaceholderIconText());

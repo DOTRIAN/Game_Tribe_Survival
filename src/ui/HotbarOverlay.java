@@ -59,6 +59,7 @@ public class HotbarOverlay extends HBox {
         setSelectedIndex(nextSelected);
 
         for (int index = 0; index < SLOT_COUNT; index++) {
+            StackPane slot = slotNodes.get(index);
             StackPane iconPane = iconContainers.get(index);
             iconPane.getChildren().clear();
 
@@ -68,17 +69,20 @@ public class HotbarOverlay extends HBox {
             Label costLabel = costLabels.get(index);
             costLabel.setText("");
 
-            StackPane slot = slotNodes.get(index);
             slot.setOpacity(0.35);
+            slot.setVisible(true);
+            slot.setManaged(true);
 
             BuildHotbarSlot buildSlot = (toolbar == null || index >= toolbar.getSlots().size())
                     ? null
                     : toolbar.getSlots().get(index);
-            if (buildSlot == null || buildSlot.getDefinition() == null) {
+            if (buildSlot == null || buildSlot.getDefinition() == null || buildSlot.getCount() <= 0) {
                 continue;
             }
 
-            slot.setOpacity(buildSlot.getCount() > 0 ? 1.0 : 0.55);
+            slot.setVisible(true);
+            slot.setManaged(true);
+            slot.setOpacity(1.0);
             amountLabel.setText(String.valueOf(buildSlot.getCount()));
             costLabel.setText("C" + buildSlot.getCost());
 
@@ -88,6 +92,7 @@ public class HotbarOverlay extends HBox {
                 view.setFitWidth(24);
                 view.setFitHeight(24);
                 view.setPreserveRatio(true);
+                view.setSmooth(false);
                 view.setMouseTransparent(true);
                 iconPane.getChildren().add(view);
             } else {

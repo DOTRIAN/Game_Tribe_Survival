@@ -1,5 +1,6 @@
 package buildsystem.core;
 
+import buildsystem.component.CollisionComponent;
 import buildsystem.object.BuildObject;
 import buildsystem.placement.PlacementContext;
 import entity.Player;
@@ -102,6 +103,9 @@ public class PlacementValidator {
         }
         for (BuildObject object : placedObjects) {
             if (object == null) {
+                continue;
+            }
+            if (object.getComponent(CollisionComponent.class) == null) {
                 continue;
             }
             if (intersectsRect(

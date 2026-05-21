@@ -65,12 +65,17 @@ public abstract class Enemy extends Entity {
         this.damage = Math.max(1, damage);
         this.attackCooldownNs = Math.max(1L, attackCooldownNs);
 
+        Image[] runFrames = SpriteSheetLoader.loadGrid(runSheetPath, runColumns, runRows);
+        Image[] idleFrames = SpriteSheetLoader.loadGrid(idleSheetPath, idleColumns, idleRows);
+        int normalizedFrameWidth = maxFrameWidth(runFrames, idleFrames);
+        int normalizedFrameHeight = maxFrameHeight(runFrames, idleFrames);
+
         this.runAnimation = new SpriteAnimation(
-                SpriteSheetLoader.loadGrid(runSheetPath, runColumns, runRows),
+                normalizeFrameCanvas(runFrames, normalizedFrameWidth, normalizedFrameHeight),
                 runFrameNs
         );
         this.idleAnimation = new SpriteAnimation(
-                SpriteSheetLoader.loadGrid(idleSheetPath, idleColumns, idleRows),
+                normalizeFrameCanvas(idleFrames, normalizedFrameWidth, normalizedFrameHeight),
                 idleFrameNs
         );
         this.currentFrame = idleAnimation.getCurrentFrame();
@@ -225,6 +230,67 @@ public abstract class Enemy extends Entity {
         }
         TINT_CACHE.put(key, tinted);
         return tinted;
+    }
+
+    private Image[] normalizeFrameCanvas(Image[] frames, int targetWidth, int targetHeight) {
+        if (frames == null || frames.length == 0 || targetWidth <= 0 || targetHeight <= 0) {
+            return frames == null ? new Image[0] : frames;
+        }
+        Image[] normalized = new Image[frames.length];
+        for (int index = 0; index < frames.length; index++) {
+            Image frame = frames[index];
+            if (frame == null || frame.isError()) {
+                normalized[index] = frame;
+                continue;
+            }
+            int frameWidth = (int) Math.round(frame.getWidth());
+            int frameHeight = (int) Math.round(frame.getHeight());
+            if (frameWidth == targetWidth && frameHeight == targetHeight) {
+                normalized[index] = frame;
+                continue;
+            }
+            WritableImage padded = new WritableImage(targetWidth, targetHeight);
+            PixelReader reader = frame.getPixelReader();
+            PixelWriter writer = padded.getPixelWriter();
+            if (reader == null) {
+                normalized[index] = frame;
+                continue;
+            }
+            int offsetX = Math.max(0, (targetWidth - frameWidth) / 2);
+            int offsetY = Math.max(0, targetHeight - frameHeight);
+            for (int py = 0; py < frameHeight; py++) {
+                for (int px = 0; px < frameWidth; px++) {
+                    writer.setColor(offsetX + px, offsetY + py, reader.getColor(px, py));
+                }
+            }
+            normalized[index] = padded;
+        }
+        return normalized;
+    }
+
+    private int maxFrameWidth(Image[] primaryFrames, Image[] secondaryFrames) {
+        return Math.max(maxFrameDimension(primaryFrames, true), maxFrameDimension(secondaryFrames, true));
+    }
+
+    private int maxFrameHeight(Image[] primaryFrames, Image[] secondaryFrames) {
+        return Math.max(maxFrameDimension(primaryFrames, false), maxFrameDimension(secondaryFrames, false));
+    }
+
+    private int maxFrameDimension(Image[] frames, boolean widthDimension) {
+        int max = 0;
+        if (frames == null) {
+            return max;
+        }
+        for (Image frame : frames) {
+            if (frame == null || frame.isError()) {
+                continue;
+            }
+            int value = (int) Math.round(widthDimension ? frame.getWidth() : frame.getHeight());
+            if (value > max) {
+                max = value;
+            }
+        }
+        return max;
     }
 }
 

@@ -54,6 +54,7 @@ public class InventoryOverlay extends StackPane {
         gridPane.getChildren().clear();
         int column = 0;
         int row = 0;
+        boolean hasVisibleItem = false;
 
         if (inventorySnapshot == null || inventorySnapshot.isEmpty()) {
             gridPane.add(new Label("Bag is empty"), 0, 0);
@@ -61,6 +62,10 @@ public class InventoryOverlay extends StackPane {
         }
 
         for (Map.Entry<String, Integer> entry : inventorySnapshot.entrySet()) {
+            if (entry.getValue() == null || entry.getValue() <= 0) {
+                continue;
+            }
+            hasVisibleItem = true;
             StackPane slot = buildSlot(entry.getKey(), entry.getValue(), itemMetaMap == null ? null : itemMetaMap.get(entry.getKey()));
             gridPane.add(slot, column, row);
             column++;
@@ -68,6 +73,9 @@ public class InventoryOverlay extends StackPane {
                 column = 0;
                 row++;
             }
+        }
+        if (!hasVisibleItem) {
+            gridPane.add(new Label("Bag is empty"), 0, 0);
         }
     }
 
@@ -85,6 +93,7 @@ public class InventoryOverlay extends StackPane {
             imageView.setFitWidth(40);
             imageView.setFitHeight(40);
             imageView.setPreserveRatio(true);
+            imageView.setSmooth(false);
             slot.getChildren().add(imageView);
         } else {
             Label iconLabel = new Label(meta == null ? "•" : meta.getPlaceholderIconText());

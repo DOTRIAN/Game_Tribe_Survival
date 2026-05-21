@@ -23,23 +23,25 @@ public class OrthogonalAutoTileResolver implements AutoTileResolver {
         boolean west = hasNeighbor(definition, tileX - 1, tileY, placedObjects);
 
         int mask = (north ? 1 : 0) | (east ? 2 : 0) | (south ? 4 : 0) | (west ? 8 : 0);
+        // Rotation cua object duoc xem la input tu nguoi choi (Q rotate).
+        // Auto-tile chi doi sprite key theo hang xom, khong tu y xoay object.
         return switch (mask) {
             case 0 -> new SpriteSelection("wall_single", preferredRotationDegrees, mask);
-            case 1 -> new SpriteSelection("wall_end_n", 0.0, mask);
-            case 2 -> new SpriteSelection("wall_end_e", 90.0, mask);
-            case 4 -> new SpriteSelection("wall_end_s", 180.0, mask);
-            case 8 -> new SpriteSelection("wall_end_w", 270.0, mask);
-            case 3 -> new SpriteSelection("corner_base", 270.0, mask);
-            case 6 -> new SpriteSelection("corner_base", 0.0, mask);
-            case 12 -> new SpriteSelection("corner_base", 90.0, mask);
-            case 9 -> new SpriteSelection("corner_base", 180.0, mask);
-            case 5 -> new SpriteSelection("wall_vertical", 0.0, mask);
-            case 10 -> new SpriteSelection("wall_horizontal", 0.0, mask);
-            case 7 -> new SpriteSelection("wall_t_n", 0.0, mask);
-            case 11 -> new SpriteSelection("wall_t_e", 90.0, mask);
-            case 13 -> new SpriteSelection("wall_t_s", 180.0, mask);
-            case 14 -> new SpriteSelection("wall_t_w", 270.0, mask);
-            case 15 -> new SpriteSelection("wall_cross", 0.0, mask);
+            case 1 -> new SpriteSelection("wall_end_n", preferredRotationDegrees, mask);
+            case 2 -> new SpriteSelection("wall_end_e", preferredRotationDegrees, mask);
+            case 4 -> new SpriteSelection("wall_end_s", preferredRotationDegrees, mask);
+            case 8 -> new SpriteSelection("wall_end_w", preferredRotationDegrees, mask);
+            case 3 -> new SpriteSelection("corner_base", preferredRotationDegrees, mask);
+            case 6 -> new SpriteSelection("corner_base", preferredRotationDegrees, mask);
+            case 12 -> new SpriteSelection("corner_base", preferredRotationDegrees, mask);
+            case 9 -> new SpriteSelection("corner_base", preferredRotationDegrees, mask);
+            case 5 -> new SpriteSelection("wall_vertical", preferredRotationDegrees, mask);
+            case 10 -> new SpriteSelection("wall_horizontal", preferredRotationDegrees, mask);
+            case 7 -> new SpriteSelection("wall_t_n", preferredRotationDegrees, mask);
+            case 11 -> new SpriteSelection("wall_t_e", preferredRotationDegrees, mask);
+            case 13 -> new SpriteSelection("wall_t_s", preferredRotationDegrees, mask);
+            case 14 -> new SpriteSelection("wall_t_w", preferredRotationDegrees, mask);
+            case 15 -> new SpriteSelection("wall_cross", preferredRotationDegrees, mask);
             default -> new SpriteSelection(definition.getDefaultSpriteKey(), preferredRotationDegrees, mask);
         };
     }

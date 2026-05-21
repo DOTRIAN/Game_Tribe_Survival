@@ -105,4 +105,8 @@ public class InputHandler {
     public boolean isMouseLeftJustClicked() {
         return mouseLeftJustClicked;
     }
+
+    public void consumeMouseLeftClick() {
+        mouseLeftJustClicked = false;
+    }
 }

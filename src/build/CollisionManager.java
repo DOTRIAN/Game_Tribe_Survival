@@ -1,5 +1,6 @@
 package build;
 
+import buildsystem.component.CollisionComponent;
 import buildsystem.core.BuildWorldQuery;
 import buildsystem.object.BuildObject;
 import entity.Player;
@@ -56,6 +57,9 @@ public class CollisionManager implements BuildWorldQuery {
         }
         for (BuildObject object : placedObjects) {
             if (object == null) {
+                continue;
+            }
+            if (object.getComponent(CollisionComponent.class) == null) {
                 continue;
             }
             if (intersectsRect(

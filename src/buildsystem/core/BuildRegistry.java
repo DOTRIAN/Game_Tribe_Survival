@@ -6,6 +6,7 @@ import buildsystem.object.Torch;
 import buildsystem.object.Trap;
 import buildsystem.object.Turret;
 import buildsystem.object.Wall;
+import core.GameBalance;
 import buildsystem.placement.FreePlacementStrategy;
 import buildsystem.placement.GridPlacementStrategy;
 
@@ -115,13 +116,13 @@ public class BuildRegistry {
                 .build());
 
         register(BuildDefinition.builder(BuildType.TORCH, "torch", "Torch")
-                .defaultSpriteKey("wall_single")
-                .iconSpriteKey("wall_icon")
+                .defaultSpriteKey("torch_frame_0")
+                .iconSpriteKey("torch_icon")
                 .placementStrategy(new FreePlacementStrategy())
-                .rotatable(true)
+                .rotatable(false)
                 .collisionEnabled(false)
                 .waterRestricted(true)
-                .health(60)
+                .health(GameBalance.TORCH_HITS_TO_BREAK)
                 .buildCost(1)
                 .objectBuilder(seed -> new Torch(seed.getDefinition(), seed))
                 .build());

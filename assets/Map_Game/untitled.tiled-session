@@ -1,14 +1,25 @@
 {
-    "activeFile": "nen.tsx",
+    "activeFile": "D:/Image_game/Samples/Sample.tmx",
     "expandedProjectPaths": [
     ],
     "file.lastUsedOpenFilter": "All Files (*)",
     "fileStates": {
+        "D:/Image_game/Samples/Sample.tmx": {
+            "scale": 0.75,
+            "selectedLayer": 0,
+            "viewCenter": {
+                "x": 6140,
+                "y": 3143.333333333333
+            }
+        },
+        "D:/Image_game/Samples/Sample.tsx": {
+            "scaleInDock": 1
+        },
         "D:/Image_game/da/Tiled/sampleMap.tmx": {
             "scale": 2.3137695312499997,
             "selectedLayer": 0,
             "viewCenter": {
-                "x": 255.85953657198337,
+                "x": 270.1219769552189,
                 "y": 160.12830793905374
             }
         },
@@ -37,14 +48,16 @@
     "openFiles": [
         "map.tmx",
         "nen.tsx",
-        "D:/Image_game/da/Tiled/sampleMap.tmx"
+        "D:/Image_game/da/Tiled/sampleMap.tmx",
+        "D:/Image_game/Samples/Sample.tmx"
     ],
     "project": "untitled.tiled-project",
     "property.type": "string",
     "recentFiles": [
         "map.tmx",
+        "nen.tsx",
         "D:/Image_game/da/Tiled/sampleMap.tmx",
-        "nen.tsx"
+        "D:/Image_game/Samples/Sample.tmx"
     ],
     "tileset.lastUsedFormat": "tsx",
     "tileset.tileSize": {

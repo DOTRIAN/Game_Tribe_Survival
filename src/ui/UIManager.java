@@ -2,6 +2,7 @@ package ui;
 
 import build.AssetManager;
 import buildsystem.core.BuildManager;
+import core.GameBalance;
 import core.GameState;
 import entity.Enemy;
 import entity.Player;
@@ -56,10 +57,9 @@ public class UIManager {
         this.settings = settings;
         this.itemMetaMap = createItemMetaMap(assetManager);
         this.shopItems = List.of(
-                itemMetaMap.get("stone_wall"),
-                itemMetaMap.get("wood_wall"),
-                itemMetaMap.get("potion"),
+                itemMetaMap.get("wall"),
                 itemMetaMap.get("torch"),
+                itemMetaMap.get("potion"),
                 itemMetaMap.get("basic_sword"),
                 itemMetaMap.get("pickaxe"),
                 itemMetaMap.get("carrot")
@@ -185,10 +185,10 @@ public class UIManager {
         hotbarOverlay.setSelectionListener(onSelect);
     }
 
-    public void configureShopAction(Consumer<String> onBuy) {
+    public void configureShopAction(Consumer<String> onBuy, Runnable onOpen, Runnable onClose) {
         shopOverlay.setBuyListener(onBuy);
-        hudOverlay.getShopButton().setOnAction(event -> setShopVisible(true));
-        shopOverlay.getCloseButton().setOnAction(event -> setShopVisible(false));
+        hudOverlay.getShopButton().setOnAction(event -> onOpen.run());
+        shopOverlay.getCloseButton().setOnAction(event -> onClose.run());
     }
 
     public void configureInventoryClose(Runnable onClose) {
@@ -407,10 +407,12 @@ public class UIManager {
     private Map<String, ItemUiMeta> createItemMetaMap(AssetManager assetManager) {
         Map<String, ItemUiMeta> meta = new LinkedHashMap<>();
         Image wallIcon = assetManager.getWallImage("wall_icon");
-        meta.put("stone_wall", new ItemUiMeta("stone_wall", "Stone Wall", "Basic stone barrier for base defense.", 6, "SW", wallIcon));
-        meta.put("wood_wall", new ItemUiMeta("wood_wall", "Wood Wall", "Cheaper wooden wall for quick builds.", 4, "WW", null));
+        Image torchIcon = assetManager.getSprite("torch_icon");
+        meta.put("wall", new ItemUiMeta("wall", "Wall", "Buildable wall that can be placed, broken, and picked up again.", GameBalance.STONE_WALL_PRICE, "WL", wallIcon));
+        meta.put("stone_wall", new ItemUiMeta("stone_wall", "Stone Wall", "Buildable wall that can be placed, broken, and picked up again.", GameBalance.STONE_WALL_PRICE, "SW", wallIcon));
+        meta.put("wood_wall", new ItemUiMeta("wood_wall", "Wood Wall", "Legacy wooden wall kept for existing saves.", GameBalance.WOOD_WALL_PRICE, "WW", wallIcon));
         meta.put("potion", new ItemUiMeta("potion", "Potion", "Emergency heal during survival runs.", 12, "PT", null));
-        meta.put("torch", new ItemUiMeta("torch", "Torch", "Portable light for night scouting.", 8, "TR", null));
+        meta.put("torch", new ItemUiMeta("torch", "Torch", "Animated torch that lights dark areas after placement.", GameBalance.TORCH_PRICE, "TR", torchIcon));
         meta.put("basic_sword", new ItemUiMeta("basic_sword", "Basic Sword", "Starter melee weapon.", 18, "SD", null));
         meta.put("pickaxe", new ItemUiMeta("pickaxe", "Pickaxe", "Useful for mining and gathering.", 14, "PX", null));
         meta.put("coin", new ItemUiMeta("coin", "Coin", "Common shop currency.", 0, "CN", null));

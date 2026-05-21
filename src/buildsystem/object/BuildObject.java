@@ -5,6 +5,7 @@ import buildsystem.component.CollisionComponent;
 import buildsystem.component.HealthComponent;
 import buildsystem.component.RotationComponent;
 import buildsystem.core.BuildType;
+import javafx.scene.paint.Color;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -41,6 +42,8 @@ public abstract class BuildObject {
     private String spriteKey;
     private double rotationDegrees;
     private int health;
+    private long hitFlashUntilNs;
+    private Color hitFlashColor;
     private final Map<Class<? extends BuildComponent>, BuildComponent> components;
 
     protected BuildObject(String id,
@@ -71,6 +74,8 @@ public abstract class BuildObject {
         this.spriteKey = spriteKey;
         this.rotationDegrees = normalize(rotationDegrees);
         this.health = Math.max(0, health);
+        this.hitFlashUntilNs = -1L;
+        this.hitFlashColor = Color.TRANSPARENT;
         this.components = new LinkedHashMap<>();
     }
 
@@ -86,6 +91,9 @@ public abstract class BuildObject {
     public String getSpriteKey() { return spriteKey; }
     public double getRotationDegrees() { return rotationDegrees; }
     public int getHealth() { return health; }
+    public boolean isAlive() { return health > 0; }
+    public double getCenterX() { return getRenderX() + renderWidth / 2.0; }
+    public double getCenterY() { return getRenderY() + renderHeight / 2.0; }
 
     public void setRotationDegrees(double rotationDegrees) {
         this.rotationDegrees = normalize(rotationDegrees);
@@ -105,6 +113,19 @@ public abstract class BuildObject {
         if (healthComponent != null) {
             healthComponent.setHp(this.health);
         }
+    }
+
+    public void triggerHitFlash(long nowNs, long durationNs, Color color) {
+        this.hitFlashUntilNs = nowNs + Math.max(1L, durationNs);
+        this.hitFlashColor = color == null ? Color.TRANSPARENT : color;
+    }
+
+    public boolean isHitFlashActive(long nowNs) {
+        return nowNs <= hitFlashUntilNs;
+    }
+
+    public Color getHitFlashColor() {
+        return hitFlashColor;
     }
 
     public double getRenderX() {
