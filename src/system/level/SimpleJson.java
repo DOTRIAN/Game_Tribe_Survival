@@ -23,7 +23,7 @@ public final class SimpleJson {
     }
 
     public static Object parse(String json) {
-        return new Parser(json).parseValue();
+        return new Parser(stripBom(json)).parseValue();
     }
 
     public static String stringify(Object value) {
@@ -89,6 +89,16 @@ public final class SimpleJson {
                 .replace("\n", "\\n")
                 .replace("\r", "\\r")
                 .replace("\t", "\\t");
+    }
+
+    private static String stripBom(String raw) {
+        if (raw == null || raw.isEmpty()) {
+            return raw;
+        }
+        if (raw.charAt(0) == '\uFEFF') {
+            return raw.substring(1);
+        }
+        return raw;
     }
 
     private static final class Parser {

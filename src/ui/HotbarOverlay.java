@@ -1,8 +1,10 @@
 package ui;
 
+import buildsystem.core.BuildAssetResolver;
+import buildsystem.ui.BuildHotbarSlot;
+import buildsystem.ui.BuildToolbar;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
-import javafx.scene.Node;
 import javafx.scene.control.Label;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
@@ -12,44 +14,30 @@ import javafx.scene.layout.StackPane;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.function.IntConsumer;
 
 /**
  * HotbarOverlay:
- * - Redesigned sleek hotbar aligned at bottom-center.
- * - Dynamically updates item icons and counts for the 7 primary survival tools based on inventory snapshot.
- * - Supports Minecraft-style 1-9 shortcuts and selected slot gold border.
+ * - JavaFX view cho BuildToolbar dung chung.
+ * - Khong hardcode stone_wall / torch / chest trong UI nua; moi slot chi doc BuildToolbar model tu BuildManager.
  */
 public class HotbarOverlay extends HBox {
     public static final int SLOT_COUNT = 9;
-
-    private static final List<String> HOTBAR_ITEMS = List.of(
-            "stone_wall",
-            "wood_wall",
-            "potion",
-            "torch",
-            "basic_sword",
-            "pickaxe",
-            "carrot",
-            "",
-            ""
-    );
 
     private final List<StackPane> slotNodes;
     private final List<StackPane> iconContainers;
     private final List<Label> amountLabels;
     private final List<Label> keyLabels;
-    private final Image fallbackWallIcon;
+    private final List<Label> costLabels;
     private IntConsumer selectionListener;
     private int selectedIndex;
 
-    public HotbarOverlay(Image fallbackWallIcon) {
-        this.fallbackWallIcon = fallbackWallIcon;
+    public HotbarOverlay() {
         this.slotNodes = new ArrayList<>();
         this.iconContainers = new ArrayList<>();
         this.amountLabels = new ArrayList<>();
         this.keyLabels = new ArrayList<>();
+        this.costLabels = new ArrayList<>();
         this.selectedIndex = 0;
 
         getStyleClass().add("hotbar");
@@ -66,12 +54,9 @@ public class HotbarOverlay extends HBox {
         setSelectedIndex(0);
     }
 
-    /**
-     * update:
-     * - Dynamically populates hotbar items using the player's active inventory.
-     */
-    public void update(int selectedIndex, Map<String, Integer> inventorySnapshot, Map<String, ItemUiMeta> itemMetaMap) {
-        setSelectedIndex(selectedIndex);
+    public void update(BuildToolbar toolbar, BuildAssetResolver assetResolver) {
+        int nextSelected = toolbar == null ? 0 : toolbar.getSelectedIndex();
+        setSelectedIndex(nextSelected);
 
         for (int index = 0; index < SLOT_COUNT; index++) {
             StackPane iconPane = iconContainers.get(index);
@@ -80,47 +65,36 @@ public class HotbarOverlay extends HBox {
             Label amountLabel = amountLabels.get(index);
             amountLabel.setText("");
 
-            StackPane slot = slotNodes.get(index);
+            Label costLabel = costLabels.get(index);
+            costLabel.setText("");
 
-            String itemId = HOTBAR_ITEMS.get(index);
-            if (itemId.isEmpty()) {
-                slot.setOpacity(1.0);
+            StackPane slot = slotNodes.get(index);
+            slot.setOpacity(0.35);
+
+            BuildHotbarSlot buildSlot = (toolbar == null || index >= toolbar.getSlots().size())
+                    ? null
+                    : toolbar.getSlots().get(index);
+            if (buildSlot == null || buildSlot.getDefinition() == null) {
                 continue;
             }
 
-            int count = inventorySnapshot == null ? 0 : inventorySnapshot.getOrDefault(itemId, 0);
-            ItemUiMeta meta = itemMetaMap == null ? null : itemMetaMap.get(itemId);
+            slot.setOpacity(buildSlot.getCount() > 0 ? 1.0 : 0.55);
+            amountLabel.setText(String.valueOf(buildSlot.getCount()));
+            costLabel.setText("C" + buildSlot.getCost());
 
-            if (meta != null) {
-                // If we own the item, show it active. Otherwise, translucent placeholder.
-                if (count > 0) {
-                    slot.setOpacity(1.0);
-                    amountLabel.setText(String.valueOf(count));
-                } else {
-                    slot.setOpacity(0.35);
-                }
-
-                // Render dynamic image or abbreviation text
-                Image itemImg = meta.getImageIcon();
-                if (itemId.equals("stone_wall") && itemImg == null) {
-                    itemImg = fallbackWallIcon;
-                }
-
-                if (itemImg != null && !itemImg.isError()) {
-                    ImageView view = new ImageView(itemImg);
-                    view.setFitWidth(24);
-                    view.setFitHeight(24);
-                    view.setPreserveRatio(true);
-                    view.setMouseTransparent(true);
-                    iconPane.getChildren().add(view);
-                } else {
-                    Label textIcon = new Label(meta.getPlaceholderIconText());
-                    textIcon.getStyleClass().add("resource-icon-text");
-                    textIcon.setStyle("-fx-font-size: 11px;");
-                    iconPane.getChildren().add(textIcon);
-                }
+            Image itemImg = assetResolver == null ? null : assetResolver.getIcon(buildSlot.getDefinition());
+            if (itemImg != null && !itemImg.isError()) {
+                ImageView view = new ImageView(itemImg);
+                view.setFitWidth(24);
+                view.setFitHeight(24);
+                view.setPreserveRatio(true);
+                view.setMouseTransparent(true);
+                iconPane.getChildren().add(view);
             } else {
-                slot.setOpacity(0.35);
+                Label textIcon = new Label(abbreviationOf(buildSlot));
+                textIcon.getStyleClass().add("resource-icon-text");
+                textIcon.setStyle("-fx-font-size: 11px;");
+                iconPane.getChildren().add(textIcon);
             }
         }
     }
@@ -177,12 +151,31 @@ public class HotbarOverlay extends HBox {
         StackPane.setMargin(keyLabel, new Insets(2, 0, 0, 3));
         keyLabels.add(keyLabel);
 
-        slot.getChildren().addAll(iconPane, amountLabel, keyLabel);
+        Label costLabel = new Label("");
+        costLabel.getStyleClass().add("hotbar-key");
+        costLabel.setStyle("-fx-font-size: 8px;");
+        StackPane.setAlignment(costLabel, Pos.BOTTOM_LEFT);
+        StackPane.setMargin(costLabel, new Insets(0, 0, 2, 3));
+        costLabels.add(costLabel);
+
+        slot.getChildren().addAll(iconPane, amountLabel, keyLabel, costLabel);
         slot.addEventHandler(MouseEvent.MOUSE_CLICKED, event -> {
             if (selectionListener != null) {
                 selectionListener.accept(index);
             }
         });
         return slot;
+    }
+
+    private String abbreviationOf(BuildHotbarSlot slot) {
+        if (slot == null || slot.getDefinition() == null || slot.getDefinition().getDisplayName() == null) {
+            return "?";
+        }
+        String[] words = slot.getDefinition().getDisplayName().trim().split("\\s+");
+        if (words.length == 1) {
+            String word = words[0];
+            return word.length() <= 2 ? word.toUpperCase() : word.substring(0, 2).toUpperCase();
+        }
+        return (String.valueOf(words[0].charAt(0)) + words[1].charAt(0)).toUpperCase();
     }
 }

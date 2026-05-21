@@ -1,5 +1,7 @@
 package inventory;
 
+import buildsystem.core.BuildInventory;
+
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -9,7 +11,7 @@ import java.util.Map;
  * - Luu toan bo vat pham/tai nguyen nguoi choi dang so huu trong world sinh ton.
  * - Class nay duoc tach rieng de Game khong phai quan ly map item thu cong nua.
  */
-public class Inventory {
+public class Inventory implements BuildInventory {
     // items:
     // - key: itemId (wood, stone, ...)
     // - value: so luong dang co

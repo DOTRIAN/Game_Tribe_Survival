@@ -1,208 +1,151 @@
 # Tribe Survival Game
 
-## Mục tiêu chức năng
-- Chạy world survival 2D bằng JavaFX.
-- World render trên `Canvas`, UI render bằng JavaFX overlay node thật.
-- Hỗ trợ resize, maximize, fullscreen không còn khoảng trắng quanh game.
-- Có HUD gọn hơn, hotbar nhỏ hơn, minimap nhỏ hơn.
-- Có shop, inventory, settings, main menu và name input theo CSS riêng.
-- Giữ hệ build wall, hotbar chọn item và inventory hiện có.
+JavaFX survival game voi world 2D, combat, resource gathering, shop, inventory va build system mo rong duoc.
 
-## Cấu trúc UI mới
-- `Canvas`:
-  - Chỉ render world, entity, build preview, wall, hiệu ứng.
-- `AnchorPane` overlay:
-  - `HudOverlay`: góc trái trên.
-  - `ResourcePanel`: góc phải trên.
-  - `MinimapOverlay`: góc phải dưới.
-  - `HotbarOverlay`: giữa dưới.
-  - `ShopOverlay`: giữa màn hình.
-  - `InventoryOverlay`: giữa màn hình.
-  - `MainMenuScreen`: overlay menu chính.
-  - `NameInputScreen`: overlay nhập tên.
-  - `SettingsScreen`: overlay cài đặt.
-  - `Guide/Pause/GameOver/Victory`: overlay trạng thái.
+## Core modules
+- `src/core`
+  - Game loop, world state, input flow, save/load va integration giua cac system.
+- `src/ui`
+  - Canvas renderer + JavaFX overlay UI.
+- `src/system`
+  - Damage, collision, resource, save/load.
+- `src/buildsystem`
+  - Build system dung chung cho game chinh va demo.
 
-## Cấu trúc file chính
-- [Main.java](d:/IT/Game_TEST/src/main/Main.java)
-- [Game.java](d:/IT/Game_TEST/src/core/Game.java)
-- [Renderer.java](d:/IT/Game_TEST/src/ui/Renderer.java)
-- [UIManager.java](d:/IT/Game_TEST/src/ui/UIManager.java)
-- [HudOverlay.java](d:/IT/Game_TEST/src/ui/HudOverlay.java)
-- [ResourcePanel.java](d:/IT/Game_TEST/src/ui/ResourcePanel.java)
-- [MinimapOverlay.java](d:/IT/Game_TEST/src/ui/MinimapOverlay.java)
-- [HotbarOverlay.java](d:/IT/Game_TEST/src/ui/HotbarOverlay.java)
-- [ShopOverlay.java](d:/IT/Game_TEST/src/ui/ShopOverlay.java)
-- [InventoryOverlay.java](d:/IT/Game_TEST/src/ui/InventoryOverlay.java)
-- [MainMenuScreen.java](d:/IT/Game_TEST/src/ui/MainMenuScreen.java)
-- [NameInputScreen.java](d:/IT/Game_TEST/src/ui/NameInputScreen.java)
-- [SettingsScreen.java](d:/IT/Game_TEST/src/ui/SettingsScreen.java)
-- [ResponsiveLayoutManager.java](d:/IT/Game_TEST/src/ui/ResponsiveLayoutManager.java)
-- [GameSettings.java](d:/IT/Game_TEST/src/ui/GameSettings.java)
-- [SettingsManager.java](d:/IT/Game_TEST/src/ui/SettingsManager.java)
-- [game-ui.css](d:/IT/Game_TEST/src/main/resources/styles/game-ui.css)
+## BuildSystem Architecture
 
-## Vai trò từng class
-- `Game`
-  - Giữ state gameplay, input flow, save/load, spawn, shop purchase, hotbar selection.
-- `Renderer`
-  - Tạo `Scene`, bind `Canvas` theo cửa sổ, render world, đẩy state sang `UIManager`.
-- `UIManager`
-  - Điều phối tất cả overlay JavaFX.
-- `HudOverlay`
-  - Hiển thị HP, Energy, XP, Level và nút Shop.
-- `ResourcePanel`
-  - Hiển thị coin, stone wall, wood, stone, fiber...
-- `MinimapOverlay`
-  - Vẽ minimap lên canvas con nhỏ hơn.
-- `HotbarOverlay`
-  - Hiển thị 9 slot, icon item, số lượng và slot đang chọn.
-- `ShopOverlay`
-  - Panel mua item bằng coin.
-- `InventoryOverlay`
-  - Grid inventory có tooltip.
-- `MainMenuScreen`
-  - Panel menu chính.
-- `NameInputScreen`
-  - Panel nhập tên và validate.
-- `SettingsScreen`
-  - Slider volume, toggle fullscreen, FPS, debug grid.
-- `ResponsiveLayoutManager`
-  - Helper đặt anchor layout theo góc màn hình.
-- `GameSettings`
-  - Model settings runtime.
-- `SettingsManager`
-  - Lưu/nap settings vào `data/ui_settings.properties`.
+Build system da duoc refactor theo huong module dung chung, khong con viet rieng `placeWall()`, `placeTrap()`, `placeTorch()`...
 
-## CSS hoạt động như thế nào
-- Toàn bộ UI dùng file:
-  - [game-ui.css](d:/IT/Game_TEST/src/main/resources/styles/game-ui.css)
-- Các class CSS chính:
-  - `.hud-panel`
-  - `.hud-title`
-  - `.status-bar`
-  - `.hp-bar`
-  - `.energy-bar`
-  - `.xp-bar`
-  - `.hotbar`
-  - `.hotbar-slot`
-  - `.hotbar-slot-selected`
-  - `.shop-panel`
-  - `.shop-item-card`
-  - `.shop-buy-button`
-  - `.menu-panel`
-  - `.menu-button`
-  - `.input-panel`
-  - `.inventory-panel`
+### 1. `BuildManager`
+- Trung tam cua build flow.
+- Chiu trach nhiem:
+  - chon build item
+  - update ghost preview
+  - Q rotate
+  - validate placement
+  - consume inventory
+  - tao `BuildObject`
+  - add object vao world
+  - refresh sprite cua object va neighbors
+  - export/import save data
 
-## Fullscreen / responsive
-- `Canvas` bind trực tiếp theo `StackPane` root:
-  - `canvas.widthProperty().bind(root.widthProperty())`
-  - `canvas.heightProperty().bind(root.heightProperty())`
-- Camera dùng viewport động:
-  - `renderer.getViewportWidth() / CAMERA_ZOOM`
-  - `renderer.getViewportHeight() / CAMERA_ZOOM`
-- UI neo theo `AnchorPane`:
-  - HUD trái trên: `20px`
-  - Resource panel phải trên: `20px`
-  - Minimap phải dưới: `20px`
-  - Hotbar giữa dưới: `20px`
-- Nền menu/world được vẽ kiểu cover để lấp kín cửa sổ, tránh khoảng trắng.
+### 2. `BuildObject`
+- Base class chung cho moi object dat xuong world.
+- Moi subclass nhu `Wall`, `Trap`, `Torch`, `Chest`, `Campfire`, `Turret` deu di qua cung flow cua `BuildManager`.
+- Save/load ready fields:
+  - `id`
+  - `type`
+  - `tileX`
+  - `tileY`
+  - `rotation`
+  - `health`
+  - `spriteKey`
 
-## Cách thêm item vào shop
-1. Thêm metadata item trong [UIManager.java](d:/IT/Game_TEST/src/ui/UIManager.java) ở `createItemMetaMap(...)`.
-2. Thêm item vào `shopItems`.
-3. Thêm giá và logic cộng inventory trong [Game.java](d:/IT/Game_TEST/src/core/Game.java) ở `purchaseShopItem(...)`.
+### 3. `PlacementValidator`
+- Cua vao duy nhat cho placement validation.
+- Ho tro san cho:
+  - grid placement
+  - free placement
+  - collision check
+  - terrain check
+  - water restriction
+  - flat ground requirement
+  - blocking entity
+  - near object rule
 
-## Cách thêm item vào hotbar
-1. Thêm item metadata trong `UIManager`.
-2. Mở rộng mapping slot trong [Game.java](d:/IT/Game_TEST/src/core/Game.java) ở `setSelectedHotbarIndex(...)`.
-3. Mở rộng hiển thị icon/amount trong [HotbarOverlay.java](d:/IT/Game_TEST/src/ui/HotbarOverlay.java).
+### 4. `AutoTileResolver`
+- Auto connect theo `autoTileGroup`.
+- Muc tieu la dung chung cho:
+  - wall
+  - fence
+  - pipe
+  - cable
+  - road
 
-## Cách thêm asset/icon mới
-- Stone wall icon đang dùng crop từ `tuong.jpg`.
-- Item khác hiện dùng placeholder text ngắn như `PT`, `PX`, `TR`.
-- Nếu có icon thật:
-  1. load `Image`
-  2. gán vào `ItemUiMeta`
-  3. `ShopOverlay`, `InventoryOverlay`, `ResourcePanel`, `HotbarOverlay` sẽ dùng lại ảnh đó.
+### 5. `BuildRegistry`
+- Dang ky tat ca `BuildDefinition`.
+- Them build object moi theo dung huong:
+  1. tao subclass neu can
+  2. register `BuildDefinition`
+  3. UI/preview/placement/save-load tu dong dung lai metadata do
 
-## Shop hoạt động ra sao
-- Mở shop bằng `B` hoặc nút `Shop`.
-- Shop đọc coin từ inventory.
-- Click `Buy`:
-  - `Game.purchaseShopItem(...)`
-  - trừ `coin`
-  - cộng item vào `Inventory`
-  - UI tự cập nhật ở frame kế tiếp.
-- Nếu không đủ coin:
-  - hiện toast `Not enough coins`.
+### 6. `BuildFactory`
+- Khong `new` truc tiep trong gameplay code.
+- `BuildFactory` tao object that dua tren `BuildDefinition.ObjectBuilder`.
 
-## Inventory hoạt động ra sao
-- Mở bằng `I`.
-- Hiển thị toàn bộ `inventory.snapshot()`.
-- Mỗi slot có:
-  - icon hoặc placeholder
-  - số lượng
-  - tooltip tên + mô tả
+## Build flow hoan chinh
+1. UI chon slot build tren toolbar.
+2. `BuildController` goi `BuildManager.selectToolbarSlot(...)`.
+3. `BuildManager` tim `BuildDefinition` trong `BuildRegistry`.
+4. Mouse move -> `BuildManager.updatePreview(...)`.
+5. `PlacementStrategy` snap cursor theo grid hoac free placement.
+6. `PlacementValidator` validate object.
+7. `BuildSpriteResolver` + `AutoTileResolver` chon sprite/rotation/neighbor mask.
+8. `GhostPreviewRenderer` cap nhat `BuildPreview`.
+9. Click place -> `BuildManager.tryPlaceSelected(...)`.
+10. `BuildManager` consume inventory, tao `BuildObject`, add vao world va refresh neighbors.
 
-## Hotbar hoạt động ra sao
-- Có 9 slot.
-- Slot `1` hiện map với `stone_wall`.
-- Chọn bằng click hoặc phím `1-9`.
-- Slot đang chọn có viền sáng rõ.
-- Số lượng hiện góc phải dưới của slot.
+## Preview system
+- Preview dung chung qua `BuildPreview`.
+- Ghost preview:
+  - giong object that
+  - opacity thap
+  - do neu invalid
+  - xoay theo rotation
+  - snap theo placement strategy
 
-## Phím tắt
-- `1-9`: chọn hotbar
-- `B`: mở/đóng shop
-- `I`: mở/đóng inventory
-- `M`: bật/tắt minimap
-- `Q`: xoay hướng tường
-- `ESC`: đóng overlay trước, nếu không có overlay thì pause/build cancel
-- `F11`: fullscreen
-- `P`: resume khi pause
-- `R`: restart khi game over
+## Rotation system
+- Q rotate di qua `RotationManager`.
+- Moi object co `RotationComponent` deu co the tai su dung flow nay.
 
-## Lưu ý về build wall
-- Preview và wall thật vẫn đi qua `BuildManager`.
-- UI mới không thay logic build cốt lõi.
-- Click lên UI sẽ không kích attack hay place wall.
+## UI build system
+- `BuildToolbar` la model toolbar dung chung cho:
+  - icon
+  - count
+  - cost
+  - selected state
+- `HotbarOverlay` va `UIManager` doc `BuildToolbar` tu `BuildManager`, khong hardcode rieng `stone_wall`.
 
-## Tài nguyên giao diện đã dùng
-- Nền menu:
-  - `assets/backgrounds/menu_bg1.png`
-- Nền world fallback:
-  - `assets/backgrounds/grass03.png`
-- Wall icon:
-  - crop từ `assets/stone_wall/tuong.jpg`
-- Bạn đang có thêm local asset pack khá lớn trong:
-  - `assets/tilesets/Pixel Crawler - Free Pack`
-  - Có thể lấy icon/tool/station thật để thay placeholder text sau này.
+## World integration
+- Game chinh dung truc tiep:
+  - `BuildManager`
+  - `BuildController`
+  - `BuildToolbar`
+  - `BuildPreview`
+- Demo `BuildDemoMain` cung dung chinh module do, khong copy logic build sang mot code path khac.
 
-## Cách chạy
-1. Mở project bằng IDE JavaFX.
-2. Chạy [Main.java](d:/IT/Game_TEST/src/main/Main.java).
-3. Nếu dùng CLI, cần cấu hình `--module-path` cho JavaFX SDK.
+## Save/load
+- `Game.saveWorldSnapshot()` luu them `buildObjects`.
+- `BuildManager.exportSaveData()` tra ve list snapshot.
+- `BuildManager.restoreFromSaveData(...)` rebuild lai object tu save data + registry.
 
-## Kiểm tra sau khi sửa
-- Resize cửa sổ nhỏ/lớn.
-- Maximize.
-- Fullscreen `F11`.
-- Vào menu, mở settings, back ra.
-- Vào game, mở shop `B`, inventory `I`, minimap `M`.
-- Mua `Stone Wall`.
-- Kiểm tra `coin` giảm, `stone_wall` tăng, hotbar cập nhật.
-- Click lên HUD/hotbar/shop không được đánh hoặc đặt wall.
+## Them build object moi
+1. Them `BuildType` neu can.
+2. Tao subclass trong `src/buildsystem/object` neu object can behavior/components rieng.
+3. Register `BuildDefinition` moi trong `BuildRegistry`.
+4. Khai bao:
+  - `itemId`
+  - `displayName`
+  - `placementStrategy`
+  - `rotatable`
+  - `collisionEnabled`
+  - `waterRestricted`
+  - `requiresFlatTerrain`
+  - `health`
+  - `buildCost`
+  - `autoTileGroup`
+  - `ObjectBuilder`
+5. Neu can mo rong tinh nang, them component trong `src/buildsystem/component`.
 
-## Giới hạn hiện tại
-- Một số file Java cũ ngoài phạm vi UI vẫn đang có lỗi BOM/encoding khi compile toàn repo bằng `javac`.
-- Các item ngoài `stone_wall` hiện có placeholder icon, chưa phải pixel art thật.
-- Shop/inventory đã hoạt động ở mức gameplay cơ bản, chưa có equip system riêng.
+## Demo
+- Entry demo: `src/buildsystem/demo/BuildDemoMain.java`
+- Demo dung chung:
+  - `BuildManager`
+  - `BuildController`
+  - `BuildToolbar`
+  - `PlacementValidator`
+  - `AutoTileResolver`
 
-## TODO sau này
-1. Thêm icon pixel art thật cho potion, torch, sword, pickaxe.
-2. Cho phép hotbar chứa nhiều item loại khác nhau, không chỉ wall.
-3. Thêm pause menu node-based riêng.
-4. Thêm animation mở panel và toast tự tắt theo thời gian.
-5. Lưu cả wall đã đặt và inventory expanded metadata vào save file.
+## Ghi chu verify
+- Trong workspace hien tai khong co JavaFX classpath/module-path san cho `javac`, nen khong the compile verify toan repo bang lenh thuong.
+- Refactor da duoc doi chieu bang usage graph, integration points va save/load flow trong codebase.

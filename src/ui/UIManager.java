@@ -1,6 +1,7 @@
 package ui;
 
 import build.AssetManager;
+import buildsystem.core.BuildManager;
 import core.GameState;
 import entity.Enemy;
 import entity.Player;
@@ -14,6 +15,8 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.StackPane;
 import javafx.stage.Stage;
 
+import java.net.URL;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -27,6 +30,7 @@ import java.util.function.IntConsumer;
  * - Bao gom menu, nhap ten, HUD, minimap, hotbar, shop, inventory va settings.
  */
 public class UIManager {
+    private final AssetManager assetManager;
     private final MainMenuScreen mainMenuScreen;
     private final NameInputScreen nameInputScreen;
     private final SettingsScreen settingsScreen;
@@ -48,6 +52,7 @@ public class UIManager {
     private final GameSettings settings;
 
     public UIManager(Stage stage, Scene scene, AnchorPane root, AssetManager assetManager, GameSettings settings) {
+        this.assetManager = assetManager;
         this.settings = settings;
         this.itemMetaMap = createItemMetaMap(assetManager);
         this.shopItems = List.of(
@@ -60,14 +65,13 @@ public class UIManager {
                 itemMetaMap.get("carrot")
         );
 
-        Image wallIcon = assetManager.getWallImage("wall_icon");
         this.mainMenuScreen = new MainMenuScreen();
         this.nameInputScreen = new NameInputScreen();
         this.settingsScreen = new SettingsScreen();
         this.hudOverlay = new HudOverlay();
         this.resourcePanel = new ResourcePanel();
         this.minimapOverlay = new MinimapOverlay();
-        this.hotbarOverlay = new HotbarOverlay(wallIcon);
+        this.hotbarOverlay = new HotbarOverlay();
         this.hotbarContainer = new HBox(hotbarOverlay);
         this.shopOverlay = new ShopOverlay();
         this.inventoryOverlay = new InventoryOverlay();
@@ -137,8 +141,8 @@ public class UIManager {
         bindOverlayToRoot(root, gameOverOverlay);
         bindOverlayToRoot(root, victoryOverlay);
 
-        String cssUri = Path.of("src", "main", "resources", "styles", "game-ui.css").toUri().toString();
-        if (!scene.getStylesheets().contains(cssUri)) {
+        String cssUri = resolveCssUri();
+        if (cssUri != null && !scene.getStylesheets().contains(cssUri)) {
             scene.getStylesheets().add(cssUri);
         }
 
@@ -152,6 +156,20 @@ public class UIManager {
         mainMenuScreen.getGuideButton().setOnAction(event -> onGuide.run());
         mainMenuScreen.getSettingsButton().setOnAction(event -> onSettings.run());
         mainMenuScreen.getExitButton().setOnAction(event -> onExit.run());
+    }
+
+    private String resolveCssUri() {
+        URL classpathCss = UIManager.class.getClassLoader().getResource("styles/game-ui.css");
+        if (classpathCss != null) {
+            return classpathCss.toExternalForm();
+        }
+
+        Path localCss = Path.of("resources", "styles", "game-ui.css");
+        if (Files.exists(localCss)) {
+            return localCss.toUri().toString();
+        }
+
+        return null;
     }
 
     public void configureNameActions(Runnable onConfirm, Runnable onBack) {
@@ -206,6 +224,7 @@ public class UIManager {
     public void updateHud(Player player,
                           Map<String, Integer> inventorySnapshot,
                           int selectedHotbarIndex,
+                          BuildManager buildManager,
                           double worldWidth,
                           double worldHeight,
                           double cameraX,
@@ -216,7 +235,8 @@ public class UIManager {
                           List<Enemy> enemies) {
         hudOverlay.update(player);
         resourcePanel.updateResources(inventorySnapshot, itemMetaMap);
-        hotbarOverlay.update(selectedHotbarIndex, inventorySnapshot, itemMetaMap);
+        hotbarOverlay.setSelectedIndex(selectedHotbarIndex);
+        hotbarOverlay.update(buildManager == null ? null : buildManager.getToolbar(), assetManager);
         minimapOverlay.setVisible(settings.isMinimapVisible());
         minimapOverlay.setManaged(settings.isMinimapVisible());
         if (settings.isMinimapVisible()) {
