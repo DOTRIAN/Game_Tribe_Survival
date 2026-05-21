@@ -1,0 +1,429 @@
+/* 
+   Tribe Survival Game CSS Theme
+   Style System: Premium Dark Glassmorphism with Warm Amber/Gold Wood-Stone Accents
+*/
+
+.root {
+    -fx-font-family: "Segoe UI", "Helvetica Neue", "Arial", sans-serif;
+}
+
+.root-game {
+    -fx-background-color: #0f1114;
+}
+
+/* Glassmorphism Panels */
+.menu-panel,
+.shop-panel,
+.inventory-panel,
+.input-panel,
+.settings-panel,
+.hud-panel,
+.minimap-panel {
+    -fx-background-color: linear-gradient(to bottom right, rgba(26, 28, 30, 0.88), rgba(15, 17, 19, 0.94));
+    -fx-background-radius: 16;
+    -fx-border-color: linear-gradient(to bottom, rgba(223, 183, 108, 0.35), rgba(166, 122, 63, 0.12));
+    -fx-border-width: 1.5;
+    -fx-border-radius: 16;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.65), 18, 0.3, 0, 8);
+}
+
+.screen-overlay {
+    -fx-background-color: rgba(8, 9, 10, 0.68);
+    -fx-alignment: center;
+}
+
+/* Typography & Titles */
+.menu-title,
+.shop-title,
+.hud-title {
+    -fx-font-family: "Georgia", serif;
+    -fx-font-weight: bold;
+    -fx-text-fill: linear-gradient(to bottom, #fcebc2, #dfb76c);
+}
+
+.menu-logo {
+    -fx-font-family: "Georgia", serif;
+    -fx-font-size: 34px;
+    -fx-font-weight: bold;
+    -fx-text-fill: linear-gradient(to bottom, #ffe8b5, #d29e46);
+    -fx-effect: dropshadow(three-pass-box, rgba(0, 0, 0, 0.8), 6, 0.0, 0, 3);
+    -fx-padding: 0 0 10 0;
+}
+
+.hud-title {
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #eecf97;
+    -fx-border-color: rgba(223, 183, 108, 0.15);
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 0 0 6 0;
+}
+
+.hud-value,
+.resource-name,
+.resource-amount,
+.shop-description,
+.hotbar-key,
+.hotbar-amount,
+.settings-toggle {
+    -fx-text-fill: #eddcc4;
+    -fx-font-size: 13px;
+}
+
+/* Beautiful Status Bars */
+.status-bar {
+    -fx-pref-height: 12;
+    -fx-background-radius: 6;
+}
+
+.status-bar > .track {
+    -fx-background-color: rgba(10, 12, 14, 0.62);
+    -fx-background-radius: 6;
+    -fx-border-color: rgba(255, 255, 255, 0.05);
+    -fx-border-width: 0.8;
+    -fx-border-radius: 6;
+}
+
+.hp-bar > .bar {
+    -fx-background-color: linear-gradient(to right, #b22c24, #eb584e, #f27269);
+    -fx-background-radius: 6;
+    -fx-effect: innershadow(gaussian, rgba(0,0,0,0.55), 3, 0, 0, 1);
+}
+
+.energy-bar > .bar {
+    -fx-background-color: linear-gradient(to right, #1d6e9f, #3da1db, #6dc2f4);
+    -fx-background-radius: 6;
+    -fx-effect: innershadow(gaussian, rgba(0,0,0,0.55), 3, 0, 0, 1);
+}
+
+.xp-bar > .bar {
+    -fx-background-color: linear-gradient(to right, #87621c, #cca33f, #eed27c);
+    -fx-background-radius: 6;
+    -fx-effect: innershadow(gaussian, rgba(0,0,0,0.55), 3, 0, 0, 1);
+}
+
+.stat-icon {
+    -fx-min-width: 20;
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+}
+
+.hp-row .stat-icon { -fx-text-fill: #f3645b; }
+.energy-row .stat-icon { -fx-text-fill: #46b7ff; }
+.xp-row .stat-icon { -fx-text-fill: #e8bd54; }
+
+/* Interactive Buttons with Micro-Animations */
+.menu-button,
+.secondary-button,
+.shop-buy-button,
+.close-button,
+.overlay-small-button {
+    -fx-background-radius: 8;
+    -fx-cursor: hand;
+    -fx-font-weight: bold;
+    -fx-font-size: 13px;
+    -fx-padding: 8 16 8 16;
+    -fx-background-insets: 0;
+}
+
+.menu-button {
+    -fx-background-color: linear-gradient(to bottom, #e3bd7f, #b38543);
+    -fx-text-fill: #22180e;
+    -fx-border-color: #f7dfaf;
+    -fx-border-width: 1;
+    -fx-border-radius: 8;
+    -fx-font-size: 14px;
+    -fx-padding: 11 20 11 20;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.3), 6, 0.0, 0, 2);
+}
+
+.menu-button:hover {
+    -fx-background-color: linear-gradient(to bottom, #eed9af, #cca262);
+    -fx-effect: dropshadow(gaussian, rgba(227, 189, 127, 0.4), 12, 0.2, 0, 0);
+    -fx-scale-x: 1.025;
+    -fx-scale-y: 1.025;
+}
+
+.secondary-button {
+    -fx-background-color: rgba(255, 255, 255, 0.06);
+    -fx-text-fill: #eddcc4;
+    -fx-border-color: rgba(255, 255, 255, 0.12);
+    -fx-border-width: 1;
+    -fx-border-radius: 8;
+}
+
+.secondary-button:hover {
+    -fx-background-color: rgba(255, 255, 255, 0.12);
+    -fx-text-fill: #ffffff;
+    -fx-border-color: rgba(255, 255, 255, 0.22);
+    -fx-scale-x: 1.025;
+    -fx-scale-y: 1.025;
+}
+
+.close-button {
+    -fx-background-color: #b03830;
+    -fx-text-fill: #fcf0ee;
+    -fx-border-color: #d6554b;
+    -fx-border-width: 1;
+    -fx-border-radius: 8;
+    -fx-padding: 6 12 6 12;
+}
+
+.close-button:hover {
+    -fx-background-color: #c9443c;
+    -fx-effect: dropshadow(gaussian, rgba(176, 56, 48, 0.45), 10, 0.18, 0, 0);
+    -fx-scale-x: 1.05;
+    -fx-scale-y: 1.05;
+}
+
+.shop-buy-button {
+    -fx-background-color: linear-gradient(to bottom, #dca853, #9e6f27);
+    -fx-text-fill: #fdfaf3;
+    -fx-border-color: #edd1a1;
+    -fx-border-width: 1;
+    -fx-border-radius: 8;
+    -fx-padding: 7 14 7 14;
+}
+
+.shop-buy-button:hover {
+    -fx-background-color: linear-gradient(to bottom, #ebb868, #b78536);
+    -fx-effect: dropshadow(gaussian, rgba(220, 168, 83, 0.35), 8, 0.18, 0, 0);
+    -fx-scale-x: 1.04;
+    -fx-scale-y: 1.04;
+}
+
+.overlay-small-button {
+    -fx-background-color: linear-gradient(to bottom, #dbb06d, #a87e3f);
+    -fx-text-fill: #1f160c;
+    -fx-border-color: #edd3ab;
+    -fx-border-width: 0.8;
+    -fx-border-radius: 8;
+    -fx-padding: 6 12 6 12;
+}
+
+.overlay-small-button:hover {
+    -fx-background-color: linear-gradient(to bottom, #ebbfa2, #bf934b);
+    -fx-scale-x: 1.03;
+    -fx-scale-y: 1.03;
+}
+
+/* Resource Panel */
+.resource-panel {
+    -fx-pref-width: 200;
+}
+
+.resource-row {
+    -fx-spacing: 12;
+    -fx-alignment: center-left;
+}
+
+.resource-icon-text {
+    -fx-text-fill: #d2a65a;
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+}
+
+.resource-name {
+    -fx-text-fill: #dfcbaf;
+    -fx-font-size: 12px;
+}
+
+.resource-amount {
+    -fx-text-fill: #eecf97;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+}
+
+/* Hotbar Minecraft-like but Sleeker */
+.hotbar {
+    -fx-background-color: rgba(14, 16, 18, 0.88);
+    -fx-background-radius: 12;
+    -fx-border-color: rgba(223, 183, 108, 0.28);
+    -fx-border-radius: 12;
+    -fx-border-width: 1.2;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.70), 16, 0.3, 0, 6);
+}
+
+.hotbar-slot {
+    -fx-background-color: linear-gradient(to bottom right, rgba(42, 44, 46, 0.95), rgba(28, 30, 32, 0.95));
+    -fx-background-radius: 8;
+    -fx-border-color: rgba(10, 10, 10, 0.65);
+    -fx-border-radius: 8;
+    -fx-border-width: 1.8;
+}
+
+.hotbar-slot:hover {
+    -fx-background-color: rgba(255, 255, 255, 0.05);
+    -fx-border-color: rgba(223, 183, 108, 0.4);
+}
+
+.hotbar-slot-selected {
+    -fx-border-color: #dfb76c;
+    -fx-background-color: rgba(223, 183, 108, 0.08);
+    -fx-effect: dropshadow(gaussian, #dfb76c, 10, 0.35, 0, 0);
+}
+
+.hotbar-key {
+    -fx-font-size: 9px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #a68c68;
+}
+
+.hotbar-amount {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #ffdca3;
+    -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.9), 3, 0, 1, 1);
+}
+
+/* Shop and Item Cards */
+.shop-item-card {
+    -fx-background-color: rgba(255, 255, 255, 0.03);
+    -fx-background-radius: 10;
+    -fx-border-color: rgba(255, 255, 255, 0.06);
+    -fx-border-radius: 10;
+}
+
+.shop-item-card:hover {
+    -fx-background-color: rgba(255, 255, 255, 0.06);
+    -fx-border-color: rgba(223, 183, 108, 0.2);
+}
+
+.shop-item-icon,
+.inventory-slot {
+    -fx-background-color: rgba(10, 12, 14, 0.5);
+    -fx-background-radius: 10;
+    -fx-border-color: rgba(255, 255, 255, 0.08);
+    -fx-border-radius: 10;
+    -fx-border-width: 1.2;
+}
+
+.inventory-slot:hover {
+    -fx-background-color: rgba(255, 255, 255, 0.04);
+    -fx-border-color: rgba(223, 183, 108, 0.3);
+}
+
+.shop-description {
+    -fx-text-fill: rgba(238, 224, 202, 0.72);
+    -fx-font-size: 11px;
+}
+
+/* Input Fields */
+.text-input-game {
+    -fx-background-color: rgba(10, 12, 14, 0.75);
+    -fx-background-radius: 8;
+    -fx-text-fill: #ffffff;
+    -fx-border-color: rgba(223, 183, 108, 0.25);
+    -fx-border-radius: 8;
+    -fx-border-width: 1.2;
+    -fx-padding: 10 14 10 14;
+    -fx-font-size: 14px;
+}
+
+.text-input-game:focused {
+    -fx-border-color: #dfb76c;
+    -fx-effect: dropshadow(gaussian, rgba(223, 183, 108, 0.25), 8, 0.2, 0, 0);
+}
+
+.error-label {
+    -fx-text-fill: #ff6e6e;
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+}
+
+/* Settings Sliders & Custom Checkboxes */
+.settings-slider {
+    -fx-pref-width: 180;
+}
+
+.settings-slider .track {
+    -fx-background-color: rgba(10, 12, 14, 0.7);
+    -fx-pref-height: 6;
+    -fx-background-radius: 3;
+}
+
+.settings-slider .thumb {
+    -fx-background-color: linear-gradient(to bottom, #dfb76c, #a67a3f);
+    -fx-background-radius: 99;
+    -fx-pref-width: 14;
+    -fx-pref-height: 14;
+}
+
+.settings-slider .thumb:hover {
+    -fx-background-color: #ffe6b8;
+}
+
+.settings-toggle {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-cursor: hand;
+}
+
+.settings-toggle .box {
+    -fx-background-color: rgba(10, 12, 14, 0.7);
+    -fx-border-color: rgba(223, 183, 108, 0.25);
+    -fx-border-radius: 4;
+    -fx-border-width: 1.2;
+    -fx-padding: 2;
+}
+
+.settings-toggle:selected .box {
+    -fx-border-color: #dfb76c;
+    -fx-background-color: rgba(223, 183, 108, 0.12);
+}
+
+.settings-toggle:selected .mark {
+    -fx-background-color: #dfb76c;
+}
+
+/* Premium Tooltip Styling */
+.tooltip {
+    -fx-background-color: rgba(12, 14, 16, 0.94);
+    -fx-background-radius: 8;
+    -fx-border-color: #dfb76c;
+    -fx-border-width: 1.2;
+    -fx-border-radius: 8;
+    -fx-text-fill: #eecf97;
+    -fx-font-size: 12px;
+    -fx-padding: 8 12 8 12;
+    -fx-effect: dropshadow(three-pass-box, rgba(0, 0, 0, 0.5), 10, 0, 0, 5);
+}
+
+/* Floating Alerts (Toast Messages) */
+.toast-message {
+    -fx-background-color: linear-gradient(to right, rgba(14, 16, 18, 0.92), rgba(24, 27, 30, 0.92));
+    -fx-background-radius: 12;
+    -fx-border-color: #dfb76c;
+    -fx-border-width: 1.2;
+    -fx-border-radius: 12;
+    -fx-text-fill: #ffe3af;
+    -fx-padding: 10 20 10 20;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.5), 14, 0.22, 0, 4);
+}
+
+/* Custom Scrollbars */
+.overlay-scroll .viewport {
+    -fx-background-color: transparent;
+}
+
+.overlay-scroll .scroll-bar:vertical {
+    -fx-background-color: transparent;
+    -fx-pref-width: 8;
+}
+
+.overlay-scroll .scroll-bar:vertical .thumb {
+    -fx-background-color: rgba(223, 183, 108, 0.25);
+    -fx-background-radius: 4;
+}
+
+.overlay-scroll .scroll-bar:vertical .thumb:hover {
+    -fx-background-color: rgba(223, 183, 108, 0.6);
+}
+
+.overlay-scroll .scroll-bar:vertical .track,
+.overlay-scroll .scroll-bar:vertical .increment-button,
+.overlay-scroll .scroll-bar:vertical .decrement-button {
+    -fx-background-color: transparent;
+}

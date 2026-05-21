@@ -11,5 +11,6 @@ public final class GameConfig {
     //kíc thước bản đồ thật
 
     private GameConfig() {
+
     }
 }
