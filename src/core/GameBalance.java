@@ -9,10 +9,12 @@ public final class GameBalance {
     public static final int STARTING_COIN_AMOUNT = 120;
 
     public static final int STONE_WALL_PRICE = 6;
+    public static final int WOOD_FENCE_PRICE = STONE_WALL_PRICE;
     public static final int WOOD_WALL_PRICE = 4;
     public static final int TORCH_PRICE = 20;
     public static final int ARCHER_TOWER_PRICE = 35;
     public static final int TORCH_HITS_TO_BREAK = 2;
+    public static final int WOOD_FENCE_MAX_HP = 80;
     public static final int ARCHER_TOWER_HITS_TO_BREAK = 8;
     public static final int ARCHER_TOWER_DAMAGE = 2;
     public static final int ROCK_HITS_TO_BREAK = 4;

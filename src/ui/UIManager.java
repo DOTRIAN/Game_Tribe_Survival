@@ -407,11 +407,12 @@ public class UIManager {
 
     private Map<String, ItemUiMeta> createItemMetaMap(AssetManager assetManager) {
         Map<String, ItemUiMeta> meta = new LinkedHashMap<>();
-        Image wallIcon = assetManager.getWallImage("wall_icon");
+        Image wallIcon = assetManager.getSprite("wood_fence_icon");
         Image torchIcon = assetManager.getSprite("torch_icon");
         Image archerTowerIcon = assetManager.getSprite("archer_tower_icon");
-        meta.put("wall", new ItemUiMeta("wall", "Wall", "Buildable wall that can be placed, broken, and picked up again.", GameBalance.STONE_WALL_PRICE, "WL", wallIcon));
-        meta.put("stone_wall", new ItemUiMeta("stone_wall", "Stone Wall", "Buildable wall that can be placed, broken, and picked up again.", GameBalance.STONE_WALL_PRICE, "SW", wallIcon));
+        meta.put("wall", new ItemUiMeta("wall", "Wood Fence", "Buildable wooden fence that auto-connects left and right.", GameBalance.WOOD_FENCE_PRICE, "WF", wallIcon));
+        meta.put("wood_fence", new ItemUiMeta("wood_fence", "Wood Fence", "Buildable wooden fence that auto-connects left and right.", GameBalance.WOOD_FENCE_PRICE, "WF", wallIcon));
+        meta.put("stone_wall", new ItemUiMeta("stone_wall", "Wood Fence", "Legacy alias mapped to the new wood fence item.", GameBalance.WOOD_FENCE_PRICE, "WF", wallIcon));
         meta.put("wood_wall", new ItemUiMeta("wood_wall", "Wood Wall", "Legacy wooden wall kept for existing saves.", GameBalance.WOOD_WALL_PRICE, "WW", wallIcon));
         meta.put("potion", new ItemUiMeta("potion", "Potion", "Emergency heal during survival runs.", 12, "PT", null));
         meta.put("torch", new ItemUiMeta("torch", "Torch", "Animated torch that lights dark areas after placement.", GameBalance.TORCH_PRICE, "TR", torchIcon));

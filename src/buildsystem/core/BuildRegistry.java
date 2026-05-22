@@ -39,6 +39,9 @@ public class BuildRegistry {
         }
         byType.put(definition.getType(), definition);
         byItemId.put(definition.getItemId(), definition);
+        if ("wood_fence".equals(definition.getItemId())) {
+            byItemId.put("stone_wall", definition);
+        }
     }
 
     public BuildDefinition findByItemId(String itemId) {
@@ -54,15 +57,16 @@ public class BuildRegistry {
     }
 
     private void registerDefaults() {
-        register(BuildDefinition.builder(BuildType.STONE_WALL, "stone_wall", "Stone Wall")
-                .defaultSpriteKey("wall_straight_base")
-                .iconSpriteKey("wall_icon")
+        register(BuildDefinition.builder(BuildType.STONE_WALL, "wood_fence", "Wood Fence")
+                .defaultSpriteKey("wood_fence_single")
+                .iconSpriteKey("wood_fence_icon")
                 .placementStrategy(new GridPlacementStrategy())
                 .rotatable(true)
                 .collisionEnabled(true)
-                .health(120)
+                .health(GameBalance.WOOD_FENCE_MAX_HP)
                 .buildCost(1)
-                .autoTileGroup("wall")
+                .footprint(1, 1)
+                .autoTileGroup("wood_fence")
                 .objectBuilder(seed -> new Wall(seed.getDefinition(), seed))
                 .build());
 

@@ -141,7 +141,7 @@ public class Game {
     // Hotbar hien tai de mo rong dan:
     // - Slot 0: stone_wall.
     // - Cac slot khac de trong cho item build/craft sau nay.
-    private static final String STONE_WALL_ITEM_ID = "stone_wall";
+    private static final String WOOD_FENCE_ITEM_ID = "wood_fence";
     private static final String WALL_ITEM_ALIAS = "wall";
     private static final String COIN_ITEM_ID = "coin";
     private static final String WOOD_WALL_ITEM_ID = "wood_wall";
@@ -161,7 +161,7 @@ public class Game {
     private static final double DROP_MIN_DISTANCE = 16.0;
     private static final int DROP_POSITION_MAX_ATTEMPTS = 24;
     private static final boolean DEBUG_DROP_LOGS = false;
-    private static final int STONE_WALL_PRICE = GameBalance.STONE_WALL_PRICE;
+    private static final int WOOD_FENCE_PRICE = GameBalance.WOOD_FENCE_PRICE;
     private static final int WOOD_WALL_PRICE = GameBalance.WOOD_WALL_PRICE;
     private static final int TORCH_PRICE = GameBalance.TORCH_PRICE;
     private static final int ARCHER_TOWER_PRICE = GameBalance.ARCHER_TOWER_PRICE;
@@ -363,7 +363,7 @@ public class Game {
                 resourceManager.getAllResources(),
                 inventory.snapshot(),
                 selectedHotbarIndex,
-                inventory.getAmount(STONE_WALL_ITEM_ID),
+                inventory.getAmount(WOOD_FENCE_ITEM_ID),
                 buildManager,
                 arrowProjectiles,
                 droppedItems,
@@ -803,7 +803,7 @@ public class Game {
         String resolvedItemId = normalizeShopItemId(requestedItemId);
         int currentCoin = inventory.getAmount(COIN_ITEM_ID);
         int price = switch (resolvedItemId) {
-            case STONE_WALL_ITEM_ID -> STONE_WALL_PRICE;
+            case WOOD_FENCE_ITEM_ID -> WOOD_FENCE_PRICE;
             case WOOD_WALL_ITEM_ID -> WOOD_WALL_PRICE;
             case POTION_ITEM_ID -> 12;
             case TORCH_ITEM_ID -> TORCH_PRICE;
@@ -1473,7 +1473,7 @@ public class Game {
 
     private String prettifyItemName(String itemId) {
         return switch (itemId) {
-            case STONE_WALL_ITEM_ID -> "Stone Wall";
+            case WOOD_FENCE_ITEM_ID -> "Wood Fence";
             case WOOD_WALL_ITEM_ID -> "Wood Wall";
             case POTION_ITEM_ID -> "Potion";
             case TORCH_ITEM_ID -> "Torch";
@@ -1740,7 +1740,8 @@ public class Game {
             return "";
         }
         return switch (itemId.trim().toLowerCase()) {
-            case WALL_ITEM_ALIAS -> STONE_WALL_ITEM_ID;
+            case WALL_ITEM_ALIAS -> WOOD_FENCE_ITEM_ID;
+            case "stone_wall", "wood_fence", "wood fence" -> WOOD_FENCE_ITEM_ID;
             case "cung", "archer", "archer_tower" -> ARCHER_TOWER_ITEM_ID;
             default -> itemId.trim().toLowerCase();
         };

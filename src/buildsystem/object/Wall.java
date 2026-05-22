@@ -21,15 +21,35 @@ public class Wall extends BuildObject {
                 seed.getTileWidth(),
                 seed.getTileHeight(),
                 definition.getAutoTileGroup(),
-                WallSpriteConfig.WALL_RENDER_WIDTH,
-                WallSpriteConfig.WALL_RENDER_HEIGHT,
-                WallSpriteConfig.WALL_ANCHOR_X,
-                WallSpriteConfig.WALL_ANCHOR_Y,
+                renderWidth(definition),
+                renderHeight(definition),
+                anchorX(definition),
+                anchorY(definition),
                 seed.getSpriteKey(),
                 seed.getRotationDegrees(),
                 seed.getHealth());
-        addComponent(new CollisionComponent(WallSpriteConfig.WALL_RENDER_WIDTH, WallSpriteConfig.WALL_RENDER_HEIGHT));
+        addComponent(new CollisionComponent(renderWidth(definition), renderHeight(definition)));
         addComponent(new HealthComponent(seed.getHealth(), definition.getHealth()));
         addComponent(new RotationComponent(seed.getRotationDegrees()));
+    }
+
+    private static boolean isWoodFence(BuildDefinition definition) {
+        return definition != null && "wood_fence".equalsIgnoreCase(definition.getAutoTileGroup());
+    }
+
+    private static double renderWidth(BuildDefinition definition) {
+        return isWoodFence(definition) ? WallSpriteConfig.WOOD_FENCE_RENDER_WIDTH : WallSpriteConfig.WALL_RENDER_WIDTH;
+    }
+
+    private static double renderHeight(BuildDefinition definition) {
+        return isWoodFence(definition) ? WallSpriteConfig.WOOD_FENCE_RENDER_HEIGHT : WallSpriteConfig.WALL_RENDER_HEIGHT;
+    }
+
+    private static double anchorX(BuildDefinition definition) {
+        return isWoodFence(definition) ? WallSpriteConfig.WOOD_FENCE_ANCHOR_X : WallSpriteConfig.WALL_ANCHOR_X;
+    }
+
+    private static double anchorY(BuildDefinition definition) {
+        return isWoodFence(definition) ? WallSpriteConfig.WOOD_FENCE_ANCHOR_Y : WallSpriteConfig.WALL_ANCHOR_Y;
     }
 }

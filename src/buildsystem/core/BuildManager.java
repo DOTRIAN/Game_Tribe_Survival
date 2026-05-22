@@ -7,6 +7,7 @@ import buildsystem.preview.PreviewMaterial;
 import buildsystem.sprite.BuildSpriteResolver;
 import buildsystem.sprite.OrthogonalAutoTileResolver;
 import buildsystem.sprite.SpriteSelection;
+import buildsystem.sprite.WallSpriteConfig;
 import buildsystem.ui.BuildHotbarSlot;
 import buildsystem.ui.BuildToolbar;
 import entity.Player;
@@ -121,6 +122,11 @@ public class BuildManager {
         if (selectedDefinition == null || !selectedDefinition.isRotatable()) {
             return;
         }
+        if (isWoodFence(selectedDefinition)) {
+            double current = rotationManager.getCurrentRotationDegrees();
+            rotationManager.setRotationDegrees(isWoodFenceVertical(current) ? 0.0 : 90.0);
+            return;
+        }
         rotationManager.rotateClockwise();
     }
 
@@ -170,12 +176,19 @@ public class BuildManager {
                 player,
                 mouseOverUi
         );
-        PlacementResult placementResult = placementValidator.validate(selectedDefinition, context, objectsByTile.values());
+        PlacementResult placementResult = isWoodFence(selectedDefinition)
+                ? validateWoodFenceSegment(selectedDefinition, context)
+                : placementValidator.validate(selectedDefinition, context, placedObjectsForPlacement(selectedDefinition));
+        if (!isWoodFence(selectedDefinition)
+                && placementResult.isValid()
+                && isFootprintOccupied(selectedDefinition, tileX, tileY)) {
+            placementResult = PlacementResult.invalid("blocked-by-build-object");
+        }
         SpriteSelection selection = spriteResolver.resolve(
                 selectedDefinition,
                 tileX,
                 tileY,
-                objectsByTile.values(),
+                objectsById.values(),
                 rotationManager.getCurrentRotationDegrees(),
                 selectedDefinition.getDefaultSpriteKey()
         );
@@ -189,10 +202,22 @@ public class BuildManager {
         preview.setSpriteKey(selection.getSpriteKey());
         preview.setNeighborMask(selection.getNeighborMask());
         preview.setImage(assetResolver.getSprite(selection.getSpriteKey()));
-        preview.setWidth(selectedDefinition.getFootprintWidthTiles() * tileWidth);
-        preview.setHeight(selectedDefinition.getFootprintHeightTiles() * tileHeight);
-        preview.setRenderX(tileX * tileWidth);
-        preview.setRenderY(tileY * tileHeight);
+        if (isWoodFence(selectedDefinition)) {
+            boolean vertical = isWoodFenceVertical(rotationManager.getCurrentRotationDegrees());
+            preview.setSpriteKey("wood_fence_single");
+            preview.setImage(assetResolver.getSprite("wood_fence_single"));
+            preview.setWidth(tileWidth * 2.0);
+            preview.setHeight(tileHeight);
+            preview.setRotationDegrees(vertical ? 90.0 : 0.0);
+            preview.setRotationLabel(vertical ? "V" : "H");
+            preview.setRenderX(vertical ? tileX * tileWidth - tileWidth / 2.0 : tileX * tileWidth);
+            preview.setRenderY(vertical ? tileY * tileHeight + tileHeight / 2.0 : tileY * tileHeight);
+        } else {
+            preview.setWidth(selectedDefinition.getFootprintWidthTiles() * tileWidth);
+            preview.setHeight(selectedDefinition.getFootprintHeightTiles() * tileHeight);
+            preview.setRenderX(tileX * tileWidth);
+            preview.setRenderY(tileY * tileHeight);
+        }
         preview.setValidationMessage(placementResult.getReason());
         previewRenderer.applyMaterial(preview, placementResult.isValid());
     }
@@ -210,17 +235,29 @@ public class BuildManager {
             preview.setValidationMessage("out-of-item");
             return false;
         }
+        if (isWoodFence(selectedDefinition)) {
+            return tryPlaceWoodFenceSegment(player, inventory);
+        }
+        if (isFootprintOccupied(selectedDefinition, preview.getTileX(), preview.getTileY())) {
+            preview.setValid(false);
+            preview.setValidationMessage("blocked-by-build-object");
+            return false;
+        }
 
         PlacementContext context = new PlacementContext(
-                preview.getRenderX(),
-                preview.getRenderY(),
+                preview.getTileX() * worldQuery.getTileWidth(),
+                preview.getTileY() * worldQuery.getTileHeight(),
                 preview.getTileX(),
                 preview.getTileY(),
                 preview.getRotationDegrees(),
                 player,
                 false
         );
-        PlacementResult validNow = placementValidator.validate(selectedDefinition, context, objectsByTile.values());
+        PlacementResult validNow = placementValidator.validate(
+                selectedDefinition,
+                context,
+                placedObjectsForPlacement(selectedDefinition)
+        );
         if (!validNow.isValid()) {
             preview.setValid(false);
             preview.setValidationMessage(validNow.getReason());
@@ -260,8 +297,8 @@ public class BuildManager {
             return;
         }
         objectsById.put(object.getId(), object);
-        objectsByTile.put(tileKey(object.getTileX(), object.getTileY()), object);
-        refreshObjectAndNeighbors(object.getTileX(), object.getTileY());
+        markOccupiedTiles(object);
+        refreshObjectAndNeighbors(object);
     }
 
     public BuildDamageResult hitFirstDamageableIntersecting(double x,
@@ -357,11 +394,11 @@ public class BuildManager {
                     health
             );
             objectsById.put(object.getId(), object);
-            objectsByTile.put(tileKey(tileX, tileY), object);
+            markOccupiedTiles(object);
         }
 
         for (BuildObject object : objectsById.values()) {
-            refresh(object.getTileX(), object.getTileY());
+            refreshObjectAndNeighbors(object);
         }
     }
 
@@ -413,12 +450,144 @@ public class BuildManager {
         preview.setValid(false);
     }
 
-    private void refreshObjectAndNeighbors(int tileX, int tileY) {
+    private void refreshObjectAndNeighbors(BuildObject object) {
+        if (object == null) {
+            return;
+        }
+        BuildDefinition definition = registry.findByType(object.getType());
+        if (isWoodFence(definition)) {
+            refresh(object.getTileX(), object.getTileY());
+            refresh(object.getTileX() - 1, object.getTileY());
+            refresh(object.getTileX() + 1, object.getTileY());
+            refresh(object.getTileX(), object.getTileY() - 1);
+            refresh(object.getTileX(), object.getTileY() + 1);
+            return;
+        }
+        int footprintWidth = definition == null ? 1 : definition.getFootprintWidthTiles();
+        int footprintHeight = definition == null ? 1 : definition.getFootprintHeightTiles();
+        refresh(object.getTileX(), object.getTileY());
+        refresh(object.getTileX() - footprintWidth, object.getTileY());
+        refresh(object.getTileX() + footprintWidth, object.getTileY());
+        refresh(object.getTileX(), object.getTileY() - footprintHeight);
+        refresh(object.getTileX(), object.getTileY() + footprintHeight);
+    }
+
+    private boolean tryPlaceWoodFenceSegment(Player player, BuildInventory inventory) {
+        PlacementResult placementResult = validateWoodFenceSegment(
+                selectedDefinition,
+                new PlacementContext(
+                        preview.getTileX() * worldQuery.getTileWidth(),
+                        preview.getTileY() * worldQuery.getTileHeight(),
+                        preview.getTileX(),
+                        preview.getTileY(),
+                        preview.getRotationDegrees(),
+                        player,
+                        false
+                )
+        );
+        if (!placementResult.isValid()) {
+            preview.setValid(false);
+            preview.setValidationMessage(placementResult.getReason());
+            return false;
+        }
+        if (!inventory.consumeItem(selectedDefinition.getItemId(), selectedDefinition.getBuildCost())) {
+            preview.setValid(false);
+            preview.setValidationMessage("consume-failed");
+            return false;
+        }
+
+        int[][] endpoints = woodFenceEndpoints(preview.getTileX(), preview.getTileY(), preview.getRotationDegrees());
+        BuildObject placed = null;
+        for (int[] endpoint : endpoints) {
+            BuildObject existing = objectsByTile.get(tileKey(endpoint[0], endpoint[1]));
+            if (existing != null && sameAutoTileGroup(selectedDefinition, existing)) {
+                placed = existing;
+                continue;
+            }
+            BuildObject post = factory.create(
+                    selectedDefinition,
+                    UUID.randomUUID().toString(),
+                    endpoint[0],
+                    endpoint[1],
+                    worldQuery.getTileWidth(),
+                    worldQuery.getTileHeight(),
+                    "wood_fence_mask_0",
+                    0.0,
+                    selectedDefinition.getHealth()
+            );
+            addPlacedObject(post);
+            placed = post;
+        }
+
+        for (int[] endpoint : endpoints) {
+            refreshFenceAtAndAround(endpoint[0], endpoint[1]);
+        }
+        lastPlacedObject = placed;
+        syncToolbar(inventory.snapshot());
+        if (inventory.getAmount(selectedDefinition.getItemId()) < selectedDefinition.getBuildCost()) {
+            buildMode = BuildMode.NONE;
+            selectedDefinition = null;
+            preview.setVisible(false);
+            preview.setValid(false);
+        }
+        return true;
+    }
+
+    private PlacementResult validateWoodFenceSegment(BuildDefinition definition, PlacementContext context) {
+        PlacementResult base = placementValidator.validate(definition, context, placedObjectsForPlacement(definition));
+        if (!base.isValid()) {
+            return base;
+        }
+        int[][] endpoints = woodFenceEndpoints(context.getTileX(), context.getTileY(), context.getRotationDegrees());
+        boolean hasEmptyEndpoint = false;
+        for (int[] endpoint : endpoints) {
+            String key = tileKey(endpoint[0], endpoint[1]);
+            BuildObject occupant = objectsByTile.get(key);
+            if (occupant == null) {
+                hasEmptyEndpoint = true;
+                PlacementResult endpointResult = placementValidator.validate(
+                        definition,
+                        new PlacementContext(
+                                endpoint[0] * worldQuery.getTileWidth(),
+                                endpoint[1] * worldQuery.getTileHeight(),
+                                endpoint[0],
+                                endpoint[1],
+                                0.0,
+                                context.getPlayer(),
+                                context.isMouseOverUi()
+                        ),
+                        placedObjectsForPlacement(definition)
+                );
+                if (!endpointResult.isValid()) {
+                    return endpointResult;
+                }
+                continue;
+            }
+            if (!sameAutoTileGroup(definition, occupant)) {
+                return PlacementResult.invalid("blocked-by-build-object");
+            }
+        }
+        return hasEmptyEndpoint ? PlacementResult.valid() : PlacementResult.invalid("segment-exists");
+    }
+
+    private int[][] woodFenceEndpoints(int tileX, int tileY, double rotationDegrees) {
+        if (isWoodFenceVertical(rotationDegrees)) {
+            return new int[][]{{tileX, tileY}, {tileX, tileY + 1}};
+        }
+        return new int[][]{{tileX, tileY}, {tileX + 1, tileY}};
+    }
+
+    private boolean isWoodFenceVertical(double rotationDegrees) {
+        int normalized = (int) ((rotationDegrees % 360 + 360) % 360);
+        return normalized == 90 || normalized == 270;
+    }
+
+    private void refreshFenceAtAndAround(int tileX, int tileY) {
         refresh(tileX, tileY);
-        refresh(tileX + 1, tileY);
         refresh(tileX - 1, tileY);
-        refresh(tileX, tileY + 1);
+        refresh(tileX + 1, tileY);
         refresh(tileX, tileY - 1);
+        refresh(tileX, tileY + 1);
     }
 
     private void removePlacedObject(BuildObject object) {
@@ -426,8 +595,8 @@ public class BuildManager {
             return;
         }
         objectsById.remove(object.getId());
-        objectsByTile.remove(tileKey(object.getTileX(), object.getTileY()));
-        refreshObjectAndNeighbors(object.getTileX(), object.getTileY());
+        unmarkOccupiedTiles(object);
+        refreshObjectAndNeighbors(object);
     }
 
     private void refresh(int tileX, int tileY) {
@@ -441,14 +610,103 @@ public class BuildManager {
         }
         SpriteSelection selection = spriteResolver.resolve(
                 definition,
-                tileX,
-                tileY,
+                object.getTileX(),
+                object.getTileY(),
                 objectsById.values(),
                 object.getRotationDegrees(),
                 object.getSpriteKey()
         );
         object.setRotationDegrees(selection.getRotationDegrees());
         object.setSpriteKey(selection.getSpriteKey());
+    }
+
+    private boolean isFootprintOccupied(BuildDefinition definition, int tileX, int tileY) {
+        if (definition == null) {
+            return false;
+        }
+        if (isWoodFence(definition)) {
+            BuildObject sameOrigin = objectsByTile.get(tileKey(tileX, tileY));
+            return sameOrigin != null;
+        }
+        for (String key : occupiedTileKeys(definition, tileX, tileY)) {
+            if (objectsByTile.containsKey(key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void markOccupiedTiles(BuildObject object) {
+        BuildDefinition definition = registry.findByType(object.getType());
+        if (definition == null) {
+            objectsByTile.put(tileKey(object.getTileX(), object.getTileY()), object);
+            return;
+        }
+        if (isWoodFence(definition)) {
+            objectsByTile.put(tileKey(object.getTileX(), object.getTileY()), object);
+            return;
+        }
+        for (String key : occupiedTileKeys(definition, object.getTileX(), object.getTileY())) {
+            objectsByTile.put(key, object);
+        }
+    }
+
+    private void unmarkOccupiedTiles(BuildObject object) {
+        BuildDefinition definition = registry.findByType(object.getType());
+        if (definition == null) {
+            objectsByTile.remove(tileKey(object.getTileX(), object.getTileY()));
+            return;
+        }
+        if (isWoodFence(definition)) {
+            BuildObject mapped = objectsByTile.get(tileKey(object.getTileX(), object.getTileY()));
+            if (mapped == object) {
+                objectsByTile.remove(tileKey(object.getTileX(), object.getTileY()));
+            }
+            return;
+        }
+        for (String key : occupiedTileKeys(definition, object.getTileX(), object.getTileY())) {
+            BuildObject mapped = objectsByTile.get(key);
+            if (mapped == object) {
+                objectsByTile.remove(key);
+            }
+        }
+    }
+
+    private List<String> occupiedTileKeys(BuildDefinition definition, int tileX, int tileY) {
+        List<String> keys = new ArrayList<>();
+        int width = Math.max(1, definition.getFootprintWidthTiles());
+        int height = Math.max(1, definition.getFootprintHeightTiles());
+        for (int dy = 0; dy < height; dy++) {
+            for (int dx = 0; dx < width; dx++) {
+                keys.add(tileKey(tileX + dx, tileY + dy));
+            }
+        }
+        return keys;
+    }
+
+    private Collection<BuildObject> placedObjectsForPlacement(BuildDefinition definition) {
+        if (!isWoodFence(definition)) {
+            return objectsById.values();
+        }
+        List<BuildObject> objects = new ArrayList<>();
+        for (BuildObject object : objectsById.values()) {
+            if (object == null || sameAutoTileGroup(definition, object)) {
+                continue;
+            }
+            objects.add(object);
+        }
+        return objects;
+    }
+
+    private boolean isWoodFence(BuildDefinition definition) {
+        return definition != null && "wood_fence".equalsIgnoreCase(definition.getAutoTileGroup());
+    }
+
+    private boolean sameAutoTileGroup(BuildDefinition definition, BuildObject object) {
+        return definition != null
+                && object != null
+                && definition.getAutoTileGroup() != null
+                && definition.getAutoTileGroup().equalsIgnoreCase(object.getAutoTileGroup());
     }
 
     private String tileKey(int tileX, int tileY) {

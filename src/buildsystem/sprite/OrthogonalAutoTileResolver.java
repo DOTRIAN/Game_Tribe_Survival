@@ -17,6 +17,14 @@ public class OrthogonalAutoTileResolver implements AutoTileResolver {
                                    int tileY,
                                    Collection<BuildObject> placedObjects,
                                    double preferredRotationDegrees) {
+        if (definition != null && "wood_fence".equalsIgnoreCase(definition.getAutoTileGroup())) {
+            boolean left = hasNeighbor(definition, tileX - 1, tileY, placedObjects);
+            boolean right = hasNeighbor(definition, tileX + 1, tileY, placedObjects);
+            boolean up = hasNeighbor(definition, tileX, tileY - 1, placedObjects);
+            boolean down = hasNeighbor(definition, tileX, tileY + 1, placedObjects);
+            int mask = (left ? 1 : 0) | (right ? 2 : 0) | (up ? 4 : 0) | (down ? 8 : 0);
+            return new SpriteSelection("wood_fence_mask_" + mask, 0.0, mask);
+        }
         boolean north = hasNeighbor(definition, tileX, tileY - 1, placedObjects);
         boolean east = hasNeighbor(definition, tileX + 1, tileY, placedObjects);
         boolean south = hasNeighbor(definition, tileX, tileY + 1, placedObjects);

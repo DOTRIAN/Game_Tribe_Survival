@@ -31,6 +31,7 @@ public class Inventory implements BuildInventory {
         if (itemId == null || itemId.isBlank() || amount <= 0) {
             return;
         }
+        itemId = normalizeItemId(itemId);
         items.put(itemId, items.getOrDefault(itemId, 0) + amount);
     }
 
@@ -42,6 +43,7 @@ public class Inventory implements BuildInventory {
         if (itemId == null || itemId.isBlank() || amount <= 0) {
             return false;
         }
+        itemId = normalizeItemId(itemId);
         int current = items.getOrDefault(itemId, 0);
         if (current < amount) {
             return false;
@@ -62,6 +64,7 @@ public class Inventory implements BuildInventory {
         if (itemId == null || itemId.isBlank()) {
             return 0;
         }
+        itemId = normalizeItemId(itemId);
         return items.getOrDefault(itemId, 0);
     }
 
@@ -83,10 +86,19 @@ public class Inventory implements BuildInventory {
             if (entry.getKey() == null || entry.getKey().isBlank()) {
                 continue;
             }
+            String itemId = normalizeItemId(entry.getKey());
             int value = Math.max(0, entry.getValue() == null ? 0 : entry.getValue());
             if (value > 0) {
-                items.put(entry.getKey(), value);
+                items.put(itemId, items.getOrDefault(itemId, 0) + value);
             }
         }
+    }
+
+    private String normalizeItemId(String itemId) {
+        String normalized = itemId == null ? "" : itemId.trim().toLowerCase();
+        if ("stone_wall".equals(normalized)) {
+            return "wood_fence";
+        }
+        return normalized;
     }
 }

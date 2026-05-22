@@ -1,6 +1,9 @@
 package buildsystem.sprite;
 
 import buildsystem.core.BuildAssetResolver;
+import javafx.scene.SnapshotParameters;
+import javafx.scene.canvas.Canvas;
+import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.image.Image;
 import javafx.scene.image.PixelReader;
 import javafx.scene.image.PixelWriter;
@@ -19,6 +22,7 @@ import java.util.Map;
  */
 public class AssetManager implements BuildAssetResolver {
     private static final Path WALL_ASSET_ROOT = Path.of("assets", "stone_wall");
+    private static final Path WOOD_FENCE_SHEET_PATH = Path.of("assets", "woodFence", "woodFence.png");
     private static final Path TORCH_SHEET_PATH = Path.of("assets", "Torch.png");
     private static final int TORCH_SHEET_COLUMNS = 4;
     private static final int TORCH_SHEET_ROWS = 2;
@@ -38,6 +42,7 @@ public class AssetManager implements BuildAssetResolver {
         this.spriteCache = new LinkedHashMap<>();
         this.animationCache = new LinkedHashMap<>();
         loadWallSpriteSheet();
+        loadWoodFenceSprites();
         loadTorchSpriteSheet();
         loadArcherTowerSprites();
     }
@@ -98,6 +103,78 @@ public class AssetManager implements BuildAssetResolver {
         }
 
         spriteCache.putAll(SpriteSheetLoader.cropAll(sheet, WallSpriteConfig.getRegions()));
+    }
+
+    private void loadWoodFenceSprites() {
+        Image sheet = new Image(WOOD_FENCE_SHEET_PATH.toUri().toString());
+        if (sheet.isError()) {
+            System.out.println("Failed to load wood fence sheet: " + WOOD_FENCE_SHEET_PATH);
+            return;
+        }
+        Image fenceSingle = cropAndKeyBackground(sheet, 477, 246, 266, 195, false);
+        if (fenceSingle == null) {
+            return;
+        }
+        spriteCache.put("wood_fence_single", fenceSingle);
+        spriteCache.put("wood_fence_icon", fenceSingle);
+        loadWoodFencePostSprites(sheet);
+    }
+
+    private void loadWoodFencePostSprites(Image sheet) {
+        for (int mask = 0; mask <= 15; mask++) {
+            spriteCache.put("wood_fence_mask_" + mask, createWoodFencePostSprite(sheet, mask));
+        }
+        spriteCache.put("fence_single", spriteCache.get("wood_fence_mask_0"));
+        spriteCache.put("horizontal_single", spriteCache.get("wood_fence_single"));
+        spriteCache.put("vertical_single", spriteCache.get("wood_fence_mask_12"));
+        spriteCache.put("horizontal_left_end", spriteCache.get("wood_fence_mask_2"));
+        spriteCache.put("horizontal_middle", spriteCache.get("wood_fence_mask_3"));
+        spriteCache.put("horizontal_right_end", spriteCache.get("wood_fence_mask_1"));
+        spriteCache.put("vertical_top_end", spriteCache.get("wood_fence_mask_8"));
+        spriteCache.put("vertical_middle", spriteCache.get("wood_fence_mask_12"));
+        spriteCache.put("vertical_bottom_end", spriteCache.get("wood_fence_mask_4"));
+        spriteCache.put("corner_top_left", spriteCache.get("wood_fence_mask_10"));
+        spriteCache.put("corner_top_right", spriteCache.get("wood_fence_mask_9"));
+        spriteCache.put("corner_bottom_left", spriteCache.get("wood_fence_mask_6"));
+        spriteCache.put("corner_bottom_right", spriteCache.get("wood_fence_mask_5"));
+        spriteCache.put("t_up", spriteCache.get("wood_fence_mask_11"));
+        spriteCache.put("t_down", spriteCache.get("wood_fence_mask_7"));
+        spriteCache.put("t_left", spriteCache.get("wood_fence_mask_13"));
+        spriteCache.put("t_right", spriteCache.get("wood_fence_mask_14"));
+        spriteCache.put("cross", spriteCache.get("wood_fence_mask_15"));
+    }
+
+    private Image createWoodFencePostSprite(Image sheet, int mask) {
+        Canvas canvas = new Canvas(16, 16);
+        GraphicsContext graphics = canvas.getGraphicsContext2D();
+        graphics.setImageSmoothing(false);
+
+        boolean left = (mask & 1) != 0;
+        boolean right = (mask & 2) != 0;
+        boolean up = (mask & 4) != 0;
+        boolean down = (mask & 8) != 0;
+
+        // Rail texture sampled from the horizontal fence asset. It is drawn before the post
+        // so every corner/T/cross keeps one shared post at the tile center.
+        if (left) {
+            graphics.drawImage(sheet, 570, 318, 80, 40, 0, 5, 8, 6);
+        }
+        if (right) {
+            graphics.drawImage(sheet, 570, 318, 80, 40, 8, 5, 8, 6);
+        }
+        if (up) {
+            graphics.drawImage(sheet, 570, 318, 80, 40, 5, 0, 6, 8);
+        }
+        if (down) {
+            graphics.drawImage(sheet, 570, 318, 80, 40, 5, 8, 6, 8);
+        }
+
+        graphics.drawImage(sheet, 516, 246, 55, 195, 4, 1, 8, 14);
+        SnapshotParameters parameters = new SnapshotParameters();
+        parameters.setFill(Color.TRANSPARENT);
+        WritableImage image = new WritableImage(16, 16);
+        canvas.snapshot(parameters, image);
+        return transparentBrightBackground(image, false);
     }
 
     private void loadTorchSpriteSheet() {
@@ -318,6 +395,83 @@ public class AssetManager implements BuildAssetResolver {
         return cleaned;
     }
 
+    private Image cropAndKeyBackground(Image source, int x, int y, int width, int height) {
+        return cropAndKeyBackground(source, x, y, width, height, true);
+    }
+
+    private Image cropAndKeyBackground(Image source, int x, int y, int width, int height, boolean trim) {
+        if (source == null || source.isError()) {
+            return null;
+        }
+        PixelReader reader = source.getPixelReader();
+        if (reader == null) {
+            return null;
+        }
+        int safeX = Math.max(0, x);
+        int safeY = Math.max(0, y);
+        int safeWidth = Math.max(1, Math.min(width, (int) source.getWidth() - safeX));
+        int safeHeight = Math.max(1, Math.min(height, (int) source.getHeight() - safeY));
+        WritableImage cropped = new WritableImage(reader, safeX, safeY, safeWidth, safeHeight);
+        return transparentBrightBackground(cropped, trim);
+    }
+
+    private Image transparentBrightBackground(Image source) {
+        return transparentBrightBackground(source, true);
+    }
+
+    private Image transparentBrightBackground(Image source, boolean trim) {
+        if (source == null || source.isError()) {
+            return source;
+        }
+        int width = (int) Math.round(source.getWidth());
+        int height = (int) Math.round(source.getHeight());
+        PixelReader reader = source.getPixelReader();
+        if (reader == null) {
+            return source;
+        }
+        WritableImage cleaned = new WritableImage(width, height);
+        PixelWriter writer = cleaned.getPixelWriter();
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                Color color = reader.getColor(x, y);
+                if (isBrightLowSaturation(color)) {
+                    writer.setColor(x, y, Color.TRANSPARENT);
+                } else {
+                    writer.setColor(x, y, color);
+                }
+            }
+        }
+        return trim ? trimTransparentBounds(cleaned) : cleaned;
+    }
+
+    private Image trimTransparentBounds(Image source) {
+        int width = (int) Math.round(source.getWidth());
+        int height = (int) Math.round(source.getHeight());
+        PixelReader reader = source.getPixelReader();
+        if (reader == null) {
+            return source;
+        }
+        int minX = width;
+        int minY = height;
+        int maxX = -1;
+        int maxY = -1;
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                if (reader.getColor(x, y).getOpacity() <= 0.02) {
+                    continue;
+                }
+                minX = Math.min(minX, x);
+                minY = Math.min(minY, y);
+                maxX = Math.max(maxX, x);
+                maxY = Math.max(maxY, y);
+            }
+        }
+        if (maxX < minX || maxY < minY) {
+            return source;
+        }
+        return new WritableImage(reader, minX, minY, maxX - minX + 1, maxY - minY + 1);
+    }
+
     private boolean isNearWhite(Color color) {
         if (color == null || color.getOpacity() <= 0.001) {
             return false;
@@ -325,5 +479,17 @@ public class AssetManager implements BuildAssetResolver {
         return color.getRed() >= 0.96
                 && color.getGreen() >= 0.96
                 && color.getBlue() >= 0.96;
+    }
+
+    private boolean isBrightLowSaturation(Color color) {
+        if (color == null) {
+            return false;
+        }
+        double max = Math.max(color.getRed(), Math.max(color.getGreen(), color.getBlue()));
+        double min = Math.min(color.getRed(), Math.min(color.getGreen(), color.getBlue()));
+        double saturation = max <= 0.0001 ? 0.0 : (max - min) / max;
+        return color.getOpacity() > 0.001
+                && max >= 0.82
+                && saturation <= 0.18;
     }
 }
