@@ -17,11 +17,10 @@ import java.util.Map;
 
 /**
  * AssetManager:
- * - Hien tai van load sprite sheet tuong.jpg, nhung da expose qua BuildAssetResolver de buildsystem khong phu thuoc package cu.
+ * - Load asset build theo duong dan tuong doi trong project.
  * - Khi sau nay co sprite atlas rieng cho trap/chest/torch/turret, chi can mo rong implementation nay.
  */
 public class AssetManager implements BuildAssetResolver {
-    private static final Path WALL_ASSET_ROOT = Path.of("assets", "stone_wall");
     private static final Path WOOD_FENCE_SHEET_PATH = Path.of("assets", "woodFence", "woodFence.png");
     private static final Path TORCH_SHEET_PATH = Path.of("assets", "Torch.png");
     private static final int TORCH_SHEET_COLUMNS = 4;
@@ -41,7 +40,6 @@ public class AssetManager implements BuildAssetResolver {
     public AssetManager() {
         this.spriteCache = new LinkedHashMap<>();
         this.animationCache = new LinkedHashMap<>();
-        loadWallSpriteSheet();
         loadWoodFenceSprites();
         loadTorchSpriteSheet();
         loadArcherTowerSprites();
@@ -94,17 +92,6 @@ public class AssetManager implements BuildAssetResolver {
         return frames[(int) frameIndex];
     }
 
-    private void loadWallSpriteSheet() {
-        Path imagePath = WALL_ASSET_ROOT.resolve(WallSpriteConfig.SHEET_FILE_NAME);
-        Image sheet = new Image(imagePath.toUri().toString());
-        if (sheet.isError()) {
-            System.out.println("Failed to load wall sprite sheet: " + imagePath);
-            return;
-        }
-
-        spriteCache.putAll(SpriteSheetLoader.cropAll(sheet, WallSpriteConfig.getRegions()));
-    }
-
     private void loadWoodFenceSprites() {
         Image sheet = new Image(WOOD_FENCE_SHEET_PATH.toUri().toString());
         if (sheet.isError()) {
@@ -117,6 +104,10 @@ public class AssetManager implements BuildAssetResolver {
         }
         spriteCache.put("wood_fence_single", fenceSingle);
         spriteCache.put("wood_fence_icon", fenceSingle);
+        // Legacy aliases so old keys do not break while stone_wall assets are removed.
+        spriteCache.put("wall_icon", fenceSingle);
+        spriteCache.put("wall_single", fenceSingle);
+        spriteCache.put("wall_straight_base", fenceSingle);
         loadWoodFencePostSprites(sheet);
     }
 
