@@ -1,4 +1,4 @@
-package build;
+package buildsystem.sprite;
 
 import java.util.List;
 

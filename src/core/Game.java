@@ -1,14 +1,18 @@
 package core;
 
-import build.AssetManager;
 import buildsystem.core.BuildManager;
 import buildsystem.core.BuildMode;
 import buildsystem.core.BuildController;
+import buildsystem.core.CollisionManager;
 import buildsystem.core.BuildDamageResult;
+import buildsystem.object.ArcherTower;
+import buildsystem.object.BuildObject;
+import buildsystem.sprite.AssetManager;
 import entity.BaseCamp;
 import entity.CollectibleDrop;
 import entity.DropType;
 import entity.DroppedItem;
+import entity.ArrowProjectile;
 import entity.BossEnemy;
 import entity.Enemy;
 import entity.OrcEnemy;
@@ -78,7 +82,7 @@ public class Game {
     private final AssetManager wallAssetManager;
     private final BuildManager buildManager;
     private final BuildController buildController;
-    private final build.CollisionManager buildCollisionManager;
+    private final CollisionManager buildCollisionManager;
     private final Player player;
     private final BaseCamp baseCamp;
     private final List<Enemy> enemies;
@@ -90,6 +94,7 @@ public class Game {
     private final DayNightCycle dayNightCycle;
     private final List<FloatingDamageText> floatingDamageTexts;
     private final List<DroppedItem> droppedItems;
+    private final List<ArrowProjectile> arrowProjectiles;
     private final List<CollectibleDrop> droppedCollectibles;
 
     // Inventory la state gameplay chinh cho he thu thap/craft.
@@ -142,6 +147,7 @@ public class Game {
     private static final String WOOD_WALL_ITEM_ID = "wood_wall";
     private static final String POTION_ITEM_ID = "potion";
     private static final String TORCH_ITEM_ID = "torch";
+    private static final String ARCHER_TOWER_ITEM_ID = "archer_tower";
     private static final String BASIC_SWORD_ITEM_ID = "basic_sword";
     private static final String PICKAXE_ITEM_ID = "pickaxe";
     private static final String CARROT_ITEM_ID = "carrot";
@@ -158,6 +164,7 @@ public class Game {
     private static final int STONE_WALL_PRICE = GameBalance.STONE_WALL_PRICE;
     private static final int WOOD_WALL_PRICE = GameBalance.WOOD_WALL_PRICE;
     private static final int TORCH_PRICE = GameBalance.TORCH_PRICE;
+    private static final int ARCHER_TOWER_PRICE = GameBalance.ARCHER_TOWER_PRICE;
 
     // selectedHotbarIndex:
     // - Luu slot nguoi choi dang chon tren thanh hotbar.
@@ -180,6 +187,7 @@ public class Game {
         this.dayNightCycle = new DayNightCycle();
         this.floatingDamageTexts = new ArrayList<>();
         this.droppedItems = new ArrayList<>();
+        this.arrowProjectiles = new ArrayList<>();
         this.droppedCollectibles = new ArrayList<>();
         this.inventory = new Inventory();
         this.eventBus = new GameEventBus();
@@ -221,7 +229,7 @@ public class Game {
         this.mapCollisions = runtimeObjects;
         this.resourceManager.loadFromMapObjects(this.mapCollisions);
         this.tileCollisionResolver = loadedMap == null ? null : new TileCollisionResolver(loadedMap, resourceManager);
-        this.buildCollisionManager = new build.CollisionManager(
+        this.buildCollisionManager = new CollisionManager(
                 loadedMap,
                 this.mapCollisions,
                 this.tileCollisionResolver,
@@ -229,6 +237,7 @@ public class Game {
                 this.worldWidth,
                 this.worldHeight
         );
+        this.buildCollisionManager.setDynamicEntitySupplier(() -> enemies);
         this.buildManager = new BuildManager(wallAssetManager, buildCollisionManager);
         this.buildController = new BuildController(buildManager);
         this.renderer = new Renderer(stage, inputHandler, wallAssetManager);
@@ -356,6 +365,7 @@ public class Game {
                 selectedHotbarIndex,
                 inventory.getAmount(STONE_WALL_ITEM_ID),
                 buildManager,
+                arrowProjectiles,
                 droppedItems,
                 droppedCollectibles,
                 floatingDamageTexts,
@@ -613,6 +623,7 @@ public class Game {
                 // - BuildManager se validate occupied tile/collision truoc khi tao wall.
                 // - Dat thanh cong moi tru 1 stone_wall trong inventory.
                 if (buildController.onPrimaryClickPlace(player, inventory)) {
+                    logPlacedBuild(buildManager.getLastPlacedObject());
                     refreshBuildInventoryUi();
                 }
             } else {
@@ -645,6 +656,8 @@ public class Game {
         cleanupExpiredDamageTexts(now);
         updateEnemySpawning(now);
         updateEnemies(now);
+        updateArcherTowers(now);
+        updateArrowProjectiles(now);
 
         if (bossEnemy != null && !bossEnemy.isAlive()) {
             victoryAtNs = now;
@@ -794,6 +807,7 @@ public class Game {
             case WOOD_WALL_ITEM_ID -> WOOD_WALL_PRICE;
             case POTION_ITEM_ID -> 12;
             case TORCH_ITEM_ID -> TORCH_PRICE;
+            case ARCHER_TOWER_ITEM_ID -> ARCHER_TOWER_PRICE;
             case BASIC_SWORD_ITEM_ID -> 18;
             case PICKAXE_ITEM_ID -> 14;
             case CARROT_ITEM_ID -> 3;
@@ -829,6 +843,11 @@ public class Game {
 
         refreshBuildInventoryUi();
         logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, true, "success");
+        if (TORCH_ITEM_ID.equals(resolvedItemId)) {
+            System.out.println("Bought TORCH quantity = " + inventory.getAmount(TORCH_ITEM_ID) + " coin = " + inventory.getAmount(COIN_ITEM_ID));
+        } else if (ARCHER_TOWER_ITEM_ID.equals(resolvedItemId)) {
+            System.out.println("Bought ARCHER_TOWER quantity = " + inventory.getAmount(ARCHER_TOWER_ITEM_ID) + " coin = " + inventory.getAmount(COIN_ITEM_ID));
+        }
         renderer.showToast("Bought " + prettifyItemName(resolvedItemId));
     }
 
@@ -843,6 +862,7 @@ public class Game {
         refreshBuildInventoryUi();
         floatingDamageTexts.clear();
         droppedItems.clear();
+        arrowProjectiles.clear();
         droppedCollectibles.clear();
         resourceManager.loadFromMapObjects(mapCollisions);
         // Hoi mau day cho player va nha chinh de thoat khoi vong lap GAME_OVER.
@@ -924,6 +944,97 @@ public class Game {
         if (!dead.isEmpty()) {
             enemies.removeAll(dead);
         }
+    }
+
+    private void updateArcherTowers(long now) {
+        for (BuildObject object : buildManager.getPlacedObjects()) {
+            if (!(object instanceof ArcherTower tower) || !tower.isAlive()) {
+                continue;
+            }
+            Enemy target = findNearestEnemyInRange(tower.getCenterX(), tower.getCenterY(), tower.getRange());
+            tower.setAttacking(target != null);
+            if (target == null) {
+                continue;
+            }
+            double dx = target.getCenterX() - tower.getCenterX();
+            double dy = target.getCenterY() - tower.getCenterY();
+            double distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance <= 0.001) {
+                continue;
+            }
+            if (!tower.canAttack(now)) {
+                continue;
+            }
+            double speed = GameBalance.ARCHER_ARROW_SPEED;
+            arrowProjectiles.add(new ArrowProjectile(
+                    tower.getCenterX(),
+                    tower.getCenterY(),
+                    (dx / distance) * speed,
+                    (dy / distance) * speed,
+                    tower.getDamage(),
+                    now,
+                    GameBalance.ARCHER_ARROW_LIFETIME_NS,
+                    "archer_arrow"
+            ));
+            tower.markAttack(now);
+            System.out.println("ArcherTower attack enemy id " + System.identityHashCode(target));
+        }
+    }
+
+    private void updateArrowProjectiles(long now) {
+        if (arrowProjectiles.isEmpty()) {
+            return;
+        }
+        List<ArrowProjectile> expired = new ArrayList<>();
+        for (ArrowProjectile arrow : arrowProjectiles) {
+            if (arrow == null || !arrow.isAlive()) {
+                expired.add(arrow);
+                continue;
+            }
+            arrow.update();
+            if (arrow.isExpired(now)
+                    || arrow.getX() < -40
+                    || arrow.getY() < -40
+                    || arrow.getX() > worldWidth + 40
+                    || arrow.getY() > worldHeight + 40) {
+                arrow.takeDamage(1);
+                expired.add(arrow);
+                continue;
+            }
+            for (Enemy enemy : enemies) {
+                if (enemy == null || !enemy.isAlive()) {
+                    continue;
+                }
+                if (!CollisionSystem.intersects(arrow, enemy)) {
+                    continue;
+                }
+                DamageResult result = DamageSystem.applyDamage(null, enemy, arrow.getDamage(), now);
+                spawnEnemyDamageText(enemy, result, now);
+                arrow.takeDamage(1);
+                expired.add(arrow);
+                break;
+            }
+        }
+        if (!expired.isEmpty()) {
+            arrowProjectiles.removeAll(expired);
+        }
+    }
+
+    private Enemy findNearestEnemyInRange(double x, double y, double range) {
+        Enemy nearest = null;
+        double minDistance = range;
+        for (Enemy enemy : enemies) {
+            if (enemy == null || !enemy.isAlive()) {
+                continue;
+            }
+            double dist = distance(x, y, enemy.getCenterX(), enemy.getCenterY());
+            if (dist > range || dist >= minDistance) {
+                continue;
+            }
+            minDistance = dist;
+            nearest = enemy;
+        }
+        return nearest;
     }
 
     private void moveEnemyToward(Enemy enemy, BaseCamp target) {
@@ -1366,6 +1477,7 @@ public class Game {
             case WOOD_WALL_ITEM_ID -> "Wood Wall";
             case POTION_ITEM_ID -> "Potion";
             case TORCH_ITEM_ID -> "Torch";
+            case ARCHER_TOWER_ITEM_ID -> "Archer Tower";
             case BASIC_SWORD_ITEM_ID -> "Basic Sword";
             case PICKAXE_ITEM_ID -> "Pickaxe";
             case COIN_ITEM_ID -> "Coin";
@@ -1389,6 +1501,9 @@ public class Game {
         if (TORCH_ITEM_ID.equals(itemId)) {
             return "torch_icon";
         }
+        if (ARCHER_TOWER_ITEM_ID.equals(itemId)) {
+            return "archer_tower_icon";
+        }
         if ("stone".equalsIgnoreCase(itemId)) {
             return "";
         }
@@ -1398,6 +1513,9 @@ public class Game {
     private double[] resolveDroppedItemSize(String itemId) {
         if (TORCH_ITEM_ID.equals(itemId)) {
             return new double[]{GameBalance.DROPPED_TORCH_WIDTH, GameBalance.DROPPED_TORCH_HEIGHT};
+        }
+        if (ARCHER_TOWER_ITEM_ID.equals(itemId)) {
+            return new double[]{GameBalance.DROPPED_ARCHER_TOWER_WIDTH, GameBalance.DROPPED_ARCHER_TOWER_HEIGHT};
         }
         if ("stone".equalsIgnoreCase(itemId)) {
             return new double[]{GameBalance.DROPPED_STONE_WIDTH, GameBalance.DROPPED_STONE_HEIGHT};
@@ -1623,6 +1741,7 @@ public class Game {
         }
         return switch (itemId.trim().toLowerCase()) {
             case WALL_ITEM_ALIAS -> STONE_WALL_ITEM_ID;
+            case "cung", "archer", "archer_tower" -> ARCHER_TOWER_ITEM_ID;
             default -> itemId.trim().toLowerCase();
         };
     }
@@ -1639,6 +1758,19 @@ public class Game {
                 + " currentCoin=" + currentCoin
                 + " inventoryAddResult=" + inventoryAddResult
                 + " reasonFailed=" + reasonFailed);
+    }
+
+    private void logPlacedBuild(BuildObject object) {
+        if (object == null) {
+            return;
+        }
+        int x = (int) Math.round(object.getRenderX());
+        int y = (int) Math.round(object.getRenderY());
+        if (object.getType() == buildsystem.core.BuildType.TORCH) {
+            System.out.println("Placed TORCH at " + x + "," + y);
+        } else if (object.getType() == buildsystem.core.BuildType.ARCHER_TOWER) {
+            System.out.println("Placed ARCHER_TOWER at " + x + "," + y);
+        }
     }
 
     private List<Map<String, Object>> exportDroppedItems() {

@@ -34,6 +34,7 @@ public class BuildDefinition {
     private final boolean rotatable;
     private final boolean toolbarVisible;
     private final boolean collisionEnabled;
+    private final boolean blocksPlacementOverlap;
     private final boolean waterRestricted;
     private final boolean requiresFlatTerrain;
     private final int health;
@@ -54,6 +55,7 @@ public class BuildDefinition {
         this.rotatable = builder.rotatable;
         this.toolbarVisible = builder.toolbarVisible;
         this.collisionEnabled = builder.collisionEnabled;
+        this.blocksPlacementOverlap = builder.blocksPlacementOverlap;
         this.waterRestricted = builder.waterRestricted;
         this.requiresFlatTerrain = builder.requiresFlatTerrain;
         this.health = builder.health;
@@ -105,6 +107,10 @@ public class BuildDefinition {
         return collisionEnabled;
     }
 
+    public boolean isBlocksPlacementOverlap() {
+        return blocksPlacementOverlap;
+    }
+
     public boolean isWaterRestricted() {
         return waterRestricted;
     }
@@ -151,6 +157,7 @@ public class BuildDefinition {
         private boolean rotatable;
         private boolean toolbarVisible = true;
         private boolean collisionEnabled = true;
+        private boolean blocksPlacementOverlap = true;
         private boolean waterRestricted = true;
         private boolean requiresFlatTerrain;
         private int health = 100;
@@ -194,6 +201,11 @@ public class BuildDefinition {
 
         public Builder collisionEnabled(boolean collisionEnabled) {
             this.collisionEnabled = collisionEnabled;
+            return this;
+        }
+
+        public Builder blocksPlacementOverlap(boolean blocksPlacementOverlap) {
+            this.blocksPlacementOverlap = blocksPlacementOverlap;
             return this;
         }
 

@@ -1,16 +1,18 @@
 package ui;
 
-import build.AssetManager;
 import buildsystem.component.LightComponent;
 import buildsystem.core.BuildManager;
 import buildsystem.object.BuildObject;
+import buildsystem.object.ArcherTower;
 import buildsystem.core.BuildPreview;
+import buildsystem.sprite.AssetManager;
 import core.GameBalance;
 import core.GameState;
 import entity.CollectibleDrop;
 import entity.DroppedItem;
 import entity.Enemy;
 import entity.Player;
+import entity.ArrowProjectile;
 import input.InputHandler;
 import javafx.scene.Scene;
 import javafx.scene.canvas.Canvas;
@@ -126,6 +128,7 @@ public class Renderer {
                        List<ResourceNode> allResources, Map<String, Integer> collectedResources,
                        int selectedHotbarIndex, int stoneWallCount,
                        BuildManager buildManager,
+                       List<ArrowProjectile> arrowProjectiles,
                        List<DroppedItem> droppedItems,
                        List<CollectibleDrop> droppedCollectibles,
                        List<FloatingDamageText> floatingDamageTexts,
@@ -166,7 +169,7 @@ public class Renderer {
 
         if (gameState == GameState.PLAYING || gameState == GameState.PAUSED || gameState == GameState.GAME_OVER || gameState == GameState.LEVEL_COMPLETE) {
             renderGameplay(player, enemies, now, cameraX, cameraY, currentLevel, objectiveStatus,
-                    allResources, collectedResources, buildManager, droppedItems, droppedCollectibles, floatingDamageTexts,
+                    allResources, collectedResources, buildManager, arrowProjectiles, droppedItems, droppedCollectibles, floatingDamageTexts,
                     darknessAlpha, isNight, dayNightPhase, worldWidth, worldHeight, viewportWidth, viewportHeight);
             return;
         }
@@ -303,6 +306,7 @@ public class Renderer {
                                 List<ResourceNode> allResources,
                                 Map<String, Integer> collectedResources,
                                 BuildManager buildManager,
+                                List<ArrowProjectile> arrowProjectiles,
                                 List<DroppedItem> droppedItems,
                                 List<CollectibleDrop> droppedCollectibles,
                                 List<FloatingDamageText> floatingDamageTexts,
@@ -325,6 +329,7 @@ public class Renderer {
 
         renderBuildPreview(buildManager, cameraX, cameraY);
         renderPlacedBuildObjects(buildManager, cameraX, cameraY, now);
+        renderArrowProjectiles(arrowProjectiles, cameraX, cameraY);
         renderDroppedItems(droppedItems, cameraX, cameraY, now);
         renderCollectibleItems(droppedCollectibles, cameraX, cameraY, now);
 
@@ -428,6 +433,30 @@ public class Renderer {
         }
     }
 
+    private void renderArrowProjectiles(List<ArrowProjectile> arrowProjectiles, double cameraX, double cameraY) {
+        if (arrowProjectiles == null) {
+            return;
+        }
+        Image arrowSprite = buildAssetManager.getSprite("archer_arrow");
+        for (ArrowProjectile arrow : arrowProjectiles) {
+            if (arrow == null || !arrow.isAlive()) {
+                continue;
+            }
+            double screenX = arrow.getX() - cameraX;
+            double screenY = arrow.getY() - cameraY;
+            if (arrowSprite != null && !arrowSprite.isError()) {
+                drawRotatedImage(arrowSprite, screenX, screenY, arrow.getWidth(), arrow.getHeight(), arrow.getRotationDegrees());
+                continue;
+            }
+            graphicsContext.save();
+            graphicsContext.translate(screenX + arrow.getWidth() / 2.0, screenY + arrow.getHeight() / 2.0);
+            graphicsContext.rotate(arrow.getRotationDegrees());
+            graphicsContext.setFill(Color.web("#c8aa6a"));
+            graphicsContext.fillRect(-arrow.getWidth() / 2.0, -arrow.getHeight() / 2.0, arrow.getWidth(), arrow.getHeight());
+            graphicsContext.restore();
+        }
+    }
+
     private void renderCollectibleItems(List<CollectibleDrop> droppedCollectibles, double cameraX, double cameraY, long nowNs) {
         if (droppedCollectibles == null) {
             return;
@@ -495,8 +524,18 @@ public class Renderer {
         if (object == null || object.getSpriteKey() == null) {
             return null;
         }
-        if ("torch".equalsIgnoreCase(object.getType().name().toLowerCase())) {
+        String buildType = object.getType().name().toLowerCase();
+        if ("torch".equalsIgnoreCase(buildType)) {
             Image animatedFrame = buildAssetManager.getAnimationFrame("torch", nowNs, GameBalance.TORCH_ANIMATION_FRAME_NS);
+            if (animatedFrame != null && !animatedFrame.isError()) {
+                return animatedFrame;
+            }
+        }
+        if ("archer_tower".equalsIgnoreCase(buildType)) {
+            String animationKey = (object instanceof ArcherTower tower && tower.isAttacking())
+                    ? "archer_tower_fire"
+                    : "archer_tower_idle";
+            Image animatedFrame = buildAssetManager.getAnimationFrame(animationKey, nowNs, GameBalance.ARCHER_TOWER_ANIMATION_FRAME_NS);
             if (animatedFrame != null && !animatedFrame.isError()) {
                 return animatedFrame;
             }

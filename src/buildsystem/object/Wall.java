@@ -1,11 +1,11 @@
 package buildsystem.object;
 
-import build.WallSpriteConfig;
 import buildsystem.component.CollisionComponent;
 import buildsystem.component.HealthComponent;
 import buildsystem.component.RotationComponent;
 import buildsystem.core.BuildDefinition;
 import buildsystem.core.BuildObjectSeed;
+import buildsystem.sprite.WallSpriteConfig;
 
 /**
  * Wall:

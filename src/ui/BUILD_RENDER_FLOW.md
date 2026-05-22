@@ -5,4 +5,4 @@
 - Lay sprite theo `spriteKey` tu `AssetManager`.
 - `renderBuildPreview(...)`: dung `buildsystem.core.BuildPreview`.
 
-Muc tieu: renderer khong con phu thuoc class `build.Wall` cu.
+Muc tieu: renderer khong con phu thuoc class wall/build cu.

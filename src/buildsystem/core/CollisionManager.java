@@ -1,9 +1,8 @@
-package build;
+package buildsystem.core;
 
 import buildsystem.component.CollisionComponent;
-import buildsystem.core.BuildWorldQuery;
 import buildsystem.object.BuildObject;
-import entity.Player;
+import entity.Entity;
 import map.MapData;
 import map.MapObjectData;
 import map.TileCollisionResolver;
@@ -12,6 +11,7 @@ import system.resource.ResourceManager;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * CollisionManager:
@@ -26,6 +26,7 @@ public class CollisionManager implements BuildWorldQuery {
     private final double worldWidth;
     private final double worldHeight;
     private final TilePropertyCatalog tilePropertyCatalog;
+    private Supplier<? extends Collection<? extends Entity>> dynamicEntitySupplier;
 
     public CollisionManager(MapData mapData,
                             List<MapObjectData> mapCollisions,
@@ -40,6 +41,11 @@ public class CollisionManager implements BuildWorldQuery {
         this.worldWidth = worldWidth;
         this.worldHeight = worldHeight;
         this.tilePropertyCatalog = mapData == null ? null : new TilePropertyCatalog(mapData);
+        this.dynamicEntitySupplier = List::of;
+    }
+
+    public void setDynamicEntitySupplier(Supplier<? extends Collection<? extends Entity>> dynamicEntitySupplier) {
+        this.dynamicEntitySupplier = dynamicEntitySupplier == null ? List::of : dynamicEntitySupplier;
     }
 
     /**
@@ -71,72 +77,6 @@ public class CollisionManager implements BuildWorldQuery {
                     object.getRenderY(),
                     object.getCollisionWidth(),
                     object.getCollisionHeight())) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * API cu de giu tuong thich cho nhung noi chua refactor xong.
-     */
-    public boolean canPlaceWall(int tileX,
-                                int tileY,
-                                Player player,
-                                Collection<Wall> placedWalls) {
-        int tileWidth = getTileWidth();
-        int tileHeight = getTileHeight();
-        double wallX = GridUtils.toWorldPixel(tileX, tileWidth);
-        double wallY = GridUtils.toWorldPixel(tileY, tileHeight);
-        double wallWidth = tileWidth;
-        double wallHeight = tileHeight;
-
-        if (wallX < 0 || wallY < 0 || wallX + wallWidth > worldWidth || wallY + wallHeight > worldHeight) {
-            return false;
-        }
-        if (isBlockedByTerrain(wallX, wallY, wallWidth, wallHeight)) {
-            return false;
-        }
-        if (isBlockedByWater(wallX, wallY, wallWidth, wallHeight)) {
-            return false;
-        }
-        if (isBlockedByStaticObjects(wallX, wallY, wallWidth, wallHeight)) {
-            return false;
-        }
-        if (player != null && intersectsPlayer(player, wallX, wallY, wallWidth, wallHeight)) {
-            return false;
-        }
-
-        if (placedWalls != null) {
-            for (Wall wall : placedWalls) {
-                if (wall == null) {
-                    continue;
-                }
-                if (intersectsRect(
-                        wall.getRenderX(),
-                        wall.getRenderY(),
-                        wall.getWidth(),
-                        wall.getHeight(),
-                        wallX,
-                        wallY,
-                        wallWidth,
-                        wallHeight)) {
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
-
-    public boolean intersectsPlacedWall(double x, double y, double width, double height, Collection<Wall> placedWalls) {
-        if (placedWalls == null || placedWalls.isEmpty()) {
-            return false;
-        }
-        for (Wall wall : placedWalls) {
-            if (wall == null) {
-                continue;
-            }
-            if (intersectsRect(x, y, width, height, wall.getRenderX(), wall.getRenderY(), wall.getWidth(), wall.getHeight())) {
                 return true;
             }
         }
@@ -228,6 +168,23 @@ public class CollisionManager implements BuildWorldQuery {
         return !isBlockedByTerrain(x, y, width, height);
     }
 
+    @Override
+    public boolean isBlockedByDynamicEntities(double x, double y, double width, double height) {
+        Collection<? extends Entity> dynamicEntities = dynamicEntitySupplier.get();
+        if (dynamicEntities == null || dynamicEntities.isEmpty()) {
+            return false;
+        }
+        for (Entity entity : dynamicEntities) {
+            if (entity == null || !entity.isAlive()) {
+                continue;
+            }
+            if (intersectsRect(x, y, width, height, entity.getX(), entity.getY(), entity.getWidth(), entity.getHeight())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private int getTopVisualGidAt(int tileX, int tileY) {
         if (mapData == null) {
             return 0;
@@ -248,14 +205,6 @@ public class CollisionManager implements BuildWorldQuery {
             return mapData.findLayerByName("Grounds").getGidAt(tileX, tileY);
         }
         return 0;
-    }
-
-    private boolean intersectsPlayer(Player player, double wallX, double wallY, double wallWidth, double wallHeight) {
-        double px = player.getX() + player.getWidth() * 0.22;
-        double py = player.getY() + player.getHeight() * 0.30;
-        double pw = player.getWidth() * 0.56;
-        double ph = player.getHeight() * 0.62;
-        return intersectsRect(px, py, pw, ph, wallX, wallY, wallWidth, wallHeight);
     }
 
     private boolean intersectsRect(double ax, double ay, double aw, double ah,

@@ -3,6 +3,13 @@
   "configurations": [
     {
       "type": "java",
+      "name": "BuildDemoMain",
+      "request": "launch",
+      "mainClass": "buildsystem.demo.BuildDemoMain",
+      "projectName": "Game_TEST_6dd41db4"
+    },
+    {
+      "type": "java",
       "name": "Main",
       "request": "launch",
       "mainClass": "main.Main",

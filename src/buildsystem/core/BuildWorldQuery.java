@@ -21,4 +21,8 @@ public interface BuildWorldQuery {
     boolean isBlockedByStaticObjects(double x, double y, double width, double height);
 
     boolean isFlatTerrain(double x, double y, double width, double height);
+
+    default boolean isBlockedByDynamicEntities(double x, double y, double width, double height) {
+        return false;
+    }
 }

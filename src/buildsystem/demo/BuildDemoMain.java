@@ -1,10 +1,10 @@
 package buildsystem.demo;
 
-import build.AssetManager;
-import build.CollisionManager;
 import buildsystem.core.BuildController;
+import buildsystem.core.CollisionManager;
 import buildsystem.core.BuildManager;
 import buildsystem.core.BuildPreview;
+import buildsystem.sprite.AssetManager;
 import buildsystem.object.BuildObject;
 import inventory.Inventory;
 import javafx.animation.AnimationTimer;

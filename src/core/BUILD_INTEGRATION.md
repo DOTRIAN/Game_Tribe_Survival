@@ -8,7 +8,7 @@
 - Mouse move moi frame -> `BuildController.onCursorMoved(...)`.
 - Click place -> `BuildController.onPrimaryClickPlace(...)`.
 - Consume item duoc xu ly ben trong `BuildManager`, khong con do `Game` tru thu cong.
-- Collision runtime cua player/enemy voi build object dung `build.CollisionManager.intersectsPlacedBuildObject(...)`.
+- Collision runtime cua player/enemy voi build object dung `buildsystem.core.CollisionManager.intersectsPlacedBuildObject(...)`.
 
 ## Save/load
 - `Game.saveWorldSnapshot()` luu them `buildObjects`.

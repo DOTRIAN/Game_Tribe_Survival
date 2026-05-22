@@ -1,4 +1,4 @@
-package build;
+package buildsystem.sprite;
 
 import javafx.scene.image.Image;
 import javafx.scene.image.PixelReader;

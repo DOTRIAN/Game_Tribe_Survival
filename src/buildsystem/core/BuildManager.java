@@ -47,6 +47,7 @@ public class BuildManager {
 
     private BuildDefinition selectedDefinition;
     private BuildMode buildMode;
+    private BuildObject lastPlacedObject;
 
     public BuildManager(BuildAssetResolver assetResolver, BuildWorldQuery worldQuery) {
         this.assetResolver = assetResolver;
@@ -63,6 +64,7 @@ public class BuildManager {
         this.objectsByTile = new LinkedHashMap<>();
         this.selectedDefinition = null;
         this.buildMode = BuildMode.NONE;
+        this.lastPlacedObject = null;
         syncToolbar(Collections.emptyMap());
     }
 
@@ -196,6 +198,7 @@ public class BuildManager {
     }
 
     public boolean tryPlaceSelected(Player player, BuildInventory inventory) {
+        lastPlacedObject = null;
         if (selectedDefinition == null || inventory == null) {
             return false;
         }
@@ -241,6 +244,7 @@ public class BuildManager {
                 selectedDefinition.getHealth()
         );
         addPlacedObject(object);
+        lastPlacedObject = object;
         syncToolbar(inventory.snapshot());
         if (inventory.getAmount(selectedDefinition.getItemId()) < selectedDefinition.getBuildCost()) {
             buildMode = BuildMode.NONE;
@@ -393,6 +397,10 @@ public class BuildManager {
         return selectedDefinition;
     }
 
+    public BuildObject getLastPlacedObject() {
+        return lastPlacedObject;
+    }
+
     public boolean isPreviewVisible() {
         return preview.isVisible();
     }
@@ -400,6 +408,7 @@ public class BuildManager {
     public void clearObjects() {
         objectsById.clear();
         objectsByTile.clear();
+        lastPlacedObject = null;
         preview.setVisible(false);
         preview.setValid(false);
     }

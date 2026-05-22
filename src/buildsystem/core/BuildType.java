@@ -11,6 +11,7 @@ public enum BuildType {
     SPIKE_TRAP,
     BEAR_TRAP,
     TORCH,
+    ARCHER_TOWER,
     CHEST,
     FURNACE,
     WORKBENCH,

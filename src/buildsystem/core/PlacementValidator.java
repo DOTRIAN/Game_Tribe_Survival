@@ -56,10 +56,13 @@ public class PlacementValidator {
         if (worldQuery.isBlockedByStaticObjects(x, y, width, height)) {
             return PlacementResult.invalid("blocked-by-world-object");
         }
+        if (worldQuery.isBlockedByDynamicEntities(x, y, width, height)) {
+            return PlacementResult.invalid("blocked-by-entity");
+        }
         if (intersectsPlayer(context.getPlayer(), x, y, width, height)) {
             return PlacementResult.invalid("blocked-by-player");
         }
-        if (definition.isCollisionEnabled() && intersectsPlacedObjects(x, y, width, height, placedObjects)) {
+        if (definition.isBlocksPlacementOverlap() && intersectsPlacedObjects(x, y, width, height, placedObjects)) {
             return PlacementResult.invalid("blocked-by-build-object");
         }
         PlacementResult nearObjectRule = validateNearObjectRules(definition, context, placedObjects);
