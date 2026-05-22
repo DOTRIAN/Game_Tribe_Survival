@@ -3,6 +3,7 @@ package buildsystem.core;
 import buildsystem.object.Campfire;
 import buildsystem.object.Chest;
 import buildsystem.object.ArcherTower;
+import buildsystem.object.BombTrap;
 import buildsystem.object.Torch;
 import buildsystem.object.Trap;
 import buildsystem.object.Turret;
@@ -142,6 +143,19 @@ public class BuildRegistry {
                 .health(GameBalance.ARCHER_TOWER_HITS_TO_BREAK)
                 .buildCost(1)
                 .objectBuilder(seed -> new ArcherTower(seed.getDefinition(), seed))
+                .build());
+
+        register(BuildDefinition.builder(BuildType.BOMB_TRAP, "bomb_trap", "Bomb Trap")
+                .defaultSpriteKey("bomb_trap_0")
+                .iconSpriteKey("bomb_trap_icon")
+                .placementStrategy(new GridPlacementStrategy())
+                .rotatable(false)
+                .collisionEnabled(false)
+                .waterRestricted(true)
+                .health(GameBalance.BOMB_TRAP_HITS_TO_BREAK)
+                .buildCost(1)
+                .footprint(1, 1)
+                .objectBuilder(seed -> new BombTrap(seed.getDefinition(), seed))
                 .build());
 
         register(BuildDefinition.builder(BuildType.CHEST, "chest", "Chest")

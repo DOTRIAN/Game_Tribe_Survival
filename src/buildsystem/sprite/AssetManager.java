@@ -10,9 +10,11 @@ import javafx.scene.image.PixelWriter;
 import javafx.scene.image.WritableImage;
 import javafx.scene.paint.Color;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -27,6 +29,14 @@ public class AssetManager implements BuildAssetResolver {
     private static final int TORCH_SHEET_ROWS = 2;
     private static final Path ARCHER_SHEET_PATH = Path.of("assets", "thap_ban_cung", "thap_cung.png");
     private static final Path ARCHER_ARROW_PATH = Path.of("assets", "thap_ban_cung", "Arrow01(32x32).png");
+    private static final List<Path> BOMB_SHEET_CANDIDATES = List.of(
+            Path.of("assets", "bom", "png"),
+            Path.of("assets", "bom", "png", "bom.png"),
+            Path.of("assets", "bom", "bom.png"),
+            Path.of("assets", "bom.png")
+    );
+    private static final int BOMB_SHEET_COLUMNS = 7;
+    private static final int BOMB_SHEET_ROWS = 1;
     private static final int ARCHER_SHEET_ROWS = 2;
     private static final int ARCHER_IDLE_FRAME_COUNT = 7;
     private static final int ARCHER_ATTACK_FRAME_COUNT = 8;
@@ -43,6 +53,7 @@ public class AssetManager implements BuildAssetResolver {
         loadWoodFenceSprites();
         loadTorchSpriteSheet();
         loadArcherTowerSprites();
+        loadBombTrapSprites();
     }
 
     /**
@@ -232,6 +243,206 @@ public class AssetManager implements BuildAssetResolver {
         if (!arrow.isError()) {
             spriteCache.put("archer_arrow", arrow);
         }
+    }
+
+    private void loadBombTrapSprites() {
+        Path sheetPath = resolveBombSheetPath();
+        if (sheetPath == null) {
+            System.out.println("Failed to resolve bomb trap sheet path");
+            return;
+        }
+        Image sheet = new Image(sheetPath.toUri().toString());
+        if (sheet.isError()) {
+            System.out.println("Failed to load bomb trap sheet: " + sheetPath);
+            return;
+        }
+        Image[] frames = splitBombSheet(sheet, BOMB_SHEET_COLUMNS, BOMB_SHEET_ROWS);
+        if (frames.length == 0) {
+            return;
+        }
+        animationCache.put("bomb_trap", frames);
+        spriteCache.put("bomb_trap_icon", frames[0]);
+        for (int i = 0; i < frames.length; i++) {
+            spriteCache.put("bomb_trap_" + i, frames[i]);
+        }
+    }
+
+    private Path resolveBombSheetPath() {
+        for (Path candidate : BOMB_SHEET_CANDIDATES) {
+            if (candidate == null) {
+                continue;
+            }
+            if (Files.isRegularFile(candidate)) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    private Image[] splitBombSheet(Image sheet, int columns, int rows) {
+        PixelReader reader = sheet.getPixelReader();
+        if (reader == null || columns <= 0 || rows <= 0) {
+            return new Image[0];
+        }
+        Image[] detectedFrames = splitBombSheetByAlpha(sheet, columns);
+        if (detectedFrames.length == columns) {
+            return normalizeFramesToCanvas(detectedFrames);
+        }
+        int sheetWidth = (int) Math.round(sheet.getWidth());
+        int sheetHeight = (int) Math.round(sheet.getHeight());
+        int totalFrames = columns * rows;
+        Image[] frames = new Image[totalFrames];
+        int frameIndex = 0;
+        for (int row = 0; row < rows; row++) {
+            int y = (int) Math.round(row * sheetHeight / (double) rows);
+            int nextY = (int) Math.round((row + 1) * sheetHeight / (double) rows);
+            int frameHeight = Math.max(1, nextY - y);
+            for (int col = 0; col < columns; col++) {
+                int x = (int) Math.round(col * sheetWidth / (double) columns);
+                int nextX = (int) Math.round((col + 1) * sheetWidth / (double) columns);
+                int frameWidth = Math.max(1, nextX - x);
+                WritableImage frame = new WritableImage(reader, x, y, frameWidth, frameHeight);
+                frames[frameIndex++] = cleanBombFrameBackground(frame);
+            }
+        }
+        return normalizeFramesToCanvas(frames);
+    }
+
+    private Image[] splitBombSheetByAlpha(Image sheet, int expectedFrames) {
+        PixelReader reader = sheet == null ? null : sheet.getPixelReader();
+        if (reader == null || expectedFrames <= 0) {
+            return new Image[0];
+        }
+        int width = (int) Math.round(sheet.getWidth());
+        int height = (int) Math.round(sheet.getHeight());
+        java.util.List<int[]> clusters = new java.util.ArrayList<>();
+        boolean inside = false;
+        int startX = 0;
+        int previousSolidX = 0;
+        int gap = 0;
+        for (int x = 0; x < width; x++) {
+            int alphaCount = 0;
+            for (int y = 0; y < height; y++) {
+                if (reader.getColor(x, y).getOpacity() > 0.04) {
+                    alphaCount++;
+                }
+            }
+            boolean solid = alphaCount > 40;
+            if (solid) {
+                if (!inside) {
+                    inside = true;
+                    startX = x;
+                }
+                previousSolidX = x;
+                gap = 0;
+            } else if (inside) {
+                gap++;
+                if (gap > 12) {
+                    clusters.add(new int[]{startX, previousSolidX});
+                    inside = false;
+                    gap = 0;
+                }
+            }
+        }
+        if (inside) {
+            clusters.add(new int[]{startX, previousSolidX});
+        }
+        if (clusters.size() != expectedFrames) {
+            return new Image[0];
+        }
+
+        Image[] frames = new Image[expectedFrames];
+        for (int i = 0; i < expectedFrames; i++) {
+            int[] cluster = clusters.get(i);
+            frames[i] = cropAlphaBounds(sheet, cluster[0], cluster[1], 6);
+        }
+        return frames;
+    }
+
+    private Image cropAlphaBounds(Image source, int minSearchX, int maxSearchX, int padding) {
+        PixelReader reader = source == null ? null : source.getPixelReader();
+        if (reader == null) {
+            return source;
+        }
+        int sourceWidth = (int) Math.round(source.getWidth());
+        int sourceHeight = (int) Math.round(source.getHeight());
+        int minX = sourceWidth;
+        int minY = sourceHeight;
+        int maxX = -1;
+        int maxY = -1;
+        int safeMinX = Math.max(0, minSearchX);
+        int safeMaxX = Math.min(sourceWidth - 1, maxSearchX);
+        for (int y = 0; y < sourceHeight; y++) {
+            for (int x = safeMinX; x <= safeMaxX; x++) {
+                if (reader.getColor(x, y).getOpacity() <= 0.04) {
+                    continue;
+                }
+                minX = Math.min(minX, x);
+                minY = Math.min(minY, y);
+                maxX = Math.max(maxX, x);
+                maxY = Math.max(maxY, y);
+            }
+        }
+        if (maxX < minX || maxY < minY) {
+            return new WritableImage(reader, safeMinX, 0, Math.max(1, safeMaxX - safeMinX + 1), sourceHeight);
+        }
+        int x = Math.max(0, minX - padding);
+        int y = Math.max(0, minY - padding);
+        int right = Math.min(sourceWidth - 1, maxX + padding);
+        int bottom = Math.min(sourceHeight - 1, maxY + padding);
+        return new WritableImage(reader, x, y, Math.max(1, right - x + 1), Math.max(1, bottom - y + 1));
+    }
+
+    private Image cleanBombFrameBackground(Image frame) {
+        if (frame == null || frame.isError()) {
+            return frame;
+        }
+        PixelReader reader = frame.getPixelReader();
+        if (reader == null) {
+            return frame;
+        }
+        int width = (int) Math.round(frame.getWidth());
+        int height = (int) Math.round(frame.getHeight());
+        WritableImage cleaned = new WritableImage(width, height);
+        PixelWriter writer = cleaned.getPixelWriter();
+        Color background = sampleBombBackground(reader, width, height);
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                Color color = reader.getColor(x, y);
+                if (isBombBackground(background, color)) {
+                    writer.setColor(x, y, Color.TRANSPARENT);
+                } else {
+                    writer.setColor(x, y, color);
+                }
+            }
+        }
+        return trimTransparentBounds(cleaned);
+    }
+
+    private Color sampleBombBackground(PixelReader reader, int width, int height) {
+        if (reader == null || width <= 0 || height <= 0) {
+            return Color.TRANSPARENT;
+        }
+        Color topLeft = reader.getColor(0, 0);
+        Color topRight = reader.getColor(Math.max(0, width - 1), 0);
+        Color bottomLeft = reader.getColor(0, Math.max(0, height - 1));
+        Color bottomRight = reader.getColor(Math.max(0, width - 1), Math.max(0, height - 1));
+        return Color.color(
+                (topLeft.getRed() + topRight.getRed() + bottomLeft.getRed() + bottomRight.getRed()) / 4.0,
+                (topLeft.getGreen() + topRight.getGreen() + bottomLeft.getGreen() + bottomRight.getGreen()) / 4.0,
+                (topLeft.getBlue() + topRight.getBlue() + bottomLeft.getBlue() + bottomRight.getBlue()) / 4.0,
+                1.0
+        );
+    }
+
+    private boolean isBombBackground(Color base, Color current) {
+        if (base == null || current == null) {
+            return false;
+        }
+        double dr = Math.abs(base.getRed() - current.getRed());
+        double dg = Math.abs(base.getGreen() - current.getGreen());
+        double db = Math.abs(base.getBlue() - current.getBlue());
+        return current.getOpacity() > 0.001 && dr + dg + db <= 0.22;
     }
 
     private Image[] cropArcherRow(Image sheet, int startY, int frameHeight, int frameCount) {

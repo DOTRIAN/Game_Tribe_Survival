@@ -4,6 +4,7 @@ import buildsystem.component.LightComponent;
 import buildsystem.core.BuildManager;
 import buildsystem.object.BuildObject;
 import buildsystem.object.ArcherTower;
+import buildsystem.object.BombTrap;
 import buildsystem.core.BuildPreview;
 import buildsystem.sprite.AssetManager;
 import core.GameBalance;
@@ -35,6 +36,7 @@ import map.MapRenderer;
 import system.level.Level;
 import system.level.LevelResult;
 import system.level.PlayerProgress;
+import system.bomb.ExplosionEffect;
 import system.resource.ResourceNode;
 
 import java.util.List;
@@ -130,8 +132,12 @@ public class Renderer {
                        BuildManager buildManager,
                        List<ArrowProjectile> arrowProjectiles,
                        List<DroppedItem> droppedItems,
+                       List<ExplosionEffect> explosionEffects,
                        List<CollectibleDrop> droppedCollectibles,
                        List<FloatingDamageText> floatingDamageTexts,
+                       double cameraShakeX,
+                       double cameraShakeY,
+                       double screenFlashAlpha,
                        double darknessAlpha, boolean isNight, String dayNightPhase,
                        double worldWidth, double worldHeight) {
         double viewportWidth = getViewportWidth();
@@ -169,7 +175,8 @@ public class Renderer {
 
         if (gameState == GameState.PLAYING || gameState == GameState.PAUSED || gameState == GameState.GAME_OVER || gameState == GameState.LEVEL_COMPLETE) {
             renderGameplay(player, enemies, now, cameraX, cameraY, currentLevel, objectiveStatus,
-                    allResources, collectedResources, buildManager, arrowProjectiles, droppedItems, droppedCollectibles, floatingDamageTexts,
+                    allResources, collectedResources, buildManager, arrowProjectiles, droppedItems, explosionEffects, droppedCollectibles, floatingDamageTexts,
+                    cameraShakeX, cameraShakeY, screenFlashAlpha,
                     darknessAlpha, isNight, dayNightPhase, worldWidth, worldHeight, viewportWidth, viewportHeight);
             return;
         }
@@ -308,8 +315,12 @@ public class Renderer {
                                 BuildManager buildManager,
                                 List<ArrowProjectile> arrowProjectiles,
                                 List<DroppedItem> droppedItems,
+                                List<ExplosionEffect> explosionEffects,
                                 List<CollectibleDrop> droppedCollectibles,
                                 List<FloatingDamageText> floatingDamageTexts,
+                                double cameraShakeX,
+                                double cameraShakeY,
+                                double screenFlashAlpha,
                                 double darknessAlpha,
                                 boolean isNight,
                                 String dayNightPhase,
@@ -318,6 +329,7 @@ public class Renderer {
                                 double viewportWidth,
                                 double viewportHeight) {
         graphicsContext.save();
+        graphicsContext.translate(cameraShakeX, cameraShakeY);
         graphicsContext.scale(CAMERA_ZOOM, CAMERA_ZOOM);
 
         if (mapRenderer != null) {
@@ -331,6 +343,7 @@ public class Renderer {
         renderPlacedBuildObjects(buildManager, cameraX, cameraY, now);
         renderArrowProjectiles(arrowProjectiles, cameraX, cameraY);
         renderDroppedItems(droppedItems, cameraX, cameraY, now);
+        renderExplosionEffects(explosionEffects, cameraX, cameraY, now);
         renderCollectibleItems(droppedCollectibles, cameraX, cameraY, now);
 
         player.draw(graphicsContext, cameraX, cameraY);
@@ -352,6 +365,13 @@ public class Renderer {
             drawDebugGrid(cameraX, cameraY, viewportWidth / CAMERA_ZOOM, viewportHeight / CAMERA_ZOOM);
         }
         graphicsContext.restore();
+
+        if (screenFlashAlpha > 0.001) {
+            graphicsContext.save();
+            graphicsContext.setFill(Color.color(1.0, 1.0, 1.0, Math.min(0.9, screenFlashAlpha)));
+            graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
+            graphicsContext.restore();
+        }
 
         renderNightOverlayAndLights(player, buildManager, cameraX, cameraY, darknessAlpha, isNight);
 
@@ -433,6 +453,18 @@ public class Renderer {
         }
     }
 
+    private void renderExplosionEffects(List<ExplosionEffect> explosionEffects, double cameraX, double cameraY, long nowNs) {
+        if (explosionEffects == null || explosionEffects.isEmpty()) {
+            return;
+        }
+        for (ExplosionEffect effect : explosionEffects) {
+            if (effect == null || !effect.isAlive(nowNs)) {
+                continue;
+            }
+            effect.render(graphicsContext, cameraX, cameraY, 1.0, nowNs);
+        }
+    }
+
     private void renderArrowProjectiles(List<ArrowProjectile> arrowProjectiles, double cameraX, double cameraY) {
         if (arrowProjectiles == null) {
             return;
@@ -509,6 +541,9 @@ public class Renderer {
             graphicsContext.setStroke(Color.color(1.0, 0.12, 0.12, 0.92));
             graphicsContext.strokeRect(screenX, screenY, preview.getWidth(), preview.getHeight());
         }
+        if (preview.getType() == buildsystem.core.BuildType.BOMB_TRAP) {
+            BombPreviewRenderer.renderPlacementTint(graphicsContext, preview, screenX, screenY);
+        }
 
         if (DEBUG_DRAW_WALL_INFO) {
             graphicsContext.setFill(Color.color(1, 1, 1, 0.86));
@@ -538,6 +573,16 @@ public class Renderer {
             Image animatedFrame = buildAssetManager.getAnimationFrame(animationKey, nowNs, GameBalance.ARCHER_TOWER_ANIMATION_FRAME_NS);
             if (animatedFrame != null && !animatedFrame.isError()) {
                 return animatedFrame;
+            }
+        }
+        if ("bomb_trap".equalsIgnoreCase(buildType) && object instanceof BombTrap bombTrap) {
+            Image[] frames = buildAssetManager.getAnimationFrames("bomb_trap");
+            if (frames.length > 0) {
+                int frameIndex = bombTrap.resolveAnimationFrameIndex(nowNs, frames.length);
+                if (frameIndex >= 0 && frameIndex < frames.length) {
+                    return frames[frameIndex];
+                }
+                return frames[0];
             }
         }
         try {
