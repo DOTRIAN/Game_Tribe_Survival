@@ -6,9 +6,11 @@ import buildsystem.core.BuildController;
 import buildsystem.core.CollisionManager;
 import buildsystem.core.BuildDamageResult;
 import buildsystem.object.ArcherTower;
+import buildsystem.object.BombTrap;
 import buildsystem.object.BuildObject;
 import buildsystem.sprite.AssetManager;
 import entity.BaseCamp;
+import entity.BombDropItem;
 import entity.CollectibleDrop;
 import entity.DropType;
 import entity.DroppedItem;
@@ -40,6 +42,8 @@ import system.resource.ResourceHitResult;
 import system.resource.ResourceManager;
 import system.resource.ResourceType;
 import system.resource.TileResourceAdapter;
+import system.bomb.BombSystem;
+import system.bomb.ExplosionEffect;
 import system.save.WorldSaveService;
 import ui.FloatingDamageText;
 import ui.Renderer;
@@ -96,6 +100,8 @@ public class Game {
     private final List<DroppedItem> droppedItems;
     private final List<ArrowProjectile> arrowProjectiles;
     private final List<CollectibleDrop> droppedCollectibles;
+    private final List<ExplosionEffect> explosionEffects;
+    private final BombSystem bombSystem;
 
     // Inventory la state gameplay chinh cho he thu thap/craft.
     private final Inventory inventory;
@@ -148,6 +154,7 @@ public class Game {
     private static final String POTION_ITEM_ID = "potion";
     private static final String TORCH_ITEM_ID = "torch";
     private static final String ARCHER_TOWER_ITEM_ID = "archer_tower";
+    private static final String BOMB_TRAP_ITEM_ID = "bomb_trap";
     private static final String BASIC_SWORD_ITEM_ID = "basic_sword";
     private static final String PICKAXE_ITEM_ID = "pickaxe";
     private static final String CARROT_ITEM_ID = "carrot";
@@ -165,6 +172,7 @@ public class Game {
     private static final int WOOD_WALL_PRICE = GameBalance.WOOD_WALL_PRICE;
     private static final int TORCH_PRICE = GameBalance.TORCH_PRICE;
     private static final int ARCHER_TOWER_PRICE = GameBalance.ARCHER_TOWER_PRICE;
+    private static final int BOMB_TRAP_PRICE = GameBalance.BOMB_TRAP_PRICE;
 
     // selectedHotbarIndex:
     // - Luu slot nguoi choi dang chon tren thanh hotbar.
@@ -172,6 +180,10 @@ public class Game {
     private int selectedHotbarIndex;
     private boolean hasLoadedSaveSnapshot;
     private boolean pendingStartFreshWorld;
+    private long cameraShakeUntilNs;
+    private long screenFlashUntilNs;
+    private double screenShakeX;
+    private double screenShakeY;
 
     public Game(Stage stage) {
         // Constructor:
@@ -189,6 +201,8 @@ public class Game {
         this.droppedItems = new ArrayList<>();
         this.arrowProjectiles = new ArrayList<>();
         this.droppedCollectibles = new ArrayList<>();
+        this.explosionEffects = new ArrayList<>();
+        this.bombSystem = new BombSystem();
         this.inventory = new Inventory();
         this.eventBus = new GameEventBus();
         this.worldSaveService = new WorldSaveService(SURVIVAL_SAVE_FILE);
@@ -213,6 +227,10 @@ public class Game {
         this.selectedHotbarIndex = 0;
         this.hasLoadedSaveSnapshot = false;
         this.pendingStartFreshWorld = false;
+        this.cameraShakeUntilNs = 0L;
+        this.screenFlashUntilNs = 0L;
+        this.screenShakeX = 0.0;
+        this.screenShakeY = 0.0;
 
         MapData loadedMap = tryLoadMap();
         this.mapData = loadedMap;
@@ -367,8 +385,12 @@ public class Game {
                 buildManager,
                 arrowProjectiles,
                 droppedItems,
+                explosionEffects,
                 droppedCollectibles,
                 floatingDamageTexts,
+                screenShakeX,
+                screenShakeY,
+                screenFlashUntilNs > now ? Math.min(1.0, (screenFlashUntilNs - now) / 180_000_000.0) : 0.0,
                 dayNightCycle.getDarknessAlpha(now),
                 dayNightCycle.isNight(now),
                 dayNightCycle.getPhaseName(now),
@@ -654,9 +676,12 @@ public class Game {
         updateDroppedItemPickup();
         checkCollectDroppedItems();
         cleanupExpiredDamageTexts(now);
+        cleanupExpiredExplosionEffects(now);
+        updateScreenImpulse(now);
         updateEnemySpawning(now);
         updateEnemies(now);
         updateArcherTowers(now);
+        updateBombTraps(now);
         updateArrowProjectiles(now);
 
         if (bossEnemy != null && !bossEnemy.isAlive()) {
@@ -808,6 +833,7 @@ public class Game {
             case POTION_ITEM_ID -> 12;
             case TORCH_ITEM_ID -> TORCH_PRICE;
             case ARCHER_TOWER_ITEM_ID -> ARCHER_TOWER_PRICE;
+            case BOMB_TRAP_ITEM_ID -> BOMB_TRAP_PRICE;
             case BASIC_SWORD_ITEM_ID -> 18;
             case PICKAXE_ITEM_ID -> 14;
             case CARROT_ITEM_ID -> 3;
@@ -847,6 +873,8 @@ public class Game {
             System.out.println("Bought TORCH quantity = " + inventory.getAmount(TORCH_ITEM_ID) + " coin = " + inventory.getAmount(COIN_ITEM_ID));
         } else if (ARCHER_TOWER_ITEM_ID.equals(resolvedItemId)) {
             System.out.println("Bought ARCHER_TOWER quantity = " + inventory.getAmount(ARCHER_TOWER_ITEM_ID) + " coin = " + inventory.getAmount(COIN_ITEM_ID));
+        } else if (BOMB_TRAP_ITEM_ID.equals(resolvedItemId)) {
+            System.out.println("Bought BOMB_TRAP quantity = " + inventory.getAmount(BOMB_TRAP_ITEM_ID) + " coin = " + inventory.getAmount(COIN_ITEM_ID));
         }
         renderer.showToast("Bought " + prettifyItemName(resolvedItemId));
     }
@@ -864,6 +892,11 @@ public class Game {
         droppedItems.clear();
         arrowProjectiles.clear();
         droppedCollectibles.clear();
+        explosionEffects.clear();
+        cameraShakeUntilNs = 0L;
+        screenFlashUntilNs = 0L;
+        screenShakeX = 0.0;
+        screenShakeY = 0.0;
         resourceManager.loadFromMapObjects(mapCollisions);
         // Hoi mau day cho player va nha chinh de thoat khoi vong lap GAME_OVER.
         player.setHpForLoad(player.getMaxHp());
@@ -1018,6 +1051,87 @@ public class Game {
         if (!expired.isEmpty()) {
             arrowProjectiles.removeAll(expired);
         }
+    }
+
+    private void updateBombTraps(long now) {
+        List<BombTrap> bombs = new ArrayList<>();
+        for (BuildObject object : buildManager.getPlacedObjects()) {
+            if (object instanceof BombTrap bombTrap && bombTrap.isAlive()) {
+                bombs.add(bombTrap);
+            }
+        }
+        BombSystem.BombUpdateResult result = bombSystem.update(now, bombs, enemies);
+        if (result.getExplosionEvents().isEmpty()) {
+            return;
+        }
+        for (BombSystem.BombExplosionEvent event : result.getExplosionEvents()) {
+            if (event == null) {
+                continue;
+            }
+            applyBombExplosion(event, now);
+        }
+    }
+
+    private void applyBombExplosion(BombSystem.BombExplosionEvent event, long now) {
+        explosionEffects.add(new ExplosionEffect(event.getWorldX(), event.getWorldY(), event.getRadius(), now));
+        cameraShakeUntilNs = Math.max(cameraShakeUntilNs, now + 260_000_000L);
+        screenFlashUntilNs = Math.max(screenFlashUntilNs, now + 170_000_000L);
+
+        for (Enemy enemy : enemies) {
+            if (enemy == null || !enemy.isAlive()) {
+                continue;
+            }
+            if (distance(event.getWorldX(), event.getWorldY(), enemy.getCenterX(), enemy.getCenterY()) > event.getRadius()) {
+                continue;
+            }
+            DamageResult damageResult = DamageSystem.applyDamage(null, enemy, event.getEnemyDamage(), now);
+            spawnEnemyDamageText(enemy, damageResult, now);
+        }
+
+        List<BuildDamageResult> buildHits = buildManager.damageObjectsInRadius(
+                event.getWorldX(),
+                event.getWorldY(),
+                event.getRadius(),
+                GameBalance.BOMB_TRAP_DAMAGE,
+                now,
+                object -> object != null
+                        && object.getType() != buildsystem.core.BuildType.TORCH
+                        && object.getType() != buildsystem.core.BuildType.BOMB_TRAP
+        );
+        for (BuildDamageResult buildHit : buildHits) {
+            if (buildHit == null) {
+                continue;
+            }
+            spawnBuildDamageText(buildHit, now);
+            if (buildHit.isDestroyed() && buildHit.getDropAmount() > 0 && !buildHit.getDropItemId().isBlank()) {
+                spawnDroppedItem(
+                        buildHit.getDropItemId(),
+                        buildHit.getDropAmount(),
+                        buildHit.getObject().getCenterX(),
+                        buildHit.getObject().getCenterY()
+                );
+            }
+        }
+
+        BuildObject bombObject = event.getBomb();
+        if (bombObject != null) {
+            buildManager.destroyObject(bombObject);
+        }
+    }
+
+    private void cleanupExpiredExplosionEffects(long now) {
+        explosionEffects.removeIf(effect -> effect == null || !effect.isAlive(now));
+    }
+
+    private void updateScreenImpulse(long now) {
+        if (now > cameraShakeUntilNs) {
+            screenShakeX = 0.0;
+            screenShakeY = 0.0;
+            return;
+        }
+        double amplitude = 4.0;
+        screenShakeX = (random.nextDouble() - 0.5) * 2.0 * amplitude;
+        screenShakeY = (random.nextDouble() - 0.5) * 2.0 * amplitude;
     }
 
     private Enemy findNearestEnemyInRange(double x, double y, double range) {
@@ -1478,6 +1592,7 @@ public class Game {
             case POTION_ITEM_ID -> "Potion";
             case TORCH_ITEM_ID -> "Torch";
             case ARCHER_TOWER_ITEM_ID -> "Archer Tower";
+            case BOMB_TRAP_ITEM_ID -> "Bomb Trap";
             case BASIC_SWORD_ITEM_ID -> "Basic Sword";
             case PICKAXE_ITEM_ID -> "Pickaxe";
             case COIN_ITEM_ID -> "Coin";
@@ -1488,6 +1603,10 @@ public class Game {
 
     private void spawnDroppedItem(String itemId, int amount, double centerX, double centerY) {
         if (itemId == null || itemId.isBlank() || amount <= 0) {
+            return;
+        }
+        if (BOMB_TRAP_ITEM_ID.equals(itemId)) {
+            droppedItems.add(new BombDropItem(amount, centerX, centerY));
             return;
         }
         String spriteKey = resolveDroppedSpriteKey(itemId);
@@ -1504,6 +1623,9 @@ public class Game {
         if (ARCHER_TOWER_ITEM_ID.equals(itemId)) {
             return "archer_tower_icon";
         }
+        if (BOMB_TRAP_ITEM_ID.equals(itemId)) {
+            return "bomb_trap_icon";
+        }
         if ("stone".equalsIgnoreCase(itemId)) {
             return "";
         }
@@ -1516,6 +1638,9 @@ public class Game {
         }
         if (ARCHER_TOWER_ITEM_ID.equals(itemId)) {
             return new double[]{GameBalance.DROPPED_ARCHER_TOWER_WIDTH, GameBalance.DROPPED_ARCHER_TOWER_HEIGHT};
+        }
+        if (BOMB_TRAP_ITEM_ID.equals(itemId)) {
+            return new double[]{GameBalance.DROPPED_BOMB_TRAP_SIZE, GameBalance.DROPPED_BOMB_TRAP_SIZE};
         }
         if ("stone".equalsIgnoreCase(itemId)) {
             return new double[]{GameBalance.DROPPED_STONE_WIDTH, GameBalance.DROPPED_STONE_HEIGHT};
@@ -1743,6 +1868,7 @@ public class Game {
             case WALL_ITEM_ALIAS -> WOOD_FENCE_ITEM_ID;
             case "stone_wall", "wood_fence", "wood fence" -> WOOD_FENCE_ITEM_ID;
             case "cung", "archer", "archer_tower" -> ARCHER_TOWER_ITEM_ID;
+            case "bomb", "bomb_trap", "bomb trap", "bom" -> BOMB_TRAP_ITEM_ID;
             default -> itemId.trim().toLowerCase();
         };
     }
@@ -1771,6 +1897,8 @@ public class Game {
             System.out.println("Placed TORCH at " + x + "," + y);
         } else if (object.getType() == buildsystem.core.BuildType.ARCHER_TOWER) {
             System.out.println("Placed ARCHER_TOWER at " + x + "," + y);
+        } else if (object.getType() == buildsystem.core.BuildType.BOMB_TRAP) {
+            System.out.println("Placed BOMB_TRAP at " + x + "," + y);
         }
     }
 

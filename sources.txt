@@ -27,6 +27,9 @@ src\buildsystem\core\RotationManager.java
 src\buildsystem\demo\BuildDemoMain.java
 src\buildsystem\object\BuildObject.java
 src\buildsystem\object\ArcherTower.java
+src\buildsystem\object\BombTrap.java
+src\buildsystem\object\BombTrapState.java
+src\buildsystem\object\BombTrapType.java
 src\buildsystem\object\Campfire.java
 src\buildsystem\object\Chest.java
 src\buildsystem\object\Torch.java
@@ -58,6 +61,7 @@ src\core\GameConfig.java
 src\core\GameLoop.java
 src\core\GameState.java
 src\entity\BaseCamp.java
+src\entity\BombDropItem.java
 src\entity\BossEnemy.java
 src\entity\CollectibleDrop.java
 src\entity\DroppedItem.java
@@ -86,6 +90,8 @@ src\map\TilesetData.java
 src\system\CollisionSystem.java
 src\system\DamageResult.java
 src\system\DamageSystem.java
+src\system\bomb\BombSystem.java
+src\system\bomb\ExplosionEffect.java
 src\system\level\Level.java
 src\system\level\LevelManager.java
 src\system\level\LevelObjective.java
@@ -118,6 +124,7 @@ src\ui\ResponsiveLayoutManager.java
 src\ui\SettingsManager.java
 src\ui\SettingsScreen.java
 src\ui\ShopOverlay.java
+src\ui\BombPreviewRenderer.java
 src\ui\UIManager.java
 src\world\ChunkCoord.java
 src\world\InfiniteWorldManager.java

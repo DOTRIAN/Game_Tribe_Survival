@@ -13,16 +13,24 @@ public final class GameBalance {
     public static final int WOOD_WALL_PRICE = 4;
     public static final int TORCH_PRICE = 20;
     public static final int ARCHER_TOWER_PRICE = 35;
+    public static final int BOMB_TRAP_PRICE = 28;
     public static final int TORCH_HITS_TO_BREAK = 2;
     public static final int WOOD_FENCE_MAX_HP = 80;
     public static final int ARCHER_TOWER_HITS_TO_BREAK = 8;
+    public static final int BOMB_TRAP_HITS_TO_BREAK = 2;
     public static final int ARCHER_TOWER_DAMAGE = 2;
+    public static final int BOMB_TRAP_DAMAGE = 50;
     public static final int ROCK_HITS_TO_BREAK = 4;
     public static final double ARCHER_TOWER_RANGE = 220.0;
     public static final long ARCHER_TOWER_ATTACK_COOLDOWN_NS = 800_000_000L;
     public static final long ARCHER_TOWER_ANIMATION_FRAME_NS = 100_000_000L;
     public static final double ARCHER_ARROW_SPEED = 6.2;
     public static final long ARCHER_ARROW_LIFETIME_NS = 1_800_000_000L;
+    public static final double BOMB_TRAP_TRIGGER_RANGE_TILES = 2.0;
+    public static final double BOMB_TRAP_EXPLOSION_RADIUS_TILES = 2.0;
+    public static final long BOMB_TRAP_FUSE_NS = 1_600_000_000L;
+    public static final double BOMB_TRAP_WORLD_WIDTH = 18.0;
+    public static final double BOMB_TRAP_WORLD_HEIGHT = 24.0;
 
     public static final double TORCH_LIGHT_RADIUS = 150.0;
     public static final double TORCH_LIGHT_INTENSITY = 0.90;
@@ -37,6 +45,7 @@ public final class GameBalance {
     public static final double DROPPED_TORCH_HEIGHT = TORCH_WORLD_HEIGHT / 3.0;
     public static final double DROPPED_ARCHER_TOWER_WIDTH = ARCHER_TOWER_WORLD_WIDTH / 2.6;
     public static final double DROPPED_ARCHER_TOWER_HEIGHT = ARCHER_TOWER_WORLD_HEIGHT / 2.6;
+    public static final double DROPPED_BOMB_TRAP_SIZE = 11.0;
     public static final double DROPPED_STONE_WIDTH = 12.0;
     public static final double DROPPED_STONE_HEIGHT = 12.0;
 

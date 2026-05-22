@@ -10,6 +10,7 @@ import buildsystem.sprite.SpriteSelection;
 import buildsystem.sprite.WallSpriteConfig;
 import buildsystem.ui.BuildHotbarSlot;
 import buildsystem.ui.BuildToolbar;
+import core.GameBalance;
 import entity.Player;
 import javafx.scene.paint.Color;
 
@@ -20,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Predicate;
 
 /**
  * BuildManager:
@@ -212,6 +214,13 @@ public class BuildManager {
             preview.setRotationLabel(vertical ? "V" : "H");
             preview.setRenderX(vertical ? tileX * tileWidth - tileWidth / 2.0 : tileX * tileWidth);
             preview.setRenderY(vertical ? tileY * tileHeight + tileHeight / 2.0 : tileY * tileHeight);
+        } else if (selectedDefinition.getType() == BuildType.BOMB_TRAP) {
+            preview.setSpriteKey(selectedDefinition.getDefaultSpriteKey());
+            preview.setImage(assetResolver.getSprite(selectedDefinition.getDefaultSpriteKey()));
+            preview.setWidth(GameBalance.BOMB_TRAP_WORLD_WIDTH);
+            preview.setHeight(GameBalance.BOMB_TRAP_WORLD_HEIGHT);
+            preview.setRenderX(tileX * tileWidth + (tileWidth - GameBalance.BOMB_TRAP_WORLD_WIDTH) / 2.0);
+            preview.setRenderY(tileY * tileHeight + tileHeight - GameBalance.BOMB_TRAP_WORLD_HEIGHT);
         } else {
             preview.setWidth(selectedDefinition.getFootprintWidthTiles() * tileWidth);
             preview.setHeight(selectedDefinition.getFootprintHeightTiles() * tileHeight);
@@ -412,6 +421,60 @@ public class BuildManager {
 
     public Collection<BuildObject> getPlacedObjects() {
         return Collections.unmodifiableCollection(objectsById.values());
+    }
+
+    public void destroyObject(BuildObject object) {
+        if (object == null) {
+            return;
+        }
+        removePlacedObject(object);
+    }
+
+    public List<BuildDamageResult> damageObjectsInRadius(double centerX,
+                                                         double centerY,
+                                                         double radius,
+                                                         int damage,
+                                                         long nowNs,
+                                                         Predicate<BuildObject> filter) {
+        List<BuildDamageResult> results = new ArrayList<>();
+        if (damage <= 0 || radius <= 0) {
+            return results;
+        }
+        double radiusSquared = radius * radius;
+        for (BuildObject object : new ArrayList<>(objectsById.values())) {
+            if (object == null || !object.isAlive()) {
+                continue;
+            }
+            if (filter != null && !filter.test(object)) {
+                continue;
+            }
+            double dx = object.getCenterX() - centerX;
+            double dy = object.getCenterY() - centerY;
+            if (dx * dx + dy * dy > radiusSquared) {
+                continue;
+            }
+
+            int applied = Math.min(object.getHealth(), Math.max(0, damage));
+            if (applied <= 0) {
+                continue;
+            }
+            object.setHealth(object.getHealth() - applied);
+            object.triggerHitFlash(nowNs, 120_000_000L, Color.rgb(255, 170, 74));
+
+            boolean destroyed = !object.isAlive();
+            String dropItemId = "";
+            int dropAmount = 0;
+            if (destroyed) {
+                BuildDefinition definition = registry.findByType(object.getType());
+                if (definition != null) {
+                    dropItemId = definition.getItemId();
+                    dropAmount = 1;
+                }
+                removePlacedObject(object);
+            }
+            results.add(new BuildDamageResult(object, applied, destroyed, dropItemId, dropAmount));
+        }
+        return results;
     }
 
     public BuildPreview getPreview() {

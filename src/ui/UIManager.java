@@ -60,6 +60,7 @@ public class UIManager {
                 itemMetaMap.get("wall"),
                 itemMetaMap.get("torch"),
                 itemMetaMap.get("archer_tower"),
+                itemMetaMap.get("bomb_trap"),
                 itemMetaMap.get("potion"),
                 itemMetaMap.get("basic_sword"),
                 itemMetaMap.get("pickaxe"),
@@ -410,6 +411,7 @@ public class UIManager {
         Image wallIcon = assetManager.getSprite("wood_fence_icon");
         Image torchIcon = assetManager.getSprite("torch_icon");
         Image archerTowerIcon = assetManager.getSprite("archer_tower_icon");
+        Image bombIcon = assetManager.getSprite("bomb_trap_icon");
         meta.put("wall", new ItemUiMeta("wall", "Wood Fence", "Buildable wooden fence that auto-connects left and right.", GameBalance.WOOD_FENCE_PRICE, "WF", wallIcon));
         meta.put("wood_fence", new ItemUiMeta("wood_fence", "Wood Fence", "Buildable wooden fence that auto-connects left and right.", GameBalance.WOOD_FENCE_PRICE, "WF", wallIcon));
         meta.put("stone_wall", new ItemUiMeta("stone_wall", "Wood Fence", "Legacy alias mapped to the new wood fence item.", GameBalance.WOOD_FENCE_PRICE, "WF", wallIcon));
@@ -417,6 +419,7 @@ public class UIManager {
         meta.put("potion", new ItemUiMeta("potion", "Potion", "Emergency heal during survival runs.", 12, "PT", null));
         meta.put("torch", new ItemUiMeta("torch", "Torch", "Animated torch that lights dark areas after placement.", GameBalance.TORCH_PRICE, "TR", torchIcon));
         meta.put("archer_tower", new ItemUiMeta("archer_tower", "Archer Tower", "Auto attacks enemies entering its range.", GameBalance.ARCHER_TOWER_PRICE, "AT", archerTowerIcon));
+        meta.put("bomb_trap", new ItemUiMeta("bomb_trap", "Bomb Trap", "Armed trap that explodes when enemies enter trigger range.", GameBalance.BOMB_TRAP_PRICE, "BT", bombIcon));
         meta.put("basic_sword", new ItemUiMeta("basic_sword", "Basic Sword", "Starter melee weapon.", 18, "SD", null));
         meta.put("pickaxe", new ItemUiMeta("pickaxe", "Pickaxe", "Useful for mining and gathering.", 14, "PX", null));
         meta.put("coin", new ItemUiMeta("coin", "Coin", "Common shop currency.", 0, "CN", null));
