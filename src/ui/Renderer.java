@@ -350,7 +350,7 @@ public class Renderer {
         renderLevelUpEffect(player, cameraX, cameraY, now);
         if (enemies != null) {
             for (Enemy enemy : enemies) {
-                if (enemy != null && enemy.isAlive()) {
+                if (enemy != null && enemy.shouldRender(now)) {
                     enemy.draw(graphicsContext, cameraX, cameraY, now);
                 }
             }

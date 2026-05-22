@@ -15,6 +15,7 @@ import entity.CollectibleDrop;
 import entity.DropType;
 import entity.DroppedItem;
 import entity.ArrowProjectile;
+import entity.BlackGrouseSpawnManager;
 import entity.BossEnemy;
 import entity.Enemy;
 import entity.OrcEnemy;
@@ -87,6 +88,7 @@ public class Game {
     private final BuildManager buildManager;
     private final BuildController buildController;
     private final CollisionManager buildCollisionManager;
+    private final BlackGrouseSpawnManager blackGrouseSpawnManager;
     private final Player player;
     private final BaseCamp baseCamp;
     private final List<Enemy> enemies;
@@ -257,6 +259,13 @@ public class Game {
         );
         this.buildCollisionManager.setDynamicEntitySupplier(() -> enemies);
         this.buildManager = new BuildManager(wallAssetManager, buildCollisionManager);
+        this.blackGrouseSpawnManager = new BlackGrouseSpawnManager(
+                loadedMap,
+                buildCollisionManager,
+                buildManager,
+                player,
+                random
+        );
         this.buildController = new BuildController(buildManager);
         this.renderer = new Renderer(stage, inputHandler, wallAssetManager);
         this.renderer.setMapData(loadedMap);
@@ -269,6 +278,7 @@ public class Game {
         if (!loadedFromSave) {
             seedStartingBuildItems();
         }
+        spawnAmbientBlackGrouse();
         buildManager.syncToolbar(inventory.snapshot());
         setSelectedHotbarIndex(selectedHotbarIndex);
         renderer.setContinueAvailable(hasLoadedSaveSnapshot);
@@ -909,6 +919,7 @@ public class Game {
         setSelectedHotbarIndex(selectedHotbarIndex);
 
         resetWorldPosition();
+        spawnAmbientBlackGrouse();
         gameState = GameState.PLAYING;
     }
 
@@ -950,8 +961,16 @@ public class Game {
             if (enemy == null) {
                 continue;
             }
-            if (!enemy.isAlive()) {
+            if (enemy.shouldRemoveFromWorld()) {
                 dead.add(enemy);
+                continue;
+            }
+            if (!enemy.isAlive()) {
+                enemy.update(now, player, worldWidth, worldHeight);
+                continue;
+            }
+            if (!enemy.isHostile()) {
+                enemy.update(now, player, worldWidth, worldHeight);
                 continue;
             }
 
@@ -1402,6 +1421,10 @@ public class Game {
                 enemy.getHeight(),
                 buildManager.getPlacedObjects()
         );
+    }
+
+    private void spawnAmbientBlackGrouse() {
+        blackGrouseSpawnManager.spawnInitialFlock(enemies);
     }
 
     private int countAliveEnemyByType(String type) {

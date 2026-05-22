@@ -185,6 +185,18 @@ public abstract class Enemy extends Entity {
         }
     }
 
+    public boolean isHostile() {
+        return true;
+    }
+
+    public boolean shouldRender(long nowNs) {
+        return isAlive();
+    }
+
+    public boolean shouldRemoveFromWorld() {
+        return !isAlive();
+    }
+
     // Dung cho spawn manager phan loai loai quai.
     public abstract String getEnemyType();
 
