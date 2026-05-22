@@ -2,8 +2,8 @@
     "activeFile": "assets/Map_Game/map.tmx",
     "expandedProjectPaths": [
         "assets",
-        ".",
         "assets/Map_Game",
+        ".",
         "assets/maps"
     ],
     "fileStates": {
@@ -97,7 +97,7 @@
             "scale": 0.75,
             "selectedLayer": 2,
             "viewCenter": {
-                "x": 960.6666666666666,
+                "x": 960.6666666666665,
                 "y": 640.6666666666666
             }
         },
@@ -107,6 +107,10 @@
         "D:/../Map_Game/tileset.tsx": {
             "scaleInDock": 1
         },
+        "assets/Map_Game/Walls.tsx": {
+            "scaleInDock": 1,
+            "scaleInEditor": 1.5
+        },
         "assets/Map_Game/gentle forest v01.tsx": {
             "scaleInDock": 1,
             "scaleInEditor": 1
@@ -115,11 +119,11 @@
             "scaleInDock": 1
         },
         "assets/Map_Game/map.tmx": {
-            "scale": 0.75,
+            "scale": 1.5,
             "selectedLayer": 0,
             "viewCenter": {
-                "x": 743.3333333333334,
-                "y": 841.3333333333334
+                "x": 1001.6666666666665,
+                "y": 695.3333333333333
             }
         },
         "assets/Map_Game/nen.tsx": {
@@ -175,7 +179,7 @@
     },
     "frame.defaultDuration": 50,
     "last.exportedFilePath": "D:/Game__TEST/assets/maps",
-    "last.imagePath": "D:/Game__TEST/assets/Map_Game/gentle_sheets",
+    "last.imagePath": "D:/Game__TEST/assets/tilesets/Pixel Crawler - Free Pack/Environment/Structures/Buildings",
     "last.objectTemplatePath": "D:/Game__TEST/assets/maps",
     "map.lastUsedExportFilter": "Tiled map files (*.tmx *.xml)",
     "map.lastUsedFormat": "tmx",
@@ -189,7 +193,8 @@
         "assets/maps/TreeSize02.tsx",
         "C:/Users/Admin/Downloads/Map_Game/map.tmx",
         "assets/Map_Game/map.tmx",
-        "assets/Map_Game/gentle forest v01.tsx"
+        "assets/Map_Game/gentle forest v01.tsx",
+        "assets/Map_Game/Walls.tsx"
     ],
     "project": "tainguyenmap.tiled-project",
     "property.type": "string",
@@ -200,12 +205,12 @@
         "assets/maps/TreeSize04.tsx",
         "assets/maps/TreeSize02.tsx",
         "C:/Users/Admin/Downloads/Map_Game/map.tmx",
+        "assets/Map_Game/Walls.tsx",
         "assets/Map_Game/gentle forest v01.tsx",
         "assets/Map_Game/map.tmx",
         "assets/maps/mapdemo.tmx",
         "C:/Program Files/Tiled/examples/orthogonal-outside.tmx",
-        "C:/Program Files/Tiled/examples/isometric_grass_and_water.tmx",
-        "C:/Program Files/Tiled/examples/sewer_automap/rule_001.tmx"
+        "C:/Program Files/Tiled/examples/isometric_grass_and_water.tmx"
     ],
     "tileset.lastUsedFormat": "tsx",
     "tileset.tileSize": {
