@@ -16,6 +16,7 @@ import entity.Enemy;
 import entity.FriendlyArcher;
 import entity.Player;
 import entity.ArrowProjectile;
+import entity.ThrownBomb;
 import input.InputHandler;
 import javafx.scene.Scene;
 import javafx.scene.canvas.Canvas;
@@ -39,6 +40,7 @@ import system.level.Level;
 import system.level.LevelResult;
 import system.level.PlayerProgress;
 import system.bomb.ExplosionEffect;
+import system.bomb.FireBombBurnZone;
 import system.resource.ResourceNode;
 
 import java.util.ArrayList;
@@ -134,9 +136,12 @@ public class Renderer {
                        List<ResourceNode> allResources, Map<String, Integer> collectedResources,
                        int selectedHotbarIndex, int stoneWallCount,
                        BuildManager buildManager,
+                       List<HotbarItemStack> hotbarItems,
                        List<ArrowProjectile> arrowProjectiles,
+                       List<ThrownBomb> thrownBombs,
                        List<DroppedItem> droppedItems,
                        List<ExplosionEffect> explosionEffects,
+                       List<FireBombBurnZone> fireBombBurnZones,
                        List<CollectibleDrop> droppedCollectibles,
                        List<FloatingDamageText> floatingDamageTexts,
                        double cameraShakeX,
@@ -155,7 +160,7 @@ public class Renderer {
                 player,
                 collectedResources,
                 selectedHotbarIndex,
-                buildManager,
+                hotbarItems,
                 worldWidth,
                 worldHeight,
                 cameraX,
@@ -179,7 +184,7 @@ public class Renderer {
 
         if (gameState == GameState.PLAYING || gameState == GameState.PAUSED || gameState == GameState.GAME_OVER || gameState == GameState.LEVEL_COMPLETE) {
             renderGameplay(player, enemies, friendlyArchers, now, cameraX, cameraY, currentLevel, objectiveStatus,
-                    allResources, collectedResources, buildManager, arrowProjectiles, droppedItems, explosionEffects, droppedCollectibles, floatingDamageTexts,
+                    allResources, collectedResources, buildManager, arrowProjectiles, thrownBombs, droppedItems, explosionEffects, fireBombBurnZones, droppedCollectibles, floatingDamageTexts,
                     cameraShakeX, cameraShakeY, screenFlashAlpha,
                     darknessAlpha, isNight, dayNightPhase, worldWidth, worldHeight, viewportWidth, viewportHeight);
             return;
@@ -307,6 +312,10 @@ public class Renderer {
         uiManager.hideToast();
     }
 
+    public ItemUiMeta getItemMeta(String itemId) {
+        return uiManager.getItemMeta(itemId);
+    }
+
     private void renderGameplay(Player player,
                                 List<Enemy> enemies,
                                 List<FriendlyArcher> friendlyArchers,
@@ -319,8 +328,10 @@ public class Renderer {
                                 Map<String, Integer> collectedResources,
                                 BuildManager buildManager,
                                 List<ArrowProjectile> arrowProjectiles,
+                                List<ThrownBomb> thrownBombs,
                                 List<DroppedItem> droppedItems,
                                 List<ExplosionEffect> explosionEffects,
+                                List<FireBombBurnZone> fireBombBurnZones,
                                 List<CollectibleDrop> droppedCollectibles,
                                 List<FloatingDamageText> floatingDamageTexts,
                                 double cameraShakeX,
@@ -347,8 +358,10 @@ public class Renderer {
         renderBuildPreview(buildManager, cameraX, cameraY);
         List<ArcherTower> archerTowers = renderPlacedBuildObjects(buildManager, cameraX, cameraY, now);
         renderArrowProjectiles(arrowProjectiles, cameraX, cameraY);
+        renderThrownBombs(thrownBombs, cameraX, cameraY, now);
         renderDroppedItems(droppedItems, cameraX, cameraY, now);
         renderExplosionEffects(explosionEffects, cameraX, cameraY, now);
+        renderFireBombBurnZones(fireBombBurnZones, cameraX, cameraY, now);
         renderCollectibleItems(droppedCollectibles, cameraX, cameraY, now);
 
         player.draw(graphicsContext, cameraX, cameraY);
@@ -613,6 +626,42 @@ public class Renderer {
             graphicsContext.setFill(Color.web("#c8aa6a"));
             graphicsContext.fillRect(-arrow.getWidth() / 2.0, -arrow.getHeight() / 2.0, arrow.getWidth(), arrow.getHeight());
             graphicsContext.restore();
+        }
+    }
+
+    private void renderFireBombBurnZones(List<FireBombBurnZone> fireBombBurnZones, double cameraX, double cameraY, long nowNs) {
+        if (fireBombBurnZones == null || fireBombBurnZones.isEmpty()) {
+            return;
+        }
+        for (FireBombBurnZone zone : fireBombBurnZones) {
+            if (zone == null || zone.isExpired(nowNs)) {
+                continue;
+            }
+            zone.render(graphicsContext, cameraX, cameraY, 1.0, nowNs);
+        }
+    }
+
+    private void renderThrownBombs(List<ThrownBomb> thrownBombs, double cameraX, double cameraY, long nowNs) {
+        if (thrownBombs == null || thrownBombs.isEmpty()) {
+            return;
+        }
+        Image[] bombFrames = buildAssetManager.getAnimationFrames("fire_bomb_throw");
+        for (ThrownBomb bomb : thrownBombs) {
+            if (bomb == null) {
+                continue;
+            }
+            double size = bomb.getRenderSize();
+            double screenX = bomb.getX() - cameraX;
+            double screenY = bomb.getY() - cameraY - bomb.getArcHeight();
+            Image bombSprite = bombFrames.length == 0
+                    ? buildAssetManager.getSprite("fire_bomb_projectile")
+                    : bombFrames[(int) ((nowNs / 90_000_000L) % bombFrames.length)];
+            if (bombSprite != null && !bombSprite.isError()) {
+                graphicsContext.drawImage(bombSprite, screenX - size * 0.5, screenY - size * 0.5, size, size);
+            } else {
+                graphicsContext.setFill(Color.web("#ffb74d"));
+                graphicsContext.fillOval(screenX - size * 0.5, screenY - size * 0.5, size, size);
+            }
         }
     }
 

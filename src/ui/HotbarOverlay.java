@@ -1,8 +1,5 @@
 package ui;
 
-import buildsystem.core.BuildAssetResolver;
-import buildsystem.ui.BuildHotbarSlot;
-import buildsystem.ui.BuildToolbar;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Label;
@@ -18,8 +15,8 @@ import java.util.function.IntConsumer;
 
 /**
  * HotbarOverlay:
- * - JavaFX view cho BuildToolbar dung chung.
- * - Khong hardcode item cu trong UI nua; moi slot chi doc BuildToolbar model tu BuildManager.
+ * - JavaFX view cho quickbar item chung.
+ * - Co the hien build item, bomb va item dung nhanh tu inventory.
  */
 public class HotbarOverlay extends HBox {
     public static final int SLOT_COUNT = 9;
@@ -54,10 +51,7 @@ public class HotbarOverlay extends HBox {
         setSelectedIndex(0);
     }
 
-    public void update(BuildToolbar toolbar, BuildAssetResolver assetResolver) {
-        int nextSelected = toolbar == null ? 0 : toolbar.getSelectedIndex();
-        setSelectedIndex(nextSelected);
-
+    public void update(List<HotbarItemStack> items) {
         for (int index = 0; index < SLOT_COUNT; index++) {
             StackPane slot = slotNodes.get(index);
             StackPane iconPane = iconContainers.get(index);
@@ -73,30 +67,29 @@ public class HotbarOverlay extends HBox {
             slot.setVisible(true);
             slot.setManaged(true);
 
-            BuildHotbarSlot buildSlot = (toolbar == null || index >= toolbar.getSlots().size())
-                    ? null
-                    : toolbar.getSlots().get(index);
-            if (buildSlot == null || buildSlot.getDefinition() == null || buildSlot.getCount() <= 0) {
+            HotbarItemStack itemStack = (items == null || index >= items.size()) ? null : items.get(index);
+            if (itemStack == null || itemStack.getAmount() <= 0) {
                 continue;
             }
 
             slot.setVisible(true);
             slot.setManaged(true);
             slot.setOpacity(1.0);
-            amountLabel.setText(String.valueOf(buildSlot.getCount()));
-            costLabel.setText("C" + buildSlot.getCost());
+            amountLabel.setText(String.valueOf(itemStack.getAmount()));
+            costLabel.setText("");
 
-            Image itemImg = assetResolver == null ? null : assetResolver.getIcon(buildSlot.getDefinition());
+            ItemUiMeta meta = itemStack.getMeta();
+            Image itemImg = meta == null ? null : meta.getImageIcon();
             if (itemImg != null && !itemImg.isError()) {
                 ImageView view = new ImageView(itemImg);
-                view.setFitWidth(24);
-                view.setFitHeight(24);
+                view.setFitWidth(28);
+                view.setFitHeight(28);
                 view.setPreserveRatio(true);
                 view.setSmooth(false);
                 view.setMouseTransparent(true);
                 iconPane.getChildren().add(view);
             } else {
-                Label textIcon = new Label(abbreviationOf(buildSlot));
+                Label textIcon = new Label(abbreviationOf(itemStack));
                 textIcon.getStyleClass().add("resource-icon-text");
                 textIcon.setStyle("-fx-font-size: 11px;");
                 iconPane.getChildren().add(textIcon);
@@ -135,9 +128,9 @@ public class HotbarOverlay extends HBox {
     private StackPane buildSlot(int index) {
         StackPane slot = new StackPane();
         slot.getStyleClass().add("hotbar-slot");
-        slot.setPrefSize(40, 40);
-        slot.setMinSize(40, 40);
-        slot.setMaxSize(40, 40);
+        slot.setPrefSize(48, 48);
+        slot.setMinSize(48, 48);
+        slot.setMaxSize(48, 48);
 
         StackPane iconPane = new StackPane();
         iconPane.setAlignment(Pos.CENTER);
@@ -172,11 +165,11 @@ public class HotbarOverlay extends HBox {
         return slot;
     }
 
-    private String abbreviationOf(BuildHotbarSlot slot) {
-        if (slot == null || slot.getDefinition() == null || slot.getDefinition().getDisplayName() == null) {
+    private String abbreviationOf(HotbarItemStack slot) {
+        if (slot == null || slot.getMeta() == null || slot.getMeta().getDisplayName() == null) {
             return "?";
         }
-        String[] words = slot.getDefinition().getDisplayName().trim().split("\\s+");
+        String[] words = slot.getMeta().getDisplayName().trim().split("\\s+");
         if (words.length == 1) {
             String word = words[0];
             return word.length() <= 2 ? word.toUpperCase() : word.substring(0, 2).toUpperCase();

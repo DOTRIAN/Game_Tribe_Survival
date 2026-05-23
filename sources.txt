@@ -86,6 +86,7 @@ D:\IT\Game_TEST\src\entity\FriendlyArcherManager.java
 D:\IT\Game_TEST\src\entity\OrcEnemy.java
 D:\IT\Game_TEST\src\entity\Player.java
 D:\IT\Game_TEST\src\entity\SkeletonEnemy.java
+D:\IT\Game_TEST\src\entity\ThrownBomb.java
 D:\IT\Game_TEST\src\entity\TreeEntity.java
 D:\IT\Game_TEST\src\event\GameEvent.java
 D:\IT\Game_TEST\src\event\GameEventBus.java
@@ -106,6 +107,7 @@ D:\IT\Game_TEST\src\system\DamageResult.java
 D:\IT\Game_TEST\src\system\DamageSystem.java
 D:\IT\Game_TEST\src\system\bomb\BombSystem.java
 D:\IT\Game_TEST\src\system\bomb\ExplosionEffect.java
+D:\IT\Game_TEST\src\system\bomb\FireBombBurnZone.java
 D:\IT\Game_TEST\src\system\level\Level.java
 D:\IT\Game_TEST\src\system\level\LevelManager.java
 D:\IT\Game_TEST\src\system\level\LevelObjective.java
@@ -124,6 +126,7 @@ D:\IT\Game_TEST\src\system\save\WorldSaveService.java
 D:\IT\Game_TEST\src\ui\BombPreviewRenderer.java
 D:\IT\Game_TEST\src\ui\FloatingDamageText.java
 D:\IT\Game_TEST\src\ui\GameSettings.java
+D:\IT\Game_TEST\src\ui\HotbarItemStack.java
 D:\IT\Game_TEST\src\ui\HotbarOverlay.java
 D:\IT\Game_TEST\src\ui\Hud.java
 D:\IT\Game_TEST\src\ui\HudOverlay.java

@@ -24,6 +24,7 @@ import entity.FriendlyArcherManager;
 import entity.OrcEnemy;
 import entity.Player;
 import entity.SkeletonEnemy;
+import entity.ThrownBomb;
 import event.GameEvent;
 import event.GameEventBus;
 import event.GameEventType;
@@ -48,8 +49,11 @@ import system.resource.ResourceType;
 import system.resource.TileResourceAdapter;
 import system.bomb.BombSystem;
 import system.bomb.ExplosionEffect;
+import system.bomb.FireBombBurnZone;
 import system.save.WorldSaveService;
 import ui.FloatingDamageText;
+import ui.HotbarItemStack;
+import ui.ItemUiMeta;
 import ui.Renderer;
 import world.InfiniteWorldManager;
 import world.WorldChunk;
@@ -107,9 +111,12 @@ public class Game {
     private final List<FloatingDamageText> floatingDamageTexts;
     private final List<DroppedItem> droppedItems;
     private final List<ArrowProjectile> arrowProjectiles;
+    private final List<ThrownBomb> thrownBombs;
     private final List<CollectibleDrop> droppedCollectibles;
     private final List<ExplosionEffect> explosionEffects;
+    private final List<FireBombBurnZone> fireBombBurnZones;
     private final BombSystem bombSystem;
+    private final List<HotbarItemStack> hotbarItems;
 
     // Inventory la state gameplay chinh cho he thu thap/craft.
     private final Inventory inventory;
@@ -164,9 +171,22 @@ public class Game {
     private static final String ARCHER_TOWER_ITEM_ID = "archer_tower";
     private static final String FRIENDLY_ARCHER_ITEM_ID = "friendly_archer";
     private static final String BOMB_TRAP_ITEM_ID = "bomb_trap";
+    private static final String FIRE_BOMB_ITEM_ID = "fire_bomb";
     private static final String BASIC_SWORD_ITEM_ID = "basic_sword";
     private static final String PICKAXE_ITEM_ID = "pickaxe";
     private static final String CARROT_ITEM_ID = "carrot";
+    private static final String[] HOTBAR_PRIORITY = {
+            WOOD_FENCE_ITEM_ID,
+            TORCH_ITEM_ID,
+            ARCHER_TOWER_ITEM_ID,
+            BOMB_TRAP_ITEM_ID,
+            FIRE_BOMB_ITEM_ID,
+            BASIC_SWORD_ITEM_ID,
+            PICKAXE_ITEM_ID,
+            POTION_ITEM_ID,
+            CARROT_ITEM_ID,
+            WOOD_WALL_ITEM_ID
+    };
     private static final int DROP_STACK_MIN = 1;
     private static final int DROP_STACK_MAX = 5;
     private static final int COIN_VALUE_PER_ITEM = 5;
@@ -183,6 +203,11 @@ public class Game {
     private static final int ARCHER_TOWER_PRICE = GameBalance.ARCHER_TOWER_PRICE;
     private static final int FRIENDLY_ARCHER_PRICE = GameBalance.FRIENDLY_ARCHER_PRICE;
     private static final int BOMB_TRAP_PRICE = GameBalance.BOMB_TRAP_PRICE;
+    private static final int FIRE_BOMB_PRICE = GameBalance.FIRE_BOMB_PRICE;
+    private static final double FIRE_BOMB_THROW_SPEED = 8.2;
+    private static final double FIRE_BOMB_THROW_RANGE = 260.0;
+    private static final long FIRE_BOMB_FUSE_NS = 900_000_000L;
+    private static final double FIRE_BOMB_RENDER_SIZE = 18.0;
 
     // selectedHotbarIndex:
     // - Luu slot nguoi choi dang chon tren thanh hotbar.
@@ -194,6 +219,8 @@ public class Game {
     private long screenFlashUntilNs;
     private double screenShakeX;
     private double screenShakeY;
+    private boolean suppressWorldPrimaryUntilMouseRelease;
+    private boolean skipWorldPrimaryClickOnce;
 
     public Game(Stage stage) {
         // Constructor:
@@ -210,9 +237,12 @@ public class Game {
         this.floatingDamageTexts = new ArrayList<>();
         this.droppedItems = new ArrayList<>();
         this.arrowProjectiles = new ArrayList<>();
+        this.thrownBombs = new ArrayList<>();
         this.droppedCollectibles = new ArrayList<>();
         this.explosionEffects = new ArrayList<>();
+        this.fireBombBurnZones = new ArrayList<>();
         this.bombSystem = new BombSystem();
+        this.hotbarItems = new ArrayList<>();
         this.inventory = new Inventory();
         this.eventBus = new GameEventBus();
         this.worldSaveService = new WorldSaveService(SURVIVAL_SAVE_FILE);
@@ -242,6 +272,8 @@ public class Game {
         this.screenFlashUntilNs = 0L;
         this.screenShakeX = 0.0;
         this.screenShakeY = 0.0;
+        this.suppressWorldPrimaryUntilMouseRelease = false;
+        this.skipWorldPrimaryClickOnce = false;
 
         MapData loadedMap = tryLoadMap();
         this.mapData = loadedMap;
@@ -294,8 +326,7 @@ public class Game {
         }
         loadMapWoodFences();
         spawnAmbientBlackGrouse();
-        buildManager.syncToolbar(inventory.snapshot());
-        setSelectedHotbarIndex(selectedHotbarIndex);
+        refreshBuildInventoryUi();
         renderer.setContinueAvailable(hasLoadedSaveSnapshot);
         renderer.setSettingsBackAction(this::closeSettingsFromUi);
 
@@ -329,19 +360,27 @@ public class Game {
         renderer.setShopUiActions(
                 itemId -> {
                     inputHandler.consumeMouseLeftClick();
+                    suppressWorldPrimaryUntilMouseRelease = true;
+                    skipWorldPrimaryClickOnce = true;
                     purchaseShopItem(itemId);
                 },
                 () -> {
                     inputHandler.consumeMouseLeftClick();
+                    suppressWorldPrimaryUntilMouseRelease = true;
+                    skipWorldPrimaryClickOnce = true;
                     renderer.setShopVisible(true);
                 },
                 () -> {
                     inputHandler.consumeMouseLeftClick();
+                    suppressWorldPrimaryUntilMouseRelease = true;
+                    skipWorldPrimaryClickOnce = true;
                     renderer.setShopVisible(false);
                 }
         );
         renderer.setInventoryCloseAction(() -> {
             inputHandler.consumeMouseLeftClick();
+            suppressWorldPrimaryUntilMouseRelease = true;
+            skipWorldPrimaryClickOnce = true;
             renderer.setInventoryVisible(false);
         });
     }
@@ -409,9 +448,12 @@ public class Game {
                 selectedHotbarIndex,
                 inventory.getAmount(WOOD_FENCE_ITEM_ID),
                 buildManager,
+                hotbarItems,
                 arrowProjectiles,
+                thrownBombs,
                 droppedItems,
                 explosionEffects,
+                fireBombBurnZones,
                 droppedCollectibles,
                 floatingDamageTexts,
                 screenShakeX,
@@ -595,8 +637,18 @@ public class Game {
 
         if (inputHandler.isJustPressed(KeyCode.ESCAPE) && renderer.closeTopOverlay()) {
             renderer.hideToast();
+            suppressWorldPrimaryUntilMouseRelease = true;
             inputHandler.update();
             return true;
+        }
+
+        if (suppressWorldPrimaryUntilMouseRelease && !inputHandler.isMouseLeftPressed()) {
+            suppressWorldPrimaryUntilMouseRelease = false;
+        }
+        boolean skipWorldPrimaryClickThisFrame = skipWorldPrimaryClickOnce;
+        if (skipWorldPrimaryClickThisFrame) {
+            inputHandler.consumeMouseLeftClick();
+            skipWorldPrimaryClickOnce = false;
         }
 
         if (buildManager.getBuildMode() == BuildMode.BUILDING && inputHandler.isJustPressed(KeyCode.ESCAPE)) {
@@ -615,7 +667,9 @@ public class Game {
         // Q rotate:
         // - M峄梚 l岷 b岷 Q se doi huong N -> E -> S -> W.
         // - Preview se cap nhat ngay sau do trong cung frame.
-        if (inputHandler.isJustPressed(KeyCode.Q)) {
+        if (FIRE_BOMB_ITEM_ID.equals(getSelectedHotbarItemId()) && inputHandler.isJustPressed(KeyCode.Q)) {
+            throwSelectedFireBomb(now);
+        } else if (inputHandler.isJustPressed(KeyCode.Q)) {
             buildController.onRotatePressed();
         }
         boolean mouseOverUi = renderer.isMouseOverUi(inputHandler.getMouseX(), inputHandler.getMouseY());
@@ -664,8 +718,16 @@ public class Game {
             player.moveDown();
         }
 
-        if (!blockingOverlayVisible && !hotbarClickConsumed && inputHandler.isMouseLeftJustClicked() && !mouseOverUi) {
-            if (buildManager.getBuildMode() == BuildMode.BUILDING) {
+        if (!suppressWorldPrimaryUntilMouseRelease
+                && !skipWorldPrimaryClickThisFrame
+                && !blockingOverlayVisible
+                && !hotbarClickConsumed
+                && inputHandler.isMouseLeftJustClicked()
+                && !mouseOverUi) {
+            String selectedItemId = getSelectedHotbarItemId();
+            if (FIRE_BOMB_ITEM_ID.equals(selectedItemId)) {
+                throwSelectedFireBomb(now);
+            } else if (buildManager.getBuildMode() == BuildMode.BUILDING) {
                 // Dat wall:
                 // - Chi dat khi click tren world, khong de len UI.
                 // - BuildManager se validate occupied tile/collision truoc khi tao wall.
@@ -709,6 +771,8 @@ public class Game {
         updateFriendlyArchers(now);
         updateArcherTowers(now);
         updateBombTraps(now);
+        updateThrownBombs(now);
+        updateFireBombBurnZones(now);
         updateArrowProjectiles(now);
 
         if (bossEnemy != null && !bossEnemy.isAlive()) {
@@ -862,6 +926,7 @@ public class Game {
             case ARCHER_TOWER_ITEM_ID -> ARCHER_TOWER_PRICE;
             case FRIENDLY_ARCHER_ITEM_ID -> FRIENDLY_ARCHER_PRICE;
             case BOMB_TRAP_ITEM_ID -> BOMB_TRAP_PRICE;
+            case FIRE_BOMB_ITEM_ID -> FIRE_BOMB_PRICE;
             case BASIC_SWORD_ITEM_ID -> 18;
             case PICKAXE_ITEM_ID -> 14;
             case CARROT_ITEM_ID -> 3;
@@ -918,6 +983,8 @@ public class Game {
             System.out.println("Bought ARCHER_TOWER quantity = " + inventory.getAmount(ARCHER_TOWER_ITEM_ID) + " coin = " + inventory.getAmount(COIN_ITEM_ID));
         } else if (BOMB_TRAP_ITEM_ID.equals(resolvedItemId)) {
             System.out.println("Bought BOMB_TRAP quantity = " + inventory.getAmount(BOMB_TRAP_ITEM_ID) + " coin = " + inventory.getAmount(COIN_ITEM_ID));
+        } else if (FIRE_BOMB_ITEM_ID.equals(resolvedItemId)) {
+            System.out.println("Bought FIRE_BOMB quantity = " + inventory.getAmount(FIRE_BOMB_ITEM_ID) + " coin = " + inventory.getAmount(COIN_ITEM_ID));
         }
         renderer.showToast("Bought " + prettifyItemName(resolvedItemId));
     }
@@ -935,8 +1002,10 @@ public class Game {
         floatingDamageTexts.clear();
         droppedItems.clear();
         arrowProjectiles.clear();
+        thrownBombs.clear();
         droppedCollectibles.clear();
         explosionEffects.clear();
+        fireBombBurnZones.clear();
         cameraShakeUntilNs = 0L;
         screenFlashUntilNs = 0L;
         screenShakeX = 0.0;
@@ -1146,6 +1215,105 @@ public class Game {
         }
     }
 
+    private void updateThrownBombs(long now) {
+        if (thrownBombs.isEmpty()) {
+            return;
+        }
+        List<ThrownBomb> exploded = new ArrayList<>();
+        for (ThrownBomb bomb : thrownBombs) {
+            if (bomb == null) {
+                continue;
+            }
+            bomb.update(now);
+            if (!bomb.shouldExplode()) {
+                continue;
+            }
+            exploded.add(bomb);
+            triggerFireBombExplosion(bomb, now);
+        }
+        if (!exploded.isEmpty()) {
+            thrownBombs.removeAll(exploded);
+        }
+    }
+
+    private void triggerFireBombExplosion(ThrownBomb bomb, long now) {
+        if (bomb == null) {
+            return;
+        }
+        fireBombBurnZones.add(new FireBombBurnZone(
+                bomb.getX(),
+                bomb.getY(),
+                bomb.getBlastRadius(),
+                GameBalance.FIRE_BOMB_BURN_DAMAGE,
+                now,
+                GameBalance.FIRE_BOMB_BURN_DURATION_NS,
+                GameBalance.FIRE_BOMB_FADE_DURATION_NS,
+                GameBalance.FIRE_BOMB_DAMAGE_TICK_NS,
+                wallAssetManager.getAnimationFrames("fire_bomb_blast"),
+                wallAssetManager.getAnimationFrames("fire_bomb_ember")
+        ));
+        cameraShakeUntilNs = Math.max(cameraShakeUntilNs, now + 180_000_000L);
+        screenFlashUntilNs = Math.max(screenFlashUntilNs, now + 90_000_000L);
+
+        for (Enemy enemy : enemies) {
+            if (enemy == null || !enemy.isAlive()) {
+                continue;
+            }
+            if (distance(bomb.getX(), bomb.getY(), enemy.getCenterX(), enemy.getCenterY()) > bomb.getBlastRadius()) {
+                continue;
+            }
+            DamageResult damageResult = DamageSystem.applyDamage(player, enemy, GameBalance.FIRE_BOMB_IMPACT_DAMAGE, now);
+            spawnEnemyDamageText(enemy, damageResult, now);
+        }
+    }
+
+    private void updateFireBombBurnZones(long now) {
+        if (fireBombBurnZones.isEmpty()) {
+            return;
+        }
+        List<FireBombBurnZone> expired = new ArrayList<>();
+        for (FireBombBurnZone zone : fireBombBurnZones) {
+            if (zone == null) {
+                continue;
+            }
+            if (zone.isExpired(now)) {
+                expired.add(zone);
+                continue;
+            }
+            if (!zone.shouldApplyDamage(now)) {
+                continue;
+            }
+            int tickDamage = zone.resolveTickDamage(now);
+            if (zone.contains(player.getCenterX(), player.getCenterY())) {
+                DamageResult playerDamage = DamageSystem.applyDamage(null, player, tickDamage, now);
+                if (playerDamage.getFinalDamage() > 0) {
+                    floatingDamageTexts.add(new FloatingDamageText(
+                            "-" + playerDamage.getFinalDamage(),
+                            player.getCenterX(),
+                            player.getY() - 10,
+                            now,
+                            DAMAGE_TEXT_LIFETIME_NS,
+                            false
+                    ));
+                }
+            }
+            for (Enemy enemy : enemies) {
+                if (enemy == null || !enemy.isAlive()) {
+                    continue;
+                }
+                if (!zone.contains(enemy.getCenterX(), enemy.getCenterY())) {
+                    continue;
+                }
+                DamageResult damageResult = DamageSystem.applyDamage(player, enemy, tickDamage, now);
+                spawnEnemyDamageText(enemy, damageResult, now);
+            }
+            zone.markDamageApplied(now);
+        }
+        if (!expired.isEmpty()) {
+            fireBombBurnZones.removeAll(expired);
+        }
+    }
+
     private void updateBombTraps(long now) {
         List<BombTrap> bombs = new ArrayList<>();
         for (BuildObject object : buildManager.getPlacedObjects()) {
@@ -1337,6 +1505,45 @@ public class Game {
 
         eventBus.publish(new GameEvent(GameEventType.RESOURCE_COLLECTED,
                 Map.of("item", drop.getItemId(), "amount", drop.getAmount())));
+    }
+
+    private boolean throwSelectedFireBomb(long now) {
+        if (inventory.getAmount(FIRE_BOMB_ITEM_ID) <= 0) {
+            renderer.showToast("No fire bomb");
+            return false;
+        }
+        if (!inventory.consumeItem(FIRE_BOMB_ITEM_ID, 1)) {
+            renderer.showToast("Cannot use fire bomb");
+            return false;
+        }
+
+        double sourceX = player.getCenterX();
+        double sourceY = player.getCenterY() - 8.0;
+        double targetX = cameraX + (inputHandler.getMouseX() / CAMERA_ZOOM);
+        double targetY = cameraY + (inputHandler.getMouseY() / CAMERA_ZOOM);
+        double dx = targetX - sourceX;
+        double dy = targetY - sourceY;
+        double dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > FIRE_BOMB_THROW_RANGE && dist > 0.0001) {
+            targetX = sourceX + dx / dist * FIRE_BOMB_THROW_RANGE;
+            targetY = sourceY + dy / dist * FIRE_BOMB_THROW_RANGE;
+        }
+
+        thrownBombs.add(new ThrownBomb(
+                sourceX,
+                sourceY,
+                targetX,
+                targetY,
+                FIRE_BOMB_THROW_SPEED,
+                GameBalance.FIRE_BOMB_RADIUS,
+                GameBalance.FIRE_BOMB_IMPACT_DAMAGE,
+                now,
+                FIRE_BOMB_FUSE_NS,
+                FIRE_BOMB_RENDER_SIZE
+        ));
+        refreshBuildInventoryUi();
+        renderer.showToast("Fire Bomb thrown");
+        return true;
     }
 
     private boolean applyAttackToFirstEnemy(double x, double y, double w, double h, int damage, long nowNs) {
@@ -1827,6 +2034,7 @@ public class Game {
             case ARCHER_TOWER_ITEM_ID -> "Archer Tower";
             case FRIENDLY_ARCHER_ITEM_ID -> "Archer";
             case BOMB_TRAP_ITEM_ID -> "Bomb Trap";
+            case FIRE_BOMB_ITEM_ID -> "Fire Bomb";
             case BASIC_SWORD_ITEM_ID -> "Basic Sword";
             case PICKAXE_ITEM_ID -> "Pickaxe";
             case COIN_ITEM_ID -> "Coin";
@@ -2029,7 +2237,7 @@ public class Game {
         // - Chon slot nay se thong bao cho BuildManager bat BUILD_WALL_MODE.
         // - Cac slot khac de null de game thoat khoi che do xay.
         selectedHotbarIndex = slotIndex;
-        buildController.onToolbarSlotSelected(slotIndex, inventory);
+        syncSelectedHotbarMode();
     }
 
     private void updateDroppedItemPickup() {
@@ -2061,8 +2269,79 @@ public class Game {
     }
 
     private void refreshBuildInventoryUi() {
+        String previouslySelectedItemId = getSelectedHotbarItemId();
         buildManager.syncToolbar(inventory.snapshot());
-        setSelectedHotbarIndex(Math.max(0, Math.min(selectedHotbarIndex, 8)));
+        rebuildHotbarItems();
+        if (previouslySelectedItemId != null && !previouslySelectedItemId.isBlank()) {
+            int matchedIndex = findHotbarIndexByItemId(previouslySelectedItemId);
+            if (matchedIndex >= 0) {
+                selectedHotbarIndex = matchedIndex;
+            }
+        }
+        if (selectedHotbarIndex >= hotbarItems.size()) {
+            selectedHotbarIndex = Math.max(0, hotbarItems.size() - 1);
+        }
+        if (selectedHotbarIndex < 0) {
+            selectedHotbarIndex = 0;
+        }
+        syncSelectedHotbarMode();
+    }
+
+    private void rebuildHotbarItems() {
+        hotbarItems.clear();
+        Map<String, Integer> snapshot = inventory.snapshot();
+        for (String itemId : HOTBAR_PRIORITY) {
+            if (itemId == null || itemId.isBlank()) {
+                continue;
+            }
+            int amount = snapshot.getOrDefault(itemId, 0);
+            if (amount <= 0) {
+                continue;
+            }
+            ItemUiMeta meta = renderer.getItemMeta(itemId);
+            hotbarItems.add(new HotbarItemStack(itemId, amount, meta, isBuildItemId(itemId)));
+            if (hotbarItems.size() >= 9) {
+                return;
+            }
+        }
+    }
+
+    private void syncSelectedHotbarMode() {
+        String selectedItemId = getSelectedHotbarItemId();
+        if (selectedItemId == null || selectedItemId.isBlank()) {
+            buildManager.cancelBuildMode();
+            return;
+        }
+        if (isBuildItemId(selectedItemId)) {
+            buildController.onSelectBuildItem(selectedItemId);
+            return;
+        }
+        buildManager.cancelBuildMode();
+    }
+
+    private String getSelectedHotbarItemId() {
+        if (selectedHotbarIndex < 0 || selectedHotbarIndex >= hotbarItems.size()) {
+            return "";
+        }
+        HotbarItemStack stack = hotbarItems.get(selectedHotbarIndex);
+        return stack == null ? "" : stack.getItemId();
+    }
+
+    private boolean isBuildItemId(String itemId) {
+        return buildManager.getRegistry().findByItemId(itemId) != null;
+    }
+
+    private int findHotbarIndexByItemId(String itemId) {
+        if (itemId == null || itemId.isBlank()) {
+            return -1;
+        }
+        for (int i = 0; i < hotbarItems.size(); i++) {
+            HotbarItemStack stack = hotbarItems.get(i);
+            if (stack != null && itemId.equals(stack.getItemId())) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private void onResourceDestroyed(system.resource.ResourceNode resource) {
@@ -2190,6 +2469,7 @@ public class Game {
             case "cung", "archer_tower" -> ARCHER_TOWER_ITEM_ID;
             case "archer", "friendly_archer", "friendly archer" -> FRIENDLY_ARCHER_ITEM_ID;
             case "bomb", "bomb_trap", "bomb trap", "bom" -> BOMB_TRAP_ITEM_ID;
+            case "fire_bomb", "fire bomb", "firebomb", "bom_lua", "bomb_fire" -> FIRE_BOMB_ITEM_ID;
             default -> itemId.trim().toLowerCase();
         };
     }
