@@ -18,6 +18,7 @@ public class InputHandler {
     private double mouseX;
     private double mouseY;
     private boolean mouseLeftJustClicked;
+    private boolean mouseLeftPressed;
 
     public InputHandler() {
         this.pressedKeys = new HashSet<>();
@@ -26,6 +27,7 @@ public class InputHandler {
         this.mouseX = 0;
         this.mouseY = 0;
         this.mouseLeftJustClicked = false;
+        this.mouseLeftPressed = false;
     }
 
     public void attach(Scene scene) {
@@ -59,6 +61,22 @@ public class InputHandler {
         scene.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_DRAGGED, event -> {
             mouseX = event.getX();
             mouseY = event.getY();
+        });
+
+        scene.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_PRESSED, event -> {
+            mouseX = event.getX();
+            mouseY = event.getY();
+            if (event.getButton() == MouseButton.PRIMARY) {
+                mouseLeftPressed = true;
+            }
+        });
+
+        scene.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_RELEASED, event -> {
+            mouseX = event.getX();
+            mouseY = event.getY();
+            if (event.getButton() == MouseButton.PRIMARY) {
+                mouseLeftPressed = false;
+            }
         });
 
         // Click trai 1-lan/frame de xu ly chon menu.
@@ -108,5 +126,9 @@ public class InputHandler {
 
     public void consumeMouseLeftClick() {
         mouseLeftJustClicked = false;
+    }
+
+    public boolean isMouseLeftPressed() {
+        return mouseLeftPressed;
     }
 }

@@ -37,6 +37,13 @@ public class AssetManager implements BuildAssetResolver {
     );
     private static final int BOMB_SHEET_COLUMNS = 7;
     private static final int BOMB_SHEET_ROWS = 1;
+    private static final Path FIRE_BOMB_ICON_PATH = Path.of("assets", "firebomb", "bomb.png");
+    private static final Path FIRE_BOMB_SHOP_ICON_PATH = Path.of("assets", "firebomb", "image_bomb.png");
+    private static final Path FIRE_BOMB_BLAST_PATH = Path.of("assets", "firebomb", "fire.png");
+    private static final Path FIRE_BOMB_EMBER_PATH = Path.of("assets", "firebomb", "fire_tan.png");
+    private static final Path FIRE_BOMB_ANIMATION_PATH = Path.of("assets", "firebomb", "animation_fire.png");
+    private static final Path FIRE_BOMB_FINAL_1_PATH = Path.of("assets", "firebomb", "animation_final_1.png");
+    private static final Path FIRE_BOMB_FINAL_2_PATH = Path.of("assets", "firebomb", "animation_final_2.png");
     private static final int ARCHER_SHEET_ROWS = 2;
     private static final int ARCHER_IDLE_FRAME_COUNT = 7;
     private static final int ARCHER_ATTACK_FRAME_COUNT = 8;
@@ -54,6 +61,7 @@ public class AssetManager implements BuildAssetResolver {
         loadTorchSpriteSheet();
         loadArcherTowerSprites();
         loadBombTrapSprites();
+        loadThrowableFireBombSprites();
     }
 
     /**
@@ -279,6 +287,180 @@ public class AssetManager implements BuildAssetResolver {
         return null;
     }
 
+    private void loadThrowableFireBombSprites() {
+        Image shopIcon = safeLoad(FIRE_BOMB_SHOP_ICON_PATH);
+        Image croppedShopIcon = cropAndCleanFullImage(shopIcon, 3);
+        if (croppedShopIcon != null) {
+            spriteCache.put("fire_bomb_shop_icon", croppedShopIcon);
+        }
+        Image[] bombFrames = loadFireBombThrowFrames();
+        if (bombFrames.length > 0) {
+            animationCache.put("fire_bomb_throw", bombFrames);
+            Image cleanedIcon = bombFrames[0];
+            spriteCache.put("fire_bomb_icon", cleanedIcon);
+            spriteCache.put("fire_bomb_projectile", cleanedIcon);
+            if (!spriteCache.containsKey("fire_bomb_shop_icon")) {
+                spriteCache.put("fire_bomb_shop_icon", cleanedIcon);
+            }
+        }
+        Image[] blastFrames = loadFireSpreadFrames();
+        if (blastFrames.length > 0) {
+            animationCache.put("fire_bomb_blast", blastFrames);
+            spriteCache.put("fire_bomb_blast", blastFrames[0]);
+        }
+        Image[] emberFrames = loadFireEmberFrames();
+        if (emberFrames.length > 0) {
+            animationCache.put("fire_bomb_ember", emberFrames);
+            spriteCache.put("fire_bomb_ember", emberFrames[0]);
+        }
+    }
+
+    private Image[] loadFireBombThrowFrames() {
+        Image sheet = safeLoad(FIRE_BOMB_ICON_PATH);
+        if (sheet == null) {
+            return new Image[0];
+        }
+        return extractGridFrames(sheet, 6, 2, 3, true);
+    }
+
+    private Image[] loadFireSpreadFrames() {
+        Image finalSheet = safeLoad(FIRE_BOMB_FINAL_1_PATH);
+        Image sheet = finalSheet;
+        if (sheet == null) {
+            sheet = safeLoad(FIRE_BOMB_ANIMATION_PATH);
+        }
+        if (sheet == null) {
+            sheet = safeLoad(FIRE_BOMB_BLAST_PATH);
+        }
+        if (sheet == null) {
+            return new Image[0];
+        }
+        if (finalSheet != null) {
+            List<Image> frames = new java.util.ArrayList<>();
+            addFrames(frames, extractGridRowFrames(sheet, 2, 4, 0, 4, true));
+            addFrames(frames, extractGridRowFrames(sheet, 2, 4, 1, 4, true));
+            addFrames(frames, extractGridRowFrames(sheet, 2, 4, 2, 4, true));
+            addFrames(frames, extractGridRowFrames(sheet, 2, 4, 3, 4, true));
+            return normalizeFramesToCanvas(frames.toArray(new Image[0]));
+        }
+        List<Image> frames = new java.util.ArrayList<>();
+        addFrames(frames, extractGridRowFrames(sheet, 5, 4, 0, 6, true));
+        addFrames(frames, extractGridRowFrames(sheet, 5, 4, 1, 6, true));
+        addFrames(frames, extractGridRowFrames(sheet, 4, 4, 2, 6, true));
+        return normalizeFramesToCanvas(frames.toArray(new Image[0]));
+    }
+
+    private Image[] loadFireEmberFrames() {
+        Image finalSheet = safeLoad(FIRE_BOMB_FINAL_2_PATH);
+        Image sheet = finalSheet;
+        if (sheet == null) {
+            sheet = safeLoad(FIRE_BOMB_ANIMATION_PATH);
+        }
+        if (sheet == null) {
+            sheet = safeLoad(FIRE_BOMB_EMBER_PATH);
+        }
+        if (sheet == null) {
+            return new Image[0];
+        }
+        if (finalSheet != null) {
+            List<Image> frames = new java.util.ArrayList<>();
+            addFrames(frames, extractGridRowFrames(sheet, 2, 4, 0, 4, true));
+            addFrames(frames, extractGridRowFrames(sheet, 2, 4, 1, 4, true));
+            addFrames(frames, extractGridRowFrames(sheet, 2, 4, 2, 4, true));
+            addFrames(frames, extractGridRowFrames(sheet, 2, 4, 3, 4, true));
+            return normalizeFramesToCanvas(frames.toArray(new Image[0]));
+        }
+        return extractGridRowFrames(sheet, 6, 4, 3, 6, true);
+    }
+
+    private Image cropAndCleanFullImage(Image image, int padding) {
+        if (image == null || image.isError()) {
+            return null;
+        }
+        Image cropped = cropAlphaBounds(image, 0, Math.max(0, (int) Math.round(image.getWidth()) - 1), padding);
+        return cleanBombFrameBackground(cropped);
+    }
+
+    private Image[] extractGridFrames(Image sheet, int columns, int rows, int padding, boolean cleanBackground) {
+        PixelReader reader = sheet == null ? null : sheet.getPixelReader();
+        if (reader == null || columns <= 0 || rows <= 0) {
+            return new Image[0];
+        }
+        int sheetWidth = (int) Math.round(sheet.getWidth());
+        int sheetHeight = (int) Math.round(sheet.getHeight());
+        Image[] frames = new Image[columns * rows];
+        int index = 0;
+        for (int row = 0; row < rows; row++) {
+            int y = (int) Math.round(row * sheetHeight / (double) rows);
+            int nextY = (int) Math.round((row + 1) * sheetHeight / (double) rows);
+            int frameHeight = Math.max(1, nextY - y);
+            for (int col = 0; col < columns; col++) {
+                int x = (int) Math.round(col * sheetWidth / (double) columns);
+                int nextX = (int) Math.round((col + 1) * sheetWidth / (double) columns);
+                int frameWidth = Math.max(1, nextX - x);
+                Image frame = new WritableImage(reader, x, y, frameWidth, frameHeight);
+                frame = cropAlphaBounds(frame, 0, frameWidth - 1, padding);
+                if (cleanBackground) {
+                    frame = cleanBombFrameBackground(frame);
+                }
+                frames[index++] = frame;
+            }
+        }
+        return normalizeFramesToCanvas(frames);
+    }
+
+    private Image[] extractGridRowFrames(Image sheet,
+                                         int columnsInRow,
+                                         int totalRows,
+                                         int rowIndex,
+                                         int padding,
+                                         boolean cleanBackground) {
+        PixelReader reader = sheet == null ? null : sheet.getPixelReader();
+        if (reader == null || columnsInRow <= 0 || totalRows <= 0 || rowIndex < 0 || rowIndex >= totalRows) {
+            return new Image[0];
+        }
+        int sheetWidth = (int) Math.round(sheet.getWidth());
+        int sheetHeight = (int) Math.round(sheet.getHeight());
+        int y = (int) Math.round(rowIndex * sheetHeight / (double) totalRows);
+        int nextY = (int) Math.round((rowIndex + 1) * sheetHeight / (double) totalRows);
+        int frameHeight = Math.max(1, nextY - y);
+        Image[] frames = new Image[columnsInRow];
+        for (int col = 0; col < columnsInRow; col++) {
+            int x = (int) Math.round(col * sheetWidth / (double) columnsInRow);
+            int nextX = (int) Math.round((col + 1) * sheetWidth / (double) columnsInRow);
+            int frameWidth = Math.max(1, nextX - x);
+            Image frame = new WritableImage(reader, x, y, frameWidth, frameHeight);
+            frame = cropAlphaBounds(frame, 0, frameWidth - 1, padding);
+            if (cleanBackground) {
+                frame = cleanBombFrameBackground(frame);
+            }
+            frames[col] = frame;
+        }
+        return normalizeFramesToCanvas(frames);
+    }
+
+    private void addFrames(List<Image> target, Image[] source) {
+        if (target == null || source == null) {
+            return;
+        }
+        for (Image frame : source) {
+            if (frame != null) {
+                target.add(frame);
+            }
+        }
+    }
+
+    private Image safeLoad(Path path) {
+        if (path == null || !Files.isRegularFile(path)) {
+            return null;
+        }
+        Image image = new Image(path.toUri().toString());
+        if (image.isError()) {
+            return null;
+        }
+        return image;
+    }
+
     private Image[] splitBombSheet(Image sheet, int columns, int rows) {
         PixelReader reader = sheet.getPixelReader();
         if (reader == null || columns <= 0 || rows <= 0) {
@@ -309,6 +491,14 @@ public class AssetManager implements BuildAssetResolver {
     }
 
     private Image[] splitBombSheetByAlpha(Image sheet, int expectedFrames) {
+        return splitFramesByAlphaClusters(sheet, expectedFrames, 12, 0.04, 6);
+    }
+
+    private Image[] splitFramesByAlphaClusters(Image sheet,
+                                               int expectedFrames,
+                                               int gapTolerance,
+                                               double alphaThreshold,
+                                               int padding) {
         PixelReader reader = sheet == null ? null : sheet.getPixelReader();
         if (reader == null || expectedFrames <= 0) {
             return new Image[0];
@@ -323,7 +513,7 @@ public class AssetManager implements BuildAssetResolver {
         for (int x = 0; x < width; x++) {
             int alphaCount = 0;
             for (int y = 0; y < height; y++) {
-                if (reader.getColor(x, y).getOpacity() > 0.04) {
+                if (reader.getColor(x, y).getOpacity() > alphaThreshold) {
                     alphaCount++;
                 }
             }
@@ -337,7 +527,7 @@ public class AssetManager implements BuildAssetResolver {
                 gap = 0;
             } else if (inside) {
                 gap++;
-                if (gap > 12) {
+                if (gap > gapTolerance) {
                     clusters.add(new int[]{startX, previousSolidX});
                     inside = false;
                     gap = 0;
@@ -354,9 +544,9 @@ public class AssetManager implements BuildAssetResolver {
         Image[] frames = new Image[expectedFrames];
         for (int i = 0; i < expectedFrames; i++) {
             int[] cluster = clusters.get(i);
-            frames[i] = cropAlphaBounds(sheet, cluster[0], cluster[1], 6);
+            frames[i] = transparentNearWhite(cropAlphaBounds(sheet, cluster[0], cluster[1], padding));
         }
-        return frames;
+        return normalizeFramesToCanvas(frames);
     }
 
     private Image cropAlphaBounds(Image source, int minSearchX, int maxSearchX, int padding) {
