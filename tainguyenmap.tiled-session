@@ -1,16 +1,16 @@
 {
-    "activeFile": "",
+    "activeFile": "assets/Map_Game/mapdep.tmx",
     "expandedProjectPaths": [
         "assets",
+        ".",
         "assets/Map_Game",
-        "assets/maps",
-        "."
+        "assets/maps"
     ],
     "file.lastUsedOpenFilter": "All Files (*)",
     "fileStates": {
         "": {
             "scaleInDock": 0.33,
-            "scaleInEditor": 0.75
+            "scaleInEditor": 0.25
         },
         "#cot": {
             "scaleInDock": 0.5
@@ -89,11 +89,11 @@
             "scaleInDock": 0.25
         },
         "assets/Map_Game/mapdep.tmx": {
-            "scale": 0.33,
+            "scale": 0.5,
             "selectedLayer": 1,
             "viewCenter": {
-                "x": 731.8181818181819,
-                "y": 737.8787878787878
+                "x": 896,
+                "y": 720
             }
         },
         "assets/Map_Game/mapdep.tmx#Rocks_source_no_shadow": {
@@ -115,13 +115,13 @@
             "scaleInDock": 0.25
         },
         "assets/Map_Game/mapdep.tmx#dovat": {
-            "scaleInDock": 0.33
+            "scaleInDock": 0.125
         },
         "assets/Map_Game/mapdep.tmx#fence_xoa_bg": {
             "scaleInDock": 0.33
         },
         "assets/Map_Game/mapdep.tmx#hang": {
-            "scaleInDock": 0.25
+            "scaleInDock": 0.125
         },
         "assets/Map_Game/mapdep.tmx#map_fin": {
             "scaleInDock": 0.125
@@ -255,14 +255,15 @@
         }
     },
     "openFiles": [
-        "assets/Map_Game/z7856113756251_3569b304f3656c901837f31551161cfd.tsx",
-        "assets/Map_Game/mapdep.tmx"
+        "assets/Map_Game/mapdep.tmx",
+        "assets/Map_Game/Rocks_source_no_shadow.tsx"
     ],
     "project": "tainguyenmap.tiled-project",
+    "property.type": "string",
     "recentFiles": [
-        "assets/Map_Game/z7856113756251_3569b304f3656c901837f31551161cfd.tsx",
-        "assets/Map_Game/mapdep.tmx",
         "assets/Map_Game/Rocks_source_no_shadow.tsx",
+        "assets/Map_Game/mapdep.tmx",
+        "assets/Map_Game/z7856113756251_3569b304f3656c901837f31551161cfd.tsx",
         "assets/Map_Game/tenttre.tsx",
         "assets/Map_Game/map.tmx",
         "assets/Map_Game/Water_tiles.tsx",
