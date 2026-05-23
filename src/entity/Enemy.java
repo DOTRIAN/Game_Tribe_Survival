@@ -142,6 +142,24 @@ public abstract class Enemy extends Entity {
         lastAttackAtNs = now;
     }
 
+    public void tryAttackEntity(Entity target, long now) {
+        if (!isAlive() || target == null || target.isDead()) {
+            return;
+        }
+        if (!CollisionSystem.intersects(this, target)) {
+            return;
+        }
+        if (now - lastAttackAtNs < attackCooldownNs) {
+            return;
+        }
+        if (target instanceof FriendlyArcher friendlyArcher) {
+            friendlyArcher.receiveDamage(damage);
+        } else {
+            DamageSystem.applyDamage(this, target, damage, now);
+        }
+        lastAttackAtNs = now;
+    }
+
     public void draw(GraphicsContext graphicsContext, double cameraX, double cameraY, long nowNs) {
         if (!isAlive()) {
             return;

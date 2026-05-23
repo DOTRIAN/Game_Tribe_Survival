@@ -19,7 +19,7 @@ import java.util.function.IntConsumer;
 /**
  * HotbarOverlay:
  * - JavaFX view cho BuildToolbar dung chung.
- * - Khong hardcode stone_wall / torch / chest trong UI nua; moi slot chi doc BuildToolbar model tu BuildManager.
+ * - Khong hardcode item cu trong UI nua; moi slot chi doc BuildToolbar model tu BuildManager.
  */
 public class HotbarOverlay extends HBox {
     public static final int SLOT_COUNT = 9;

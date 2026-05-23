@@ -5,6 +5,7 @@ import buildsystem.core.BuildMode;
 import buildsystem.core.BuildController;
 import buildsystem.core.CollisionManager;
 import buildsystem.core.BuildDamageResult;
+import buildsystem.fence.FenceEntity;
 import buildsystem.object.ArcherTower;
 import buildsystem.object.BombTrap;
 import buildsystem.object.BuildObject;
@@ -18,6 +19,8 @@ import entity.ArrowProjectile;
 import entity.BlackGrouseSpawnManager;
 import entity.BossEnemy;
 import entity.Enemy;
+import entity.FriendlyArcher;
+import entity.FriendlyArcherManager;
 import entity.OrcEnemy;
 import entity.Player;
 import entity.SkeletonEnemy;
@@ -52,10 +55,12 @@ import world.InfiniteWorldManager;
 import world.WorldChunk;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 
 /**
  * Game:
@@ -92,6 +97,7 @@ public class Game {
     private final Player player;
     private final BaseCamp baseCamp;
     private final List<Enemy> enemies;
+    private final FriendlyArcherManager friendlyArcherManager;
     private BossEnemy bossEnemy;
 
     private final List<MapObjectData> mapCollisions;
@@ -147,7 +153,7 @@ public class Game {
     private static final double FOOD_ENERGY_BONUS = 15.0;
     private static final long DAMAGE_TEXT_LIFETIME_NS = 650_000_000L;
     // Hotbar hien tai de mo rong dan:
-    // - Slot 0: stone_wall.
+    // - Slot dau tien thuong la Wood Fence neu inventory dang co item nay.
     // - Cac slot khac de trong cho item build/craft sau nay.
     private static final String WOOD_FENCE_ITEM_ID = "wood_fence";
     private static final String WALL_ITEM_ALIAS = "wall";
@@ -156,6 +162,7 @@ public class Game {
     private static final String POTION_ITEM_ID = "potion";
     private static final String TORCH_ITEM_ID = "torch";
     private static final String ARCHER_TOWER_ITEM_ID = "archer_tower";
+    private static final String FRIENDLY_ARCHER_ITEM_ID = "friendly_archer";
     private static final String BOMB_TRAP_ITEM_ID = "bomb_trap";
     private static final String BASIC_SWORD_ITEM_ID = "basic_sword";
     private static final String PICKAXE_ITEM_ID = "pickaxe";
@@ -174,6 +181,7 @@ public class Game {
     private static final int WOOD_WALL_PRICE = GameBalance.WOOD_WALL_PRICE;
     private static final int TORCH_PRICE = GameBalance.TORCH_PRICE;
     private static final int ARCHER_TOWER_PRICE = GameBalance.ARCHER_TOWER_PRICE;
+    private static final int FRIENDLY_ARCHER_PRICE = GameBalance.FRIENDLY_ARCHER_PRICE;
     private static final int BOMB_TRAP_PRICE = GameBalance.BOMB_TRAP_PRICE;
 
     // selectedHotbarIndex:
@@ -209,6 +217,7 @@ public class Game {
         this.eventBus = new GameEventBus();
         this.worldSaveService = new WorldSaveService(SURVIVAL_SAVE_FILE);
         this.random = new Random();
+        this.friendlyArcherManager = new FriendlyArcherManager(this.random);
         this.infiniteWorldManager = new InfiniteWorldManager(20260520L);
 
         this.gameState = GameState.WELCOME;
@@ -257,7 +266,12 @@ public class Game {
                 this.worldWidth,
                 this.worldHeight
         );
-        this.buildCollisionManager.setDynamicEntitySupplier(() -> enemies);
+        this.buildCollisionManager.setDynamicEntitySupplier(() -> {
+            List<entity.Entity> blockingEntities = new ArrayList<>(enemies.size() + friendlyArcherManager.getArchers().size());
+            blockingEntities.addAll(enemies);
+            blockingEntities.addAll(friendlyArcherManager.getArchers());
+            return blockingEntities;
+        });
         this.buildManager = new BuildManager(wallAssetManager, buildCollisionManager);
         this.blackGrouseSpawnManager = new BlackGrouseSpawnManager(
                 loadedMap,
@@ -278,6 +292,7 @@ public class Game {
         if (!loadedFromSave) {
             seedStartingBuildItems();
         }
+        loadMapWoodFences();
         spawnAmbientBlackGrouse();
         buildManager.syncToolbar(inventory.snapshot());
         setSelectedHotbarIndex(selectedHotbarIndex);
@@ -375,6 +390,7 @@ public class Game {
                 gameState,
                 player,
                 enemies,
+                friendlyArcherManager.getArchers(),
                 now,
                 cameraX,
                 cameraY,
@@ -653,7 +669,7 @@ public class Game {
                 // Dat wall:
                 // - Chi dat khi click tren world, khong de len UI.
                 // - BuildManager se validate occupied tile/collision truoc khi tao wall.
-                // - Dat thanh cong moi tru 1 stone_wall trong inventory.
+                // - Dat thanh cong moi tru 1 Wood Fence trong inventory.
                 if (buildController.onPrimaryClickPlace(player, inventory)) {
                     logPlacedBuild(buildManager.getLastPlacedObject());
                     refreshBuildInventoryUi();
@@ -690,6 +706,7 @@ public class Game {
         updateScreenImpulse(now);
         updateEnemySpawning(now);
         updateEnemies(now);
+        updateFriendlyArchers(now);
         updateArcherTowers(now);
         updateBombTraps(now);
         updateArrowProjectiles(now);
@@ -843,6 +860,7 @@ public class Game {
             case POTION_ITEM_ID -> 12;
             case TORCH_ITEM_ID -> TORCH_PRICE;
             case ARCHER_TOWER_ITEM_ID -> ARCHER_TOWER_PRICE;
+            case FRIENDLY_ARCHER_ITEM_ID -> FRIENDLY_ARCHER_PRICE;
             case BOMB_TRAP_ITEM_ID -> BOMB_TRAP_PRICE;
             case BASIC_SWORD_ITEM_ID -> 18;
             case PICKAXE_ITEM_ID -> 14;
@@ -864,6 +882,21 @@ public class Game {
         if (!inventory.consumeItem(COIN_ITEM_ID, price)) {
             logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, false, "coin-consume-failed");
             renderer.showToast("Coin sync failed");
+            return;
+        }
+
+        if (FRIENDLY_ARCHER_ITEM_ID.equals(resolvedItemId)) {
+            boolean spawned = spawnFriendlyArcherNearPlayer();
+            if (!spawned) {
+                inventory.addItem(COIN_ITEM_ID, price);
+                logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, false, "spawn-failed");
+                renderer.showToast("No valid tile for Archer");
+                return;
+            }
+            refreshBuildInventoryUi();
+            logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, true, "spawned");
+            System.out.println("Bought FRIENDLY_ARCHER spawned coin = " + inventory.getAmount(COIN_ITEM_ID));
+            renderer.showToast("Bought Archer");
             return;
         }
 
@@ -892,6 +925,7 @@ public class Game {
     private void restartSurvival() {
         // Reset world moi: clear enemy/resource procedural va inventory.
         enemies.clear();
+        friendlyArcherManager.clear();
         bossEnemy = null;
         buildManager.clearObjects();
         inventory.restore(Map.of());
@@ -919,6 +953,7 @@ public class Game {
         setSelectedHotbarIndex(selectedHotbarIndex);
 
         resetWorldPosition();
+        loadMapWoodFences();
         spawnAmbientBlackGrouse();
         gameState = GameState.PLAYING;
     }
@@ -985,12 +1020,16 @@ public class Game {
             } else {
                 enemy.update(now, player, worldWidth, worldHeight);
             }
-            if (isEnemyCollidingWithPlacedWall(enemy)) {
+            if (isEnemyCollidingWithPlacedWall(enemy) || isEnemyCollidingWithFriendlyArcher(enemy)) {
                 enemy.setPosition(oldEnemyX, oldEnemyY);
             }
 
             enemy.tryAttackPlayer(player, now);
             tryAttackBaseCamp(enemy, now);
+            FriendlyArcher ally = firstCollidingFriendlyArcher(enemy);
+            if (ally != null) {
+                enemy.tryAttackEntity(ally, now);
+            }
         }
 
         if (!dead.isEmpty()) {
@@ -1031,6 +1070,41 @@ public class Game {
             tower.markAttack(now);
             System.out.println("ArcherTower attack enemy id " + System.identityHashCode(target));
         }
+    }
+
+    private void updateFriendlyArchers(long now) {
+        friendlyArcherManager.update(
+                now,
+                player,
+                enemies,
+                arrowProjectiles,
+                new FriendlyArcherManager.WorldQuery() {
+                    @Override
+                    public boolean canOccupy(FriendlyArcher archer, double x, double y, double width, double height) {
+                        return Game.this.canFriendlyArcherOccupy(archer, x, y, width, height);
+                    }
+
+                    @Override
+                    public int getTileWidth() {
+                        return buildCollisionManager.getTileWidth();
+                    }
+
+                    @Override
+                    public int getTileHeight() {
+                        return buildCollisionManager.getTileHeight();
+                    }
+
+                    @Override
+                    public double getWorldWidth() {
+                        return worldWidth;
+                    }
+
+                    @Override
+                    public double getWorldHeight() {
+                        return worldHeight;
+                    }
+                }
+        );
     }
 
     private void updateArrowProjectiles(long now) {
@@ -1423,6 +1497,142 @@ public class Game {
         );
     }
 
+    private boolean isEnemyCollidingWithFriendlyArcher(Enemy enemy) {
+        return firstCollidingFriendlyArcher(enemy) != null;
+    }
+
+    private FriendlyArcher firstCollidingFriendlyArcher(Enemy enemy) {
+        if (enemy == null) {
+            return null;
+        }
+        for (FriendlyArcher archer : friendlyArcherManager.getArchers()) {
+            if (archer == null || !archer.isAlive()) {
+                continue;
+            }
+            if (CollisionSystem.intersects(enemy, archer)) {
+                return archer;
+            }
+        }
+        return null;
+    }
+
+    private boolean canFriendlyArcherOccupy(FriendlyArcher archer, double x, double y, double width, double height) {
+        if (buildCollisionManager.isBlockedByStaticObjects(x, y, width, height)
+                || buildCollisionManager.isBlockedByTerrain(x, y, width, height)
+                || buildCollisionManager.isBlockedByWater(x, y, width, height)) {
+            return false;
+        }
+        if (buildCollisionManager.intersectsPlacedBuildObject(x, y, width, height, buildManager.getPlacedObjects())) {
+            return false;
+        }
+        for (Enemy enemy : enemies) {
+            if (enemy == null || !enemy.isAlive()) {
+                continue;
+            }
+            if (CollisionSystem.intersects(x, y, width, height, enemy.getX(), enemy.getY(), enemy.getWidth(), enemy.getHeight())) {
+                return false;
+            }
+        }
+        for (FriendlyArcher other : friendlyArcherManager.getArchers()) {
+            if (other == null || other == archer || !other.isAlive()) {
+                continue;
+            }
+            if (CollisionSystem.intersects(x, y, width, height, other.getX(), other.getY(), other.getWidth(), other.getHeight())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean spawnFriendlyArcherNearPlayer() {
+        int playerGridX = (int) Math.floor(player.getCenterX() / buildCollisionManager.getTileWidth());
+        int playerGridY = (int) Math.floor(player.getCenterY() / buildCollisionManager.getTileHeight());
+
+        for (int radius = 1; radius <= 8; radius++) {
+            int[][] priority = {
+                    {playerGridX + radius, playerGridY},
+                    {playerGridX - radius, playerGridY},
+                    {playerGridX, playerGridY + radius},
+                    {playerGridX, playerGridY - radius}
+            };
+            for (int[] tile : priority) {
+                if (trySpawnFriendlyArcherAtTile(tile[0], tile[1])) {
+                    return true;
+                }
+            }
+
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dy = -radius; dy <= radius; dy++) {
+                    if (Math.max(Math.abs(dx), Math.abs(dy)) != radius) {
+                        continue;
+                    }
+                    if (trySpawnFriendlyArcherAtTile(playerGridX + dx, playerGridY + dy)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean trySpawnFriendlyArcherAtTile(int gridX, int gridY) {
+        if (!isValidFriendlyArcherTile(gridX, gridY)) {
+            return false;
+        }
+        FriendlyArcher archer = friendlyArcherManager.spawnAtTile(
+                gridX,
+                gridY,
+                buildCollisionManager.getTileWidth(),
+                buildCollisionManager.getTileHeight()
+        );
+        if (!canFriendlyArcherOccupy(archer, archer.getX(), archer.getY(), archer.getWidth(), archer.getHeight())) {
+            friendlyArcherManager.getArchers().remove(archer);
+            return false;
+        }
+        return true;
+    }
+
+    private boolean isValidFriendlyArcherTile(int gridX, int gridY) {
+        if (mapData == null) {
+            return false;
+        }
+        if (gridX < 0 || gridY < 0 || gridX >= mapData.getWidthInTiles() || gridY >= mapData.getHeightInTiles()) {
+            return false;
+        }
+        if (buildManager.getPlacedObjectAt(gridX, gridY) != null) {
+            return false;
+        }
+        if (intersectsPlayerTile(gridX, gridY)) {
+            return false;
+        }
+        int tileWidth = buildCollisionManager.getTileWidth();
+        int tileHeight = buildCollisionManager.getTileHeight();
+        double x = gridX * tileWidth;
+        double y = gridY * tileHeight;
+        if (buildCollisionManager.isBlockedByStaticObjects(x, y, tileWidth, tileHeight)
+                || buildCollisionManager.isBlockedByTerrain(x, y, tileWidth, tileHeight)
+                || buildCollisionManager.isBlockedByWater(x, y, tileWidth, tileHeight)) {
+            return false;
+        }
+        for (Enemy enemy : enemies) {
+            if (enemy == null || !enemy.isAlive()) {
+                continue;
+            }
+            if (CollisionSystem.intersects(x, y, tileWidth, tileHeight, enemy.getX(), enemy.getY(), enemy.getWidth(), enemy.getHeight())) {
+                return false;
+            }
+        }
+        for (FriendlyArcher archer : friendlyArcherManager.getArchers()) {
+            if (archer == null || !archer.isAlive()) {
+                continue;
+            }
+            if (CollisionSystem.intersects(x, y, tileWidth, tileHeight, archer.getX(), archer.getY(), archer.getWidth(), archer.getHeight())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private void spawnAmbientBlackGrouse() {
         blackGrouseSpawnManager.spawnInitialFlock(enemies);
     }
@@ -1615,6 +1825,7 @@ public class Game {
             case POTION_ITEM_ID -> "Potion";
             case TORCH_ITEM_ID -> "Torch";
             case ARCHER_TOWER_ITEM_ID -> "Archer Tower";
+            case FRIENDLY_ARCHER_ITEM_ID -> "Archer";
             case BOMB_TRAP_ITEM_ID -> "Bomb Trap";
             case BASIC_SWORD_ITEM_ID -> "Basic Sword";
             case PICKAXE_ITEM_ID -> "Pickaxe";
@@ -1685,6 +1896,92 @@ public class Game {
         }
     }
 
+    private void loadMapWoodFences() {
+        if (mapData == null) {
+            return;
+        }
+        Set<String> fenceTiles = new LinkedHashSet<>();
+
+        int mapWidthTiles = mapData.getWidthInTiles();
+        int mapHeightTiles = mapData.getHeightInTiles();
+        int centerX = mapWidthTiles / 2;
+        int centerY = mapHeightTiles / 2;
+        int fenceWidth = 60;
+        int fenceHeight = 40;
+        int left = centerX - fenceWidth / 2;
+        int top = centerY - fenceHeight / 2;
+        int right = left + fenceWidth - 1;
+        int bottom = top + fenceHeight - 1;
+        int gateSize = 4;
+        int gateStartX = centerX - gateSize / 2;
+        int gateEndX = gateStartX + gateSize - 1;
+        int gateStartY = centerY - gateSize / 2;
+        int gateEndY = gateStartY + gateSize - 1;
+
+        for (int x = left; x <= right; x++) {
+            if (x < gateStartX || x > gateEndX) {
+                fenceTiles.add(x + ":" + top);
+                fenceTiles.add(x + ":" + bottom);
+            }
+        }
+
+        for (int y = top; y <= bottom; y++) {
+            if (y < gateStartY || y > gateEndY) {
+                fenceTiles.add(left + ":" + y);
+                fenceTiles.add(right + ":" + y);
+            }
+        }
+
+        for (String key : fenceTiles) {
+            String[] parts = key.split(":");
+            if (parts.length != 2) {
+                continue;
+            }
+            addMapWoodFence(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]));
+        }
+    }
+
+    private void addMapWoodFence(int gridX, int gridY) {
+        if (mapData == null) {
+            return;
+        }
+        if (gridX < 0 || gridY < 0 || gridX >= mapData.getWidthInTiles() || gridY >= mapData.getHeightInTiles()) {
+            return;
+        }
+        if (intersectsPlayerTile(gridX, gridY)) {
+            return;
+        }
+        if (buildManager.getPlacedObjectAt(gridX, gridY) != null) {
+            return;
+        }
+        FenceEntity fence = new FenceEntity(
+                gridX,
+                gridY,
+                mapData.getTileWidth(),
+                mapData.getTileHeight()
+        );
+        fence.setHealth(GameBalance.WOOD_FENCE_MAX_HP);
+        fence.setSaveEnabled(false);
+        buildManager.addPlacedObject(fence);
+    }
+
+    private boolean intersectsPlayerTile(int gridX, int gridY) {
+        int tileWidth = mapData == null ? 16 : mapData.getTileWidth();
+        int tileHeight = mapData == null ? 16 : mapData.getTileHeight();
+        double x = gridX * tileWidth;
+        double y = gridY * tileHeight;
+        return CollisionSystem.intersects(
+                player.getX() + player.getWidth() * 0.22,
+                player.getY() + player.getHeight() * 0.30,
+                player.getWidth() * 0.56,
+                player.getHeight() * 0.62,
+                x,
+                y,
+                tileWidth,
+                tileHeight
+        );
+    }
+
     // updateHotbarSelectionInput:
     // - Doc phim 1..9 va click hotbar de doi slot dang chon.
     // - Input: state input frame hien tai.
@@ -1728,7 +2025,7 @@ public class Game {
             return;
         }
         // Slot -> item:
-        // - Hien tai chi slot 1 chua stone_wall.
+        // - Hien tai slot nao co item build thi BuildManager se tu doc tu toolbar model.
         // - Chon slot nay se thong bao cho BuildManager bat BUILD_WALL_MODE.
         // - Cac slot khac de null de game thoat khoi che do xay.
         selectedHotbarIndex = slotIndex;
@@ -1889,8 +2186,9 @@ public class Game {
         }
         return switch (itemId.trim().toLowerCase()) {
             case WALL_ITEM_ALIAS -> WOOD_FENCE_ITEM_ID;
-            case "stone_wall", "wood_fence", "wood fence" -> WOOD_FENCE_ITEM_ID;
-            case "cung", "archer", "archer_tower" -> ARCHER_TOWER_ITEM_ID;
+            case "wood_fence", "wood fence" -> WOOD_FENCE_ITEM_ID;
+            case "cung", "archer_tower" -> ARCHER_TOWER_ITEM_ID;
+            case "archer", "friendly_archer", "friendly archer" -> FRIENDLY_ARCHER_ITEM_ID;
             case "bomb", "bomb_trap", "bomb trap", "bom" -> BOMB_TRAP_ITEM_ID;
             default -> itemId.trim().toLowerCase();
         };

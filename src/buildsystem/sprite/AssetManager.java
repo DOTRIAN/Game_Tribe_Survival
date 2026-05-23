@@ -1,9 +1,7 @@
 package buildsystem.sprite;
 
 import buildsystem.core.BuildAssetResolver;
-import javafx.scene.SnapshotParameters;
-import javafx.scene.canvas.Canvas;
-import javafx.scene.canvas.GraphicsContext;
+import buildsystem.fence.FenceRenderer;
 import javafx.scene.image.Image;
 import javafx.scene.image.PixelReader;
 import javafx.scene.image.PixelWriter;
@@ -23,12 +21,19 @@ import java.util.Map;
  * - Khi sau nay co sprite atlas rieng cho trap/chest/torch/turret, chi can mo rong implementation nay.
  */
 public class AssetManager implements BuildAssetResolver {
-    private static final Path WOOD_FENCE_SHEET_PATH = Path.of("assets", "woodFence", "woodFence.png");
     private static final Path TORCH_SHEET_PATH = Path.of("assets", "Torch.png");
     private static final int TORCH_SHEET_COLUMNS = 4;
     private static final int TORCH_SHEET_ROWS = 2;
     private static final Path ARCHER_SHEET_PATH = Path.of("assets", "thap_ban_cung", "thap_cung.png");
     private static final Path ARCHER_ARROW_PATH = Path.of("assets", "thap_ban_cung", "Arrow01(32x32).png");
+    private static final Path FRIENDLY_ARCHER_IDLE_PATH = Path.of("assets", "Skeleton_Archer", "Idle.png");
+    private static final Path FRIENDLY_ARCHER_WALK_PATH = Path.of("assets", "Skeleton_Archer", "Walk.png");
+    private static final Path FRIENDLY_ARCHER_ATTACK_PATH = Path.of("assets", "Skeleton_Archer", "Attack.png");
+    private static final Path FRIENDLY_ARCHER_SHOT_PATH = Path.of("assets", "Skeleton_Archer", "Shot.png");
+    private static final Path FRIENDLY_ARCHER_EVASION_PATH = Path.of("assets", "Skeleton_Archer", "Evasion.png");
+    private static final Path FRIENDLY_ARCHER_HURT_PATH = Path.of("assets", "Skeleton_Archer", "Hurt.png");
+    private static final Path FRIENDLY_ARCHER_DEAD_PATH = Path.of("assets", "Skeleton_Archer", "Dead.png");
+    private static final Path FRIENDLY_ARCHER_ARROW_PATH = Path.of("assets", "Skeleton_Archer", "Arrow.png");
     private static final List<Path> BOMB_SHEET_CANDIDATES = List.of(
             Path.of("assets", "bom", "png"),
             Path.of("assets", "bom", "png", "bom.png"),
@@ -37,9 +42,15 @@ public class AssetManager implements BuildAssetResolver {
     );
     private static final int BOMB_SHEET_COLUMNS = 7;
     private static final int BOMB_SHEET_ROWS = 1;
-    private static final int ARCHER_SHEET_ROWS = 2;
-    private static final int ARCHER_IDLE_FRAME_COUNT = 7;
-    private static final int ARCHER_ATTACK_FRAME_COUNT = 8;
+    private static final int ARCHER_SHEET_ROWS = 1;
+    private static final int ARCHER_IDLE_FRAME_COUNT = 4;
+    private static final int FRIENDLY_ARCHER_IDLE_COLS = 7;
+    private static final int FRIENDLY_ARCHER_WALK_COLS = 8;
+    private static final int FRIENDLY_ARCHER_ATTACK_COLS = 5;
+    private static final int FRIENDLY_ARCHER_SHOT_COLS = 15;
+    private static final int FRIENDLY_ARCHER_EVASION_COLS = 6;
+    private static final int FRIENDLY_ARCHER_HURT_COLS = 2;
+    private static final int FRIENDLY_ARCHER_DEAD_COLS = 6;
 
     // spriteCache:
     // - key la ten sprite logic.
@@ -53,6 +64,7 @@ public class AssetManager implements BuildAssetResolver {
         loadWoodFenceSprites();
         loadTorchSpriteSheet();
         loadArcherTowerSprites();
+        loadFriendlyArcherSprites();
         loadBombTrapSprites();
     }
 
@@ -104,79 +116,17 @@ public class AssetManager implements BuildAssetResolver {
     }
 
     private void loadWoodFenceSprites() {
-        Image sheet = new Image(WOOD_FENCE_SHEET_PATH.toUri().toString());
-        if (sheet.isError()) {
-            System.out.println("Failed to load wood fence sheet: " + WOOD_FENCE_SHEET_PATH);
+        Map<String, Image> fenceSprites = FenceRenderer.loadSprites();
+        if (fenceSprites.isEmpty()) {
             return;
         }
-        Image fenceSingle = cropAndKeyBackground(sheet, 477, 246, 266, 195, false);
-        if (fenceSingle == null) {
-            return;
+        spriteCache.putAll(fenceSprites);
+        Image single = fenceSprites.get(FenceRenderer.SINGLE_SPRITE_KEY);
+        if (single != null) {
+            spriteCache.put("wall_icon", single);
+            spriteCache.put("wall_single", single);
+            spriteCache.put("wall_straight_base", single);
         }
-        spriteCache.put("wood_fence_single", fenceSingle);
-        spriteCache.put("wood_fence_icon", fenceSingle);
-        // Legacy aliases so old keys do not break while stone_wall assets are removed.
-        spriteCache.put("wall_icon", fenceSingle);
-        spriteCache.put("wall_single", fenceSingle);
-        spriteCache.put("wall_straight_base", fenceSingle);
-        loadWoodFencePostSprites(sheet);
-    }
-
-    private void loadWoodFencePostSprites(Image sheet) {
-        for (int mask = 0; mask <= 15; mask++) {
-            spriteCache.put("wood_fence_mask_" + mask, createWoodFencePostSprite(sheet, mask));
-        }
-        spriteCache.put("fence_single", spriteCache.get("wood_fence_mask_0"));
-        spriteCache.put("horizontal_single", spriteCache.get("wood_fence_single"));
-        spriteCache.put("vertical_single", spriteCache.get("wood_fence_mask_12"));
-        spriteCache.put("horizontal_left_end", spriteCache.get("wood_fence_mask_2"));
-        spriteCache.put("horizontal_middle", spriteCache.get("wood_fence_mask_3"));
-        spriteCache.put("horizontal_right_end", spriteCache.get("wood_fence_mask_1"));
-        spriteCache.put("vertical_top_end", spriteCache.get("wood_fence_mask_8"));
-        spriteCache.put("vertical_middle", spriteCache.get("wood_fence_mask_12"));
-        spriteCache.put("vertical_bottom_end", spriteCache.get("wood_fence_mask_4"));
-        spriteCache.put("corner_top_left", spriteCache.get("wood_fence_mask_10"));
-        spriteCache.put("corner_top_right", spriteCache.get("wood_fence_mask_9"));
-        spriteCache.put("corner_bottom_left", spriteCache.get("wood_fence_mask_6"));
-        spriteCache.put("corner_bottom_right", spriteCache.get("wood_fence_mask_5"));
-        spriteCache.put("t_up", spriteCache.get("wood_fence_mask_11"));
-        spriteCache.put("t_down", spriteCache.get("wood_fence_mask_7"));
-        spriteCache.put("t_left", spriteCache.get("wood_fence_mask_13"));
-        spriteCache.put("t_right", spriteCache.get("wood_fence_mask_14"));
-        spriteCache.put("cross", spriteCache.get("wood_fence_mask_15"));
-    }
-
-    private Image createWoodFencePostSprite(Image sheet, int mask) {
-        Canvas canvas = new Canvas(16, 16);
-        GraphicsContext graphics = canvas.getGraphicsContext2D();
-        graphics.setImageSmoothing(false);
-
-        boolean left = (mask & 1) != 0;
-        boolean right = (mask & 2) != 0;
-        boolean up = (mask & 4) != 0;
-        boolean down = (mask & 8) != 0;
-
-        // Rail texture sampled from the horizontal fence asset. It is drawn before the post
-        // so every corner/T/cross keeps one shared post at the tile center.
-        if (left) {
-            graphics.drawImage(sheet, 570, 318, 80, 40, 0, 5, 8, 6);
-        }
-        if (right) {
-            graphics.drawImage(sheet, 570, 318, 80, 40, 8, 5, 8, 6);
-        }
-        if (up) {
-            graphics.drawImage(sheet, 570, 318, 80, 40, 5, 0, 6, 8);
-        }
-        if (down) {
-            graphics.drawImage(sheet, 570, 318, 80, 40, 5, 8, 6, 8);
-        }
-
-        graphics.drawImage(sheet, 516, 246, 55, 195, 4, 1, 8, 14);
-        SnapshotParameters parameters = new SnapshotParameters();
-        parameters.setFill(Color.TRANSPARENT);
-        WritableImage image = new WritableImage(16, 16);
-        canvas.snapshot(parameters, image);
-        return transparentBrightBackground(image, false);
     }
 
     private void loadTorchSpriteSheet() {
@@ -207,36 +157,27 @@ public class AssetManager implements BuildAssetResolver {
             Image fallback = spriteCache.get("wall_icon");
             if (fallback != null) {
                 animationCache.put("archer_tower_idle", new Image[]{fallback});
-                animationCache.put("archer_tower_fire", new Image[]{fallback});
                 spriteCache.put("archer_tower_icon", fallback);
             }
             return;
         }
 
         int frameHeight = Math.max(1, (int) Math.round(sheet.getHeight() / ARCHER_SHEET_ROWS));
-        Image cleanedSheet = transparentNearWhite(sheet);
-        Image[] idleFrames = splitVisibleFramesInRow(cleanedSheet, 0, frameHeight, ARCHER_IDLE_FRAME_COUNT);
-        Image[] fireFrames = cropArcherRow(sheet, frameHeight, frameHeight, ARCHER_ATTACK_FRAME_COUNT);
-        if (idleFrames.length == 0 || fireFrames.length != ARCHER_ATTACK_FRAME_COUNT) {
+        Image[] idleFrames = cropArcherRow(sheet, 0, frameHeight, ARCHER_IDLE_FRAME_COUNT);
+        if (idleFrames.length != ARCHER_IDLE_FRAME_COUNT) {
             Image fallback = spriteCache.get("wall_icon");
             if (fallback != null) {
                 animationCache.put("archer_tower_idle", new Image[]{fallback});
-                animationCache.put("archer_tower_fire", new Image[]{fallback});
                 spriteCache.put("archer_tower_icon", fallback);
             }
             return;
         }
-        idleFrames = normalizeFramesToCanvas(idleFrames);
-        fireFrames = normalizeFramesToCanvas(fireFrames);
+        idleFrames = normalizeArcherFrames(idleFrames, new int[]{0, -1, 0, 1});
 
         animationCache.put("archer_tower_idle", idleFrames);
-        animationCache.put("archer_tower_fire", fireFrames);
         spriteCache.put("archer_tower_icon", idleFrames[0]);
         for (int index = 0; index < idleFrames.length; index++) {
             spriteCache.put("archer_tower_idle_" + index, idleFrames[index]);
-        }
-        for (int index = 0; index < fireFrames.length; index++) {
-            spriteCache.put("archer_tower_fire_" + index, fireFrames[index]);
         }
 
         Image arrow = new Image(ARCHER_ARROW_PATH.toUri().toString());
@@ -277,6 +218,30 @@ public class AssetManager implements BuildAssetResolver {
             }
         }
         return null;
+    }
+
+    private Image[] loadFriendlyArcherStrip(Path imagePath, int columns) {
+        if (imagePath == null || columns <= 0 || !Files.isRegularFile(imagePath)) {
+            return new Image[0];
+        }
+        Image sheet = new Image(imagePath.toUri().toString());
+        if (sheet.isError()) {
+            return new Image[0];
+        }
+        PixelReader reader = sheet.getPixelReader();
+        if (reader == null) {
+            return new Image[0];
+        }
+        int sheetWidth = (int) Math.round(sheet.getWidth());
+        int frameWidth = Math.max(1, (int) Math.round(sheetWidth / (double) columns));
+        int frameHeight = Math.max(1, (int) Math.round(sheet.getHeight()));
+        Image[] frames = new Image[columns];
+        for (int i = 0; i < columns; i++) {
+            int x = Math.min(sheetWidth - 1, i * frameWidth);
+            int width = Math.min(frameWidth, sheetWidth - x);
+            frames[i] = cleanFriendlyArcherFrameBackground(new WritableImage(reader, x, 0, Math.max(1, width), frameHeight));
+        }
+        return normalizeFramesToCanvas(frames);
     }
 
     private Image[] splitBombSheet(Image sheet, int columns, int rows) {
@@ -456,9 +421,50 @@ public class AssetManager implements BuildAssetResolver {
             int x = (int) Math.round(index * sheetWidth / (double) frameCount);
             int nextX = (int) Math.round((index + 1) * sheetWidth / (double) frameCount);
             int width = Math.max(1, nextX - x);
-            frames[index] = transparentNearWhite(new WritableImage(reader, x, startY, width, frameHeight));
+            frames[index] = cleanArcherFrameBackground(new WritableImage(reader, x, startY, width, frameHeight));
         }
         return frames;
+    }
+
+    private void loadFriendlyArcherSprites() {
+        Image[] idle = loadFriendlyArcherStrip(FRIENDLY_ARCHER_IDLE_PATH, FRIENDLY_ARCHER_IDLE_COLS);
+        Image[] walk = loadFriendlyArcherStrip(FRIENDLY_ARCHER_WALK_PATH, FRIENDLY_ARCHER_WALK_COLS);
+        Image[] attack = loadFriendlyArcherStrip(FRIENDLY_ARCHER_ATTACK_PATH, FRIENDLY_ARCHER_ATTACK_COLS);
+        Image[] shot = loadFriendlyArcherStrip(FRIENDLY_ARCHER_SHOT_PATH, FRIENDLY_ARCHER_SHOT_COLS);
+        Image[] evasion = loadFriendlyArcherStrip(FRIENDLY_ARCHER_EVASION_PATH, FRIENDLY_ARCHER_EVASION_COLS);
+        Image[] hurt = loadFriendlyArcherStrip(FRIENDLY_ARCHER_HURT_PATH, FRIENDLY_ARCHER_HURT_COLS);
+        Image[] dead = loadFriendlyArcherStrip(FRIENDLY_ARCHER_DEAD_PATH, FRIENDLY_ARCHER_DEAD_COLS);
+
+        if (idle.length > 0) {
+            animationCache.put("friendly_archer_idle", idle);
+            spriteCache.put("friendly_archer_icon", idle[0]);
+            for (int i = 0; i < idle.length; i++) {
+                spriteCache.put("friendly_archer_idle_" + i, idle[i]);
+            }
+        }
+        if (walk.length > 0) {
+            animationCache.put("friendly_archer_walk", walk);
+        }
+        if (attack.length > 0) {
+            animationCache.put("friendly_archer_attack", attack);
+        }
+        if (shot.length > 0) {
+            animationCache.put("friendly_archer_shot", shot);
+        }
+        if (evasion.length > 0) {
+            animationCache.put("friendly_archer_evasion", evasion);
+        }
+        if (hurt.length > 0) {
+            animationCache.put("friendly_archer_hurt", hurt);
+        }
+        if (dead.length > 0) {
+            animationCache.put("friendly_archer_dead", dead);
+        }
+
+        Image arrow = new Image(FRIENDLY_ARCHER_ARROW_PATH.toUri().toString());
+        if (!arrow.isError()) {
+            spriteCache.put("friendly_archer_arrow", cleanFriendlyArcherFrameBackground(arrow));
+        }
     }
 
     private Image[] normalizeFramesToCanvas(Image[] frames) {
@@ -506,69 +512,6 @@ public class AssetManager implements BuildAssetResolver {
         return normalized;
     }
 
-    private Image[] splitVisibleFramesInRow(Image sheet, int startY, int rowHeight, int maxFrames) {
-        PixelReader reader = sheet.getPixelReader();
-        if (reader == null || rowHeight <= 0 || maxFrames <= 0) {
-            return new Image[0];
-        }
-        int sheetWidth = (int) Math.round(sheet.getWidth());
-        java.util.List<Image> frames = new java.util.ArrayList<>();
-        boolean inside = false;
-        int startX = 0;
-        for (int x = 0; x < sheetWidth; x++) {
-            boolean hasPixel = false;
-            for (int y = startY; y < startY + rowHeight; y += 2) {
-                if (reader.getColor(x, y).getOpacity() > 0.05) {
-                    hasPixel = true;
-                    break;
-                }
-            }
-            if (hasPixel && !inside) {
-                inside = true;
-                startX = x;
-            } else if (!hasPixel && inside) {
-                addVisibleFrame(reader, frames, startX, x - 1, startY, rowHeight, sheetWidth);
-                inside = false;
-            }
-        }
-        if (inside) {
-            addVisibleFrame(reader, frames, startX, sheetWidth - 1, startY, rowHeight, sheetWidth);
-        }
-        if (frames.size() > maxFrames) {
-            frames = frames.subList(0, maxFrames);
-        }
-        return frames.toArray(new Image[0]);
-    }
-
-    private void addVisibleFrame(PixelReader reader,
-                                 java.util.List<Image> frames,
-                                 int startX,
-                                 int endX,
-                                 int startY,
-                                 int rowHeight,
-                                 int sheetWidth) {
-        int padding = 1;
-        int x = Math.max(0, startX - padding);
-        int right = Math.min(sheetWidth - 1, endX + padding);
-        int width = Math.max(1, right - x + 1);
-        if (width < 40) {
-            return;
-        }
-        frames.add(new WritableImage(reader, x, startY, width, rowHeight));
-    }
-
-    private Image[] loadGridOrSingle(Path path, int columns, int rows) {
-        Image sheet = new Image(path.toUri().toString());
-        if (sheet.isError()) {
-            return new Image[0];
-        }
-        Image[] frames = animation.SpriteSheetLoader.loadGrid(path.toUri().toString(), columns, rows);
-        if (frames.length > 0) {
-            return frames;
-        }
-        return new Image[]{sheet};
-    }
-
     private Image transparentNearWhite(Image source) {
         if (source == null || source.isError()) {
             return source;
@@ -597,36 +540,15 @@ public class AssetManager implements BuildAssetResolver {
         return cleaned;
     }
 
-    private Image cropAndKeyBackground(Image source, int x, int y, int width, int height) {
-        return cropAndKeyBackground(source, x, y, width, height, true);
-    }
-
-    private Image cropAndKeyBackground(Image source, int x, int y, int width, int height, boolean trim) {
-        if (source == null || source.isError()) {
-            return null;
-        }
-        PixelReader reader = source.getPixelReader();
-        if (reader == null) {
-            return null;
-        }
-        int safeX = Math.max(0, x);
-        int safeY = Math.max(0, y);
-        int safeWidth = Math.max(1, Math.min(width, (int) source.getWidth() - safeX));
-        int safeHeight = Math.max(1, Math.min(height, (int) source.getHeight() - safeY));
-        WritableImage cropped = new WritableImage(reader, safeX, safeY, safeWidth, safeHeight);
-        return transparentBrightBackground(cropped, trim);
-    }
-
-    private Image transparentBrightBackground(Image source) {
-        return transparentBrightBackground(source, true);
-    }
-
-    private Image transparentBrightBackground(Image source, boolean trim) {
+    private Image cleanArcherFrameBackground(Image source) {
         if (source == null || source.isError()) {
             return source;
         }
         int width = (int) Math.round(source.getWidth());
         int height = (int) Math.round(source.getHeight());
+        if (width <= 0 || height <= 0) {
+            return source;
+        }
         PixelReader reader = source.getPixelReader();
         if (reader == null) {
             return source;
@@ -636,14 +558,153 @@ public class AssetManager implements BuildAssetResolver {
         for (int y = 0; y < height; y++) {
             for (int x = 0; x < width; x++) {
                 Color color = reader.getColor(x, y);
-                if (isBrightLowSaturation(color)) {
+                if (isArcherBackground(color)) {
                     writer.setColor(x, y, Color.TRANSPARENT);
                 } else {
                     writer.setColor(x, y, color);
                 }
             }
         }
-        return trim ? trimTransparentBounds(cleaned) : cleaned;
+        return cleaned;
+    }
+
+    private Image cleanFriendlyArcherFrameBackground(Image source) {
+        if (source == null || source.isError()) {
+            return source;
+        }
+        int width = (int) Math.round(source.getWidth());
+        int height = (int) Math.round(source.getHeight());
+        if (width <= 0 || height <= 0) {
+            return source;
+        }
+        PixelReader reader = source.getPixelReader();
+        if (reader == null) {
+            return source;
+        }
+        WritableImage cleaned = new WritableImage(width, height);
+        PixelWriter writer = cleaned.getPixelWriter();
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                Color color = reader.getColor(x, y);
+                if (isFriendlyArcherBackground(color)) {
+                    writer.setColor(x, y, Color.TRANSPARENT);
+                } else {
+                    writer.setColor(x, y, color);
+                }
+            }
+        }
+        return trimTransparentBounds(cleaned);
+    }
+
+    private Image[] normalizeArcherFrames(Image[] frames, int[] yAdjustments) {
+        if (frames == null || frames.length == 0) {
+            return new Image[0];
+        }
+
+        java.util.List<FrameBox> boxes = new java.util.ArrayList<>();
+        int targetHeight = 0;
+        int maxLeftExtent = 0;
+        int maxRightExtent = 0;
+
+        for (Image frame : frames) {
+            FrameBox box = computeFrameBox(frame, 2);
+            boxes.add(box);
+            if (box == null) {
+                continue;
+            }
+            targetHeight = Math.max(targetHeight, box.height);
+            maxLeftExtent = Math.max(maxLeftExtent, box.footCenterX);
+            maxRightExtent = Math.max(maxRightExtent, box.width - box.footCenterX);
+        }
+
+        if (maxLeftExtent <= 0 || maxRightExtent <= 0 || targetHeight <= 0) {
+            return frames;
+        }
+
+        int targetFootX = maxLeftExtent + 2;
+        int targetWidth = targetFootX + maxRightExtent + 2;
+        Image[] normalized = new Image[frames.length];
+        for (int index = 0; index < frames.length; index++) {
+            FrameBox box = boxes.get(index);
+            Image frame = frames[index];
+            if (box == null || frame == null || frame.isError()) {
+                normalized[index] = frame;
+                continue;
+            }
+            PixelReader reader = frame.getPixelReader();
+            if (reader == null) {
+                normalized[index] = frame;
+                continue;
+            }
+
+            int adjustY = yAdjustments != null && index < yAdjustments.length ? yAdjustments[index] : 0;
+            int offsetX = targetFootX - box.footCenterX;
+            int offsetY = targetHeight - box.height + adjustY;
+            offsetX = Math.max(0, Math.min(offsetX, Math.max(0, targetWidth - box.width)));
+            offsetY = Math.max(0, Math.min(offsetY, Math.max(0, targetHeight - box.height)));
+            WritableImage canvas = new WritableImage(targetWidth, targetHeight);
+            PixelWriter writer = canvas.getPixelWriter();
+            for (int y = 0; y < box.height; y++) {
+                for (int x = 0; x < box.width; x++) {
+                    writer.setColor(offsetX + x, offsetY + y, reader.getColor(box.minX + x, box.minY + y));
+                }
+            }
+            normalized[index] = canvas;
+        }
+        return normalized;
+    }
+
+    private FrameBox computeFrameBox(Image frame, int padding) {
+        if (frame == null || frame.isError()) {
+            return null;
+        }
+        PixelReader reader = frame.getPixelReader();
+        if (reader == null) {
+            return null;
+        }
+        int width = (int) Math.round(frame.getWidth());
+        int height = (int) Math.round(frame.getHeight());
+        int minX = width;
+        int minY = height;
+        int maxX = -1;
+        int maxY = -1;
+        int weightedX = 0;
+        int weightedCount = 0;
+        int footBandStart = Math.max(0, height - Math.max(12, height / 5));
+
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                Color color = reader.getColor(x, y);
+                if (color.getOpacity() <= 0.03) {
+                    continue;
+                }
+                minX = Math.min(minX, x);
+                minY = Math.min(minY, y);
+                maxX = Math.max(maxX, x);
+                maxY = Math.max(maxY, y);
+                if (y >= footBandStart) {
+                    weightedX += x;
+                    weightedCount++;
+                }
+            }
+        }
+
+        if (maxX < minX || maxY < minY) {
+            return null;
+        }
+
+        int safeMinX = Math.max(0, minX - padding);
+        int safeMinY = Math.max(0, minY - padding);
+        int safeMaxX = Math.min(width - 1, maxX + padding);
+        int safeMaxY = Math.min(height - 1, maxY + padding);
+        int footCenterX = weightedCount > 0 ? Math.round(weightedX / (float) weightedCount) : (safeMinX + safeMaxX) / 2;
+        return new FrameBox(
+                safeMinX,
+                safeMinY,
+                safeMaxX - safeMinX + 1,
+                safeMaxY - safeMinY + 1,
+                Math.max(0, footCenterX - safeMinX)
+        );
     }
 
     private Image trimTransparentBounds(Image source) {
@@ -683,15 +744,44 @@ public class AssetManager implements BuildAssetResolver {
                 && color.getBlue() >= 0.96;
     }
 
-    private boolean isBrightLowSaturation(Color color) {
-        if (color == null) {
+    private boolean isArcherBackground(Color color) {
+        if (color == null || color.getOpacity() <= 0.001) {
             return false;
         }
         double max = Math.max(color.getRed(), Math.max(color.getGreen(), color.getBlue()));
         double min = Math.min(color.getRed(), Math.min(color.getGreen(), color.getBlue()));
-        double saturation = max <= 0.0001 ? 0.0 : (max - min) / max;
-        return color.getOpacity() > 0.001
-                && max >= 0.82
-                && saturation <= 0.18;
+        return color.getRed() >= 0.88
+                && color.getGreen() >= 0.88
+                && color.getBlue() >= 0.88
+                && (max - min) <= 0.10;
     }
+
+    private boolean isFriendlyArcherBackground(Color color) {
+        if (color == null || color.getOpacity() <= 0.001) {
+            return false;
+        }
+        double max = Math.max(color.getRed(), Math.max(color.getGreen(), color.getBlue()));
+        double min = Math.min(color.getRed(), Math.min(color.getGreen(), color.getBlue()));
+        return color.getRed() >= 0.90
+                && color.getGreen() >= 0.90
+                && color.getBlue() >= 0.90
+                && (max - min) <= 0.12;
+    }
+
+    private static final class FrameBox {
+        private final int minX;
+        private final int minY;
+        private final int width;
+        private final int height;
+        private final int footCenterX;
+
+        private FrameBox(int minX, int minY, int width, int height, int footCenterX) {
+            this.minX = minX;
+            this.minY = minY;
+            this.width = width;
+            this.height = height;
+            this.footCenterX = footCenterX;
+        }
+    }
+
 }

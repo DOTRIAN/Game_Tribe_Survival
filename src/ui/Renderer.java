@@ -3,6 +3,7 @@ package ui;
 import buildsystem.component.LightComponent;
 import buildsystem.core.BuildManager;
 import buildsystem.object.BuildObject;
+import buildsystem.fence.FenceEntity;
 import buildsystem.object.ArcherTower;
 import buildsystem.object.BombTrap;
 import buildsystem.core.BuildPreview;
@@ -12,6 +13,7 @@ import core.GameState;
 import entity.CollectibleDrop;
 import entity.DroppedItem;
 import entity.Enemy;
+import entity.FriendlyArcher;
 import entity.Player;
 import entity.ArrowProjectile;
 import input.InputHandler;
@@ -39,6 +41,8 @@ import system.level.PlayerProgress;
 import system.bomb.ExplosionEffect;
 import system.resource.ResourceNode;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -122,7 +126,7 @@ public class Renderer {
         return Math.max(1.0, canvas.getHeight());
     }
 
-    public void render(GameState gameState, Player player, List<Enemy> enemies, long now,
+    public void render(GameState gameState, Player player, List<Enemy> enemies, List<FriendlyArcher> friendlyArchers, long now,
                        double cameraX, double cameraY, int menuIndex, boolean welcomeFlashing,
                        String playerNameDraft, int maxNameLength,
                        List<Level> levels, PlayerProgress playerProgress, int selectedLevelIndex,
@@ -174,7 +178,7 @@ public class Renderer {
         }
 
         if (gameState == GameState.PLAYING || gameState == GameState.PAUSED || gameState == GameState.GAME_OVER || gameState == GameState.LEVEL_COMPLETE) {
-            renderGameplay(player, enemies, now, cameraX, cameraY, currentLevel, objectiveStatus,
+            renderGameplay(player, enemies, friendlyArchers, now, cameraX, cameraY, currentLevel, objectiveStatus,
                     allResources, collectedResources, buildManager, arrowProjectiles, droppedItems, explosionEffects, droppedCollectibles, floatingDamageTexts,
                     cameraShakeX, cameraShakeY, screenFlashAlpha,
                     darknessAlpha, isNight, dayNightPhase, worldWidth, worldHeight, viewportWidth, viewportHeight);
@@ -305,6 +309,7 @@ public class Renderer {
 
     private void renderGameplay(Player player,
                                 List<Enemy> enemies,
+                                List<FriendlyArcher> friendlyArchers,
                                 long now,
                                 double cameraX,
                                 double cameraY,
@@ -340,13 +345,15 @@ public class Renderer {
         }
 
         renderBuildPreview(buildManager, cameraX, cameraY);
-        renderPlacedBuildObjects(buildManager, cameraX, cameraY, now);
+        List<ArcherTower> archerTowers = renderPlacedBuildObjects(buildManager, cameraX, cameraY, now);
         renderArrowProjectiles(arrowProjectiles, cameraX, cameraY);
         renderDroppedItems(droppedItems, cameraX, cameraY, now);
         renderExplosionEffects(explosionEffects, cameraX, cameraY, now);
         renderCollectibleItems(droppedCollectibles, cameraX, cameraY, now);
 
         player.draw(graphicsContext, cameraX, cameraY);
+        renderArcherTowers(archerTowers, cameraX, cameraY, now);
+        renderFriendlyArchers(friendlyArchers, cameraX, cameraY, now);
         renderLevelUpEffect(player, cameraX, cameraY, now);
         if (enemies != null) {
             for (Enemy enemy : enemies) {
@@ -397,12 +404,22 @@ public class Renderer {
         }
     }
 
-    private void renderPlacedBuildObjects(BuildManager buildManager, double cameraX, double cameraY, long nowNs) {
+    private List<ArcherTower> renderPlacedBuildObjects(BuildManager buildManager, double cameraX, double cameraY, long nowNs) {
         if (buildManager == null) {
-            return;
+            return List.of();
         }
+        List<FenceEntity> fences = new ArrayList<>();
+        List<ArcherTower> archerTowers = new ArrayList<>();
         for (BuildObject object : buildManager.getPlacedObjects()) {
             if (object == null) {
+                continue;
+            }
+            if (object instanceof FenceEntity fence) {
+                fences.add(fence);
+                continue;
+            }
+            if (object instanceof ArcherTower archerTower) {
+                archerTowers.add(archerTower);
                 continue;
             }
             double screenX = object.getRenderX() - cameraX;
@@ -428,6 +445,105 @@ public class Renderer {
             graphicsContext.setFill(Color.color(0.75, 0.75, 0.75, 0.85));
             graphicsContext.fillRect(screenX, screenY, object.getRenderWidth(), object.getRenderHeight());
         }
+        fences.sort(Comparator.comparingDouble(FenceEntity::getFootY));
+        renderFenceHorizontalConnectors(fences, buildManager, cameraX, cameraY);
+        for (FenceEntity fence : fences) {
+            renderBuildObject(fence, cameraX, cameraY, nowNs);
+        }
+        return archerTowers;
+    }
+
+    private void renderArcherTowers(List<ArcherTower> archerTowers, double cameraX, double cameraY, long nowNs) {
+        if (archerTowers == null || archerTowers.isEmpty()) {
+            return;
+        }
+        for (ArcherTower archerTower : archerTowers) {
+            renderBuildObject(archerTower, cameraX, cameraY, nowNs);
+        }
+    }
+
+    private void renderFriendlyArchers(List<FriendlyArcher> friendlyArchers, double cameraX, double cameraY, long nowNs) {
+        if (friendlyArchers == null || friendlyArchers.isEmpty()) {
+            return;
+        }
+        for (FriendlyArcher archer : friendlyArchers) {
+            if (archer == null) {
+                continue;
+            }
+            Image[] frames = buildAssetManager.getAnimationFrames(archer.getAnimationKey());
+            int frameIndex = Math.max(0, Math.min(archer.getFrameIndex(), Math.max(0, frames.length - 1)));
+            Image frame = (frames.length == 0) ? buildAssetManager.getSprite("friendly_archer_icon") : frames[frameIndex];
+            double screenX = Math.round(archer.getRenderX() - cameraX);
+            double screenY = Math.round(archer.getRenderY() - cameraY);
+            double renderWidth = archer.getRenderWidth();
+            double renderHeight = archer.getRenderHeight();
+            if (frame == null || frame.isError()) {
+                graphicsContext.setFill(Color.DARKSEAGREEN);
+                graphicsContext.fillRect(screenX, screenY, renderWidth, renderHeight);
+                continue;
+            }
+            graphicsContext.save();
+            if (archer.isFacingRight()) {
+                graphicsContext.drawImage(frame, screenX, screenY, renderWidth, renderHeight);
+            } else {
+                graphicsContext.translate(screenX + renderWidth, screenY);
+                graphicsContext.scale(-1, 1);
+                graphicsContext.drawImage(frame, 0, 0, renderWidth, renderHeight);
+            }
+            graphicsContext.restore();
+        }
+    }
+
+    private void renderFenceHorizontalConnectors(List<FenceEntity> fences, BuildManager buildManager, double cameraX, double cameraY) {
+        Image connector = buildAssetManager.getSprite(buildsystem.fence.FenceRenderer.CONNECTOR_SPRITE_KEY);
+        if (buildManager == null || connector == null || connector.isError() || fences == null || fences.isEmpty()) {
+            return;
+        }
+        for (FenceEntity fence : fences) {
+            if (fence == null) {
+                continue;
+            }
+            BuildObject rightNeighbor = buildManager.getPlacedObjectAt(fence.getTileX() + 1, fence.getTileY());
+            if (!(rightNeighbor instanceof FenceEntity)) {
+                continue;
+            }
+
+            double leftCenterX = fence.getRenderX() + fence.getRenderWidth() / 2.0;
+            double rightCenterX = rightNeighbor.getRenderX() + rightNeighbor.getRenderWidth() / 2.0;
+            double connectorWidth = Math.max(1.0, rightCenterX - leftCenterX);
+            double connectorHeight = fence.getRenderHeight() * 0.24;
+            double drawX = leftCenterX - cameraX;
+            double drawY = fence.getRenderY() - cameraY + fence.getRenderHeight() * 0.43;
+            graphicsContext.drawImage(connector, drawX, drawY, connectorWidth, connectorHeight);
+        }
+    }
+
+    private void renderBuildObject(BuildObject object, double cameraX, double cameraY, long nowNs) {
+        if (object == null) {
+            return;
+        }
+        double screenX = object.getRenderX() - cameraX;
+        double screenY = object.getRenderY() - cameraY;
+        Image objectImage = buildImageFor(object, nowNs);
+        if (objectImage != null && !objectImage.isError()) {
+            drawRotatedImage(objectImage, screenX, screenY, object.getRenderWidth(), object.getRenderHeight(), object.getRotationDegrees());
+            if (object.isHitFlashActive(nowNs)) {
+                Image tinted = buildTintedBySourceAlpha(objectImage, object.getHitFlashColor());
+                if (tinted != null) {
+                    graphicsContext.save();
+                    graphicsContext.setGlobalAlpha(0.58);
+                    drawRotatedImage(tinted, screenX, screenY, object.getRenderWidth(), object.getRenderHeight(), object.getRotationDegrees());
+                    graphicsContext.restore();
+                }
+            }
+            if (DEBUG_DRAW_WALL_BOUNDS) {
+                graphicsContext.setStroke(Color.color(0.0, 1.0, 1.0, 0.75));
+                graphicsContext.strokeRect(screenX, screenY, object.getRenderWidth(), object.getRenderHeight());
+            }
+            return;
+        }
+        graphicsContext.setFill(Color.color(0.75, 0.75, 0.75, 0.85));
+        graphicsContext.fillRect(screenX, screenY, object.getRenderWidth(), object.getRenderHeight());
     }
 
     private void renderDroppedItems(List<DroppedItem> droppedItems, double cameraX, double cameraY, long nowNs) {
@@ -469,15 +585,26 @@ public class Renderer {
         if (arrowProjectiles == null) {
             return;
         }
-        Image arrowSprite = buildAssetManager.getSprite("archer_arrow");
         for (ArrowProjectile arrow : arrowProjectiles) {
             if (arrow == null || !arrow.isAlive()) {
                 continue;
             }
             double screenX = arrow.getX() - cameraX;
             double screenY = arrow.getY() - cameraY;
+            Image arrowSprite = buildAssetManager.getSprite(arrow.getSpriteKey());
+            if (arrowSprite == null || arrowSprite.isError()) {
+                arrowSprite = buildAssetManager.getSprite("archer_arrow");
+            }
             if (arrowSprite != null && !arrowSprite.isError()) {
-                drawRotatedImage(arrowSprite, screenX, screenY, arrow.getWidth(), arrow.getHeight(), arrow.getRotationDegrees());
+                double drawWidth = arrow.getWidth();
+                double drawHeight = arrow.getHeight();
+                if ("friendly_archer_arrow".equals(arrow.getSpriteKey())) {
+                    drawWidth = Math.max(1.0, arrowSprite.getWidth());
+                    drawHeight = Math.max(1.0, arrowSprite.getHeight());
+                    screenX = arrow.getCenterX() - cameraX - drawWidth / 2.0;
+                    screenY = arrow.getCenterY() - cameraY - drawHeight / 2.0;
+                }
+                drawRotatedImage(arrowSprite, screenX, screenY, drawWidth, drawHeight, arrow.getRotationDegrees());
                 continue;
             }
             graphicsContext.save();
@@ -567,10 +694,7 @@ public class Renderer {
             }
         }
         if ("archer_tower".equalsIgnoreCase(buildType)) {
-            String animationKey = (object instanceof ArcherTower tower && tower.isAttacking())
-                    ? "archer_tower_fire"
-                    : "archer_tower_idle";
-            Image animatedFrame = buildAssetManager.getAnimationFrame(animationKey, nowNs, GameBalance.ARCHER_TOWER_ANIMATION_FRAME_NS);
+            Image animatedFrame = buildAssetManager.getAnimationFrame("archer_tower_idle", nowNs, GameBalance.ARCHER_TOWER_ANIMATION_FRAME_NS);
             if (animatedFrame != null && !animatedFrame.isError()) {
                 return animatedFrame;
             }

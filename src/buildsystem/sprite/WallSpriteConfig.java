@@ -24,10 +24,6 @@ public final class WallSpriteConfig {
     public static final double WALL_RENDER_HEIGHT = 16.0;
     public static final double WALL_ANCHOR_X = 0.0;
     public static final double WALL_ANCHOR_Y = 0.0;
-    public static final double WOOD_FENCE_RENDER_WIDTH = 16.0;
-    public static final double WOOD_FENCE_RENDER_HEIGHT = 16.0;
-    public static final double WOOD_FENCE_ANCHOR_X = 0.0;
-    public static final double WOOD_FENCE_ANCHOR_Y = 0.0;
 
     /**
      * getRegions:

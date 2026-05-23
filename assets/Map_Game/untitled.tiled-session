@@ -1,23 +1,50 @@
 {
-    "activeFile": "map.tmx",
+    "activeFile": "nen.tsx",
     "expandedProjectPaths": [
     ],
     "file.lastUsedOpenFilter": "All Files (*)",
     "fileStates": {
+        "D:/IT/Game_TEST/assets/maps/Props.tsx": {
+            "scaleInDock": 1
+        },
+        "D:/IT/Game_TEST/assets/maps/TreeSize02.tsx": {
+            "scaleInDock": 1
+        },
+        "D:/IT/Game_TEST/assets/maps/TreeSize04.tsx": {
+            "scaleInDock": 1
+        },
+        "Level_1.tsx": {
+            "scaleInDock": 1
+        },
+        "Stone_03-Sheet.tsx": {
+            "scaleInDock": 1
+        },
+        "Vegetation.tsx": {
+            "scaleInDock": 1
+        },
+        "Workbench.tsx": {
+            "scaleInDock": 1
+        },
+        "houses.tsx": {
+            "scaleInDock": 1
+        },
         "map.tmx": {
-            "scale": 1.5,
+            "scale": 0.5,
             "selectedLayer": 1,
             "viewCenter": {
-                "x": 394,
-                "y": 559.6666666666666
+                "x": 1020,
+                "y": 755
             }
+        },
+        "map.tmx#Walls": {
+            "scaleInDock": 1
         },
         "nen.tsx": {
             "scaleInDock": 1,
             "scaleInEditor": 3
         }
     },
-    "last.imagePath": "gentle_sheets",
+    "last.imagePath": "E:/Downloads",
     "map.height": 80,
     "map.lastUsedFormat": "tmx",
     "map.tileHeight": 16,
