@@ -18,7 +18,7 @@ import java.util.Map;
  * - Muc tieu: tai su dung ResourceManager hien co ma khong can viet lai he thong resource.
  *
  * Cach lam:
- * 1) Duyet tile layers co object visuals (Objects + Foreground)
+ * 1) Duyet tile layers co object visuals (Objects + Foreground/Foregrounds)
  * 2) Tim cac tile co nhan tree/stone
  * 3) Gom tile lien ke thanh cluster (4 huong)
  * 4) Moi cluster -> 1 MapObjectData gia lap (co x,y,w,h + properties gameplay)
@@ -33,7 +33,7 @@ public class TileResourceAdapter {
         }
 
         TileLayerData objectsLayer = mapData.findLayerByName("Objects");
-        TileLayerData foregroundLayer = mapData.findLayerByName("Foreground");
+        TileLayerData foregroundLayer = findForegroundLayer(mapData);
         if (objectsLayer == null && foregroundLayer == null) {
             return result;
         }
@@ -75,9 +75,12 @@ public class TileResourceAdapter {
 
     private MapObjectData buildTreeObject(Cluster cluster, MapData mapData, TilePropertyCatalog catalog, int objectId, int tileW, int tileH) {
         int maxHp = 5;
+        TileLayerData objectsLayer = mapData.findLayerByName("Objects");
+        TileLayerData foregroundLayer = findForegroundLayer(mapData);
         for (Cell cell : cluster.cells) {
-            int gid = getTopVisualGidAt(cell.x, cell.y, mapData.findLayerByName("Objects"), mapData.findLayerByName("Foreground"));
-            maxHp = Math.max(maxHp, catalog.getIntProperty(gid, 5, "Hp", "hp", "maxHp"));
+            int gid = getTopVisualGidAt(cell.x, cell.y, objectsLayer, foregroundLayer);
+            // Uu tien schema Tiled moi, fallback schema cu.
+            maxHp = Math.max(maxHp, catalog.getIntProperty(gid, 5, "Hp_tree", "Hp", "hp", "maxHp"));
         }
 
         // Drop mac dinh cho tree, su dung contract dang co cua ResourceManager.
@@ -105,6 +108,13 @@ public class TileResourceAdapter {
 
     private MapObjectData buildStoneObject(Cluster cluster, MapData mapData, TilePropertyCatalog catalog, int objectId, int tileW, int tileH) {
         int maxHp = GameBalance.ROCK_HITS_TO_BREAK;
+        TileLayerData objectsLayer = mapData.findLayerByName("Objects");
+        TileLayerData foregroundLayer = findForegroundLayer(mapData);
+        for (Cell cell : cluster.cells) {
+            int gid = getTopVisualGidAt(cell.x, cell.y, objectsLayer, foregroundLayer);
+            // Uu tien schema Tiled moi, fallback schema cu.
+            maxHp = Math.max(maxHp, catalog.getIntProperty(gid, GameBalance.ROCK_HITS_TO_BREAK, "Hp_stone", "stone_Hp", "maxHp"));
+        }
 
         Map<String, String> props = new HashMap<>();
         props.put("kind", "rock_small");
@@ -180,6 +190,17 @@ public class TileResourceAdapter {
             return objectGid;
         }
         return 0;
+    }
+
+    private TileLayerData findForegroundLayer(MapData mapData) {
+        if (mapData == null) {
+            return null;
+        }
+        TileLayerData layer = mapData.findLayerByName("Foreground");
+        if (layer != null) {
+            return layer;
+        }
+        return mapData.findLayerByName("Foregrounds");
     }
 
     private static final class Cell {

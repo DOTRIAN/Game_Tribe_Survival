@@ -191,7 +191,7 @@ public class Game {
         this.inputHandler = new InputHandler();
         this.wallAssetManager = new AssetManager();
         CollectibleDrop.preloadAssets();
-        this.player = new Player(100, 100, 58, 58, 1, 100);
+        this.player = new Player(100, 100, 58, 58, 4, 100);
         this.baseCamp = new BaseCamp(0, 0, 116, 116, 500);
         this.gameLoop = new GameLoop(this);
         this.enemies = new ArrayList<>();

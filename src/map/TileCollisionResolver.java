@@ -70,6 +70,10 @@ public class TileCollisionResolver {
 
     private int getTopVisualGidAt(int tileX, int tileY) {
         TileLayerData foreground = mapData.findLayerByName("Foreground");
+        if (foreground == null) {
+            // Fallback cho schema map moi dat ten "Foregrounds".
+            foreground = mapData.findLayerByName("Foregrounds");
+        }
         if (foreground != null) {
             int gid = foreground.getGidAt(tileX, tileY);
             if (gid > 0) {

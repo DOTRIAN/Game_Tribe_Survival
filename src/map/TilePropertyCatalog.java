@@ -36,18 +36,29 @@ public class TilePropertyCatalog {
     }
 
     public boolean isTree(int gid) {
-        return hasOnValue(getPropertiesForGid(gid), "tree");
+        Map<String, String> props = getPropertiesForGid(gid);
+        // Tiled schema moi:
+        // - Ho tro ca "tree:on" va "Tree:on"
+        // - Ho tro nhan dien theo HP tile "Hp_tree > 0"
+        if (hasOnValue(props, "tree") || hasOnValue(props, "Tree")) {
+            return true;
+        }
+        int treeHp = parseInt(props.get("Hp_tree"), -1);
+        return treeHp > 0;
     }
 
     public boolean isStone(int gid) {
         Map<String, String> props = getPropertiesForGid(gid);
         // Ho tro 2 kieu data:
         // 1) stone:on (contract cu/de xuat)
-        // 2) stone_Hp=... (data map team dang dung)
-        if (hasOnValue(props, "stone")) {
+        // 2) stone_Hp/Hp_stone=... (data map team dang dung)
+        if (hasOnValue(props, "stone") || hasOnValue(props, "Stone")) {
             return true;
         }
-        int stoneHp = parseInt(props.get("stone_Hp"), -1);
+        int stoneHp = parseInt(props.get("Hp_stone"), -1);
+        if (stoneHp <= 0) {
+            stoneHp = parseInt(props.get("stone_Hp"), -1);
+        }
         return stoneHp > 0;
     }
 
