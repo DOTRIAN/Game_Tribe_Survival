@@ -1,1 +1,1 @@
-{"playerX":1473.0,"playerY":333.0,"playerHp":49,"playerEnergy":34.82348840000025,"baseCampHp":500,"elapsedNs":60027546300,"bossDefeated":0,"inventory":{},"buildObjects":[{"id":"249ee7a8-3c36-4af0-b167-c7308fa7ce1f","type":"TORCH","tileX":43,"tileY":19,"rotation":0.0,"health":2,"spriteKey":"torch_frame_0"}],"droppedItems":[]}
+{"playerX":851.0,"playerY":729.0,"playerHp":100,"playerEnergy":87.14616115000028,"baseCampHp":500,"elapsedNs":20022121000,"bossDefeated":0,"inventory":{"coin":20},"buildObjects":[],"droppedItems":[]}
