@@ -116,8 +116,8 @@ public class PlacementValidator {
                     y,
                     width,
                     height,
-                    object.getRenderX(),
-                    object.getRenderY(),
+                    object.getCollisionX(),
+                    object.getCollisionY(),
                     object.getCollisionWidth(),
                     object.getCollisionHeight())) {
                 return true;

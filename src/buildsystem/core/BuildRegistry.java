@@ -1,5 +1,6 @@
 package buildsystem.core;
 
+import buildsystem.fence.FenceEntity;
 import buildsystem.object.Campfire;
 import buildsystem.object.Chest;
 import buildsystem.object.ArcherTower;
@@ -40,9 +41,6 @@ public class BuildRegistry {
         }
         byType.put(definition.getType(), definition);
         byItemId.put(definition.getItemId(), definition);
-        if ("wood_fence".equals(definition.getItemId())) {
-            byItemId.put("stone_wall", definition);
-        }
     }
 
     public BuildDefinition findByItemId(String itemId) {
@@ -59,16 +57,16 @@ public class BuildRegistry {
 
     private void registerDefaults() {
         register(BuildDefinition.builder(BuildType.STONE_WALL, "wood_fence", "Wood Fence")
-                .defaultSpriteKey("wood_fence_single")
-                .iconSpriteKey("wood_fence_icon")
+                .defaultSpriteKey(buildsystem.fence.FenceRenderer.SINGLE_SPRITE_KEY)
+                .iconSpriteKey(buildsystem.fence.FenceRenderer.ICON_SPRITE_KEY)
                 .placementStrategy(new GridPlacementStrategy())
-                .rotatable(true)
+                .rotatable(false)
                 .collisionEnabled(true)
                 .health(GameBalance.WOOD_FENCE_MAX_HP)
                 .buildCost(1)
                 .footprint(1, 1)
                 .autoTileGroup("wood_fence")
-                .objectBuilder(seed -> new Wall(seed.getDefinition(), seed))
+                .objectBuilder(seed -> new FenceEntity(seed.getDefinition(), seed))
                 .build());
 
         register(BuildDefinition.builder(BuildType.WOOD_WALL, "wood_wall", "Wood Wall")
@@ -80,18 +78,6 @@ public class BuildRegistry {
                 .health(90)
                 .buildCost(1)
                 .autoTileGroup("wall")
-                .objectBuilder(seed -> new Wall(seed.getDefinition(), seed))
-                .build());
-
-        register(BuildDefinition.builder(BuildType.FENCE, "fence", "Fence")
-                .defaultSpriteKey("wall_straight_base")
-                .iconSpriteKey("wall_icon")
-                .placementStrategy(new GridPlacementStrategy())
-                .rotatable(true)
-                .collisionEnabled(true)
-                .health(80)
-                .buildCost(1)
-                .autoTileGroup("fence")
                 .objectBuilder(seed -> new Wall(seed.getDefinition(), seed))
                 .build());
 

@@ -42,6 +42,7 @@ public abstract class BuildObject {
     private String spriteKey;
     private double rotationDegrees;
     private int health;
+    private boolean saveEnabled;
     private long hitFlashUntilNs;
     private Color hitFlashColor;
     private final Map<Class<? extends BuildComponent>, BuildComponent> components;
@@ -74,6 +75,7 @@ public abstract class BuildObject {
         this.spriteKey = spriteKey;
         this.rotationDegrees = normalize(rotationDegrees);
         this.health = Math.max(0, health);
+        this.saveEnabled = true;
         this.hitFlashUntilNs = -1L;
         this.hitFlashColor = Color.TRANSPARENT;
         this.components = new LinkedHashMap<>();
@@ -92,6 +94,7 @@ public abstract class BuildObject {
     public double getRotationDegrees() { return rotationDegrees; }
     public int getHealth() { return health; }
     public boolean isAlive() { return health > 0; }
+    public boolean isSaveEnabled() { return saveEnabled; }
     public double getCenterX() { return getRenderX() + renderWidth / 2.0; }
     public double getCenterY() { return getRenderY() + renderHeight / 2.0; }
 
@@ -115,6 +118,10 @@ public abstract class BuildObject {
         }
     }
 
+    public void setSaveEnabled(boolean saveEnabled) {
+        this.saveEnabled = saveEnabled;
+    }
+
     public void triggerHitFlash(long nowNs, long durationNs, Color color) {
         this.hitFlashUntilNs = nowNs + Math.max(1L, durationNs);
         this.hitFlashColor = color == null ? Color.TRANSPARENT : color;
@@ -136,6 +143,14 @@ public abstract class BuildObject {
         return tileY * tileHeight + (tileHeight - renderHeight) / 2.0 + anchorY;
     }
 
+    public double getLogicX() {
+        return tileX * tileWidth;
+    }
+
+    public double getLogicY() {
+        return tileY * tileHeight;
+    }
+
     public double getCollisionWidth() {
         CollisionComponent collision = getComponent(CollisionComponent.class);
         return collision == null ? renderWidth : collision.getWidth();
@@ -144,6 +159,14 @@ public abstract class BuildObject {
     public double getCollisionHeight() {
         CollisionComponent collision = getComponent(CollisionComponent.class);
         return collision == null ? renderHeight : collision.getHeight();
+    }
+
+    public double getCollisionX() {
+        return getLogicX();
+    }
+
+    public double getCollisionY() {
+        return getLogicY();
     }
 
     public void addComponent(BuildComponent component) {

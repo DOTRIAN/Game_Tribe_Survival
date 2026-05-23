@@ -5,6 +5,7 @@ import buildsystem.core.BuildMode;
 import buildsystem.core.BuildController;
 import buildsystem.core.CollisionManager;
 import buildsystem.core.BuildDamageResult;
+import buildsystem.fence.FenceEntity;
 import buildsystem.object.ArcherTower;
 import buildsystem.object.BombTrap;
 import buildsystem.object.BuildObject;
@@ -15,11 +16,15 @@ import entity.CollectibleDrop;
 import entity.DropType;
 import entity.DroppedItem;
 import entity.ArrowProjectile;
+import entity.BlackGrouseSpawnManager;
 import entity.BossEnemy;
 import entity.Enemy;
+import entity.FriendlyArcher;
+import entity.FriendlyArcherManager;
 import entity.OrcEnemy;
 import entity.Player;
 import entity.SkeletonEnemy;
+import entity.ThrownBomb;
 import event.GameEvent;
 import event.GameEventBus;
 import event.GameEventType;
@@ -44,17 +49,22 @@ import system.resource.ResourceType;
 import system.resource.TileResourceAdapter;
 import system.bomb.BombSystem;
 import system.bomb.ExplosionEffect;
+import system.bomb.FireBombBurnZone;
 import system.save.WorldSaveService;
 import ui.FloatingDamageText;
+import ui.HotbarItemStack;
+import ui.ItemUiMeta;
 import ui.Renderer;
 import world.InfiniteWorldManager;
 import world.WorldChunk;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 
 /**
  * Game:
@@ -87,9 +97,11 @@ public class Game {
     private final BuildManager buildManager;
     private final BuildController buildController;
     private final CollisionManager buildCollisionManager;
+    private final BlackGrouseSpawnManager blackGrouseSpawnManager;
     private final Player player;
     private final BaseCamp baseCamp;
     private final List<Enemy> enemies;
+    private final FriendlyArcherManager friendlyArcherManager;
     private BossEnemy bossEnemy;
 
     private final List<MapObjectData> mapCollisions;
@@ -99,9 +111,12 @@ public class Game {
     private final List<FloatingDamageText> floatingDamageTexts;
     private final List<DroppedItem> droppedItems;
     private final List<ArrowProjectile> arrowProjectiles;
+    private final List<ThrownBomb> thrownBombs;
     private final List<CollectibleDrop> droppedCollectibles;
     private final List<ExplosionEffect> explosionEffects;
+    private final List<FireBombBurnZone> fireBombBurnZones;
     private final BombSystem bombSystem;
+    private final List<HotbarItemStack> hotbarItems;
 
     // Inventory la state gameplay chinh cho he thu thap/craft.
     private final Inventory inventory;
@@ -145,7 +160,7 @@ public class Game {
     private static final double FOOD_ENERGY_BONUS = 15.0;
     private static final long DAMAGE_TEXT_LIFETIME_NS = 650_000_000L;
     // Hotbar hien tai de mo rong dan:
-    // - Slot 0: stone_wall.
+    // - Slot dau tien thuong la Wood Fence neu inventory dang co item nay.
     // - Cac slot khac de trong cho item build/craft sau nay.
     private static final String WOOD_FENCE_ITEM_ID = "wood_fence";
     private static final String WALL_ITEM_ALIAS = "wall";
@@ -154,10 +169,24 @@ public class Game {
     private static final String POTION_ITEM_ID = "potion";
     private static final String TORCH_ITEM_ID = "torch";
     private static final String ARCHER_TOWER_ITEM_ID = "archer_tower";
+    private static final String FRIENDLY_ARCHER_ITEM_ID = "friendly_archer";
     private static final String BOMB_TRAP_ITEM_ID = "bomb_trap";
+    private static final String FIRE_BOMB_ITEM_ID = "fire_bomb";
     private static final String BASIC_SWORD_ITEM_ID = "basic_sword";
     private static final String PICKAXE_ITEM_ID = "pickaxe";
     private static final String CARROT_ITEM_ID = "carrot";
+    private static final String[] HOTBAR_PRIORITY = {
+            WOOD_FENCE_ITEM_ID,
+            TORCH_ITEM_ID,
+            ARCHER_TOWER_ITEM_ID,
+            BOMB_TRAP_ITEM_ID,
+            FIRE_BOMB_ITEM_ID,
+            BASIC_SWORD_ITEM_ID,
+            PICKAXE_ITEM_ID,
+            POTION_ITEM_ID,
+            CARROT_ITEM_ID,
+            WOOD_WALL_ITEM_ID
+    };
     private static final int DROP_STACK_MIN = 1;
     private static final int DROP_STACK_MAX = 5;
     private static final int COIN_VALUE_PER_ITEM = 5;
@@ -172,7 +201,13 @@ public class Game {
     private static final int WOOD_WALL_PRICE = GameBalance.WOOD_WALL_PRICE;
     private static final int TORCH_PRICE = GameBalance.TORCH_PRICE;
     private static final int ARCHER_TOWER_PRICE = GameBalance.ARCHER_TOWER_PRICE;
+    private static final int FRIENDLY_ARCHER_PRICE = GameBalance.FRIENDLY_ARCHER_PRICE;
     private static final int BOMB_TRAP_PRICE = GameBalance.BOMB_TRAP_PRICE;
+    private static final int FIRE_BOMB_PRICE = GameBalance.FIRE_BOMB_PRICE;
+    private static final double FIRE_BOMB_THROW_SPEED = 8.2;
+    private static final double FIRE_BOMB_THROW_RANGE = 260.0;
+    private static final long FIRE_BOMB_FUSE_NS = 900_000_000L;
+    private static final double FIRE_BOMB_RENDER_SIZE = 18.0;
 
     // selectedHotbarIndex:
     // - Luu slot nguoi choi dang chon tren thanh hotbar.
@@ -184,6 +219,8 @@ public class Game {
     private long screenFlashUntilNs;
     private double screenShakeX;
     private double screenShakeY;
+    private boolean suppressWorldPrimaryUntilMouseRelease;
+    private boolean skipWorldPrimaryClickOnce;
 
     public Game(Stage stage) {
         // Constructor:
@@ -200,13 +237,17 @@ public class Game {
         this.floatingDamageTexts = new ArrayList<>();
         this.droppedItems = new ArrayList<>();
         this.arrowProjectiles = new ArrayList<>();
+        this.thrownBombs = new ArrayList<>();
         this.droppedCollectibles = new ArrayList<>();
         this.explosionEffects = new ArrayList<>();
+        this.fireBombBurnZones = new ArrayList<>();
         this.bombSystem = new BombSystem();
+        this.hotbarItems = new ArrayList<>();
         this.inventory = new Inventory();
         this.eventBus = new GameEventBus();
         this.worldSaveService = new WorldSaveService(SURVIVAL_SAVE_FILE);
         this.random = new Random();
+        this.friendlyArcherManager = new FriendlyArcherManager(this.random);
         this.infiniteWorldManager = new InfiniteWorldManager(20260520L);
 
         this.gameState = GameState.WELCOME;
@@ -231,6 +272,8 @@ public class Game {
         this.screenFlashUntilNs = 0L;
         this.screenShakeX = 0.0;
         this.screenShakeY = 0.0;
+        this.suppressWorldPrimaryUntilMouseRelease = false;
+        this.skipWorldPrimaryClickOnce = false;
 
         MapData loadedMap = tryLoadMap();
         this.mapData = loadedMap;
@@ -255,8 +298,20 @@ public class Game {
                 this.worldWidth,
                 this.worldHeight
         );
-        this.buildCollisionManager.setDynamicEntitySupplier(() -> enemies);
+        this.buildCollisionManager.setDynamicEntitySupplier(() -> {
+            List<entity.Entity> blockingEntities = new ArrayList<>(enemies.size() + friendlyArcherManager.getArchers().size());
+            blockingEntities.addAll(enemies);
+            blockingEntities.addAll(friendlyArcherManager.getArchers());
+            return blockingEntities;
+        });
         this.buildManager = new BuildManager(wallAssetManager, buildCollisionManager);
+        this.blackGrouseSpawnManager = new BlackGrouseSpawnManager(
+                loadedMap,
+                buildCollisionManager,
+                buildManager,
+                player,
+                random
+        );
         this.buildController = new BuildController(buildManager);
         this.renderer = new Renderer(stage, inputHandler, wallAssetManager);
         this.renderer.setMapData(loadedMap);
@@ -269,8 +324,9 @@ public class Game {
         if (!loadedFromSave) {
             seedStartingBuildItems();
         }
-        buildManager.syncToolbar(inventory.snapshot());
-        setSelectedHotbarIndex(selectedHotbarIndex);
+        loadMapWoodFences();
+        spawnAmbientBlackGrouse();
+        refreshBuildInventoryUi();
         renderer.setContinueAvailable(hasLoadedSaveSnapshot);
         renderer.setSettingsBackAction(this::closeSettingsFromUi);
 
@@ -304,19 +360,27 @@ public class Game {
         renderer.setShopUiActions(
                 itemId -> {
                     inputHandler.consumeMouseLeftClick();
+                    suppressWorldPrimaryUntilMouseRelease = true;
+                    skipWorldPrimaryClickOnce = true;
                     purchaseShopItem(itemId);
                 },
                 () -> {
                     inputHandler.consumeMouseLeftClick();
+                    suppressWorldPrimaryUntilMouseRelease = true;
+                    skipWorldPrimaryClickOnce = true;
                     renderer.setShopVisible(true);
                 },
                 () -> {
                     inputHandler.consumeMouseLeftClick();
+                    suppressWorldPrimaryUntilMouseRelease = true;
+                    skipWorldPrimaryClickOnce = true;
                     renderer.setShopVisible(false);
                 }
         );
         renderer.setInventoryCloseAction(() -> {
             inputHandler.consumeMouseLeftClick();
+            suppressWorldPrimaryUntilMouseRelease = true;
+            skipWorldPrimaryClickOnce = true;
             renderer.setInventoryVisible(false);
         });
     }
@@ -365,6 +429,7 @@ public class Game {
                 gameState,
                 player,
                 enemies,
+                friendlyArcherManager.getArchers(),
                 now,
                 cameraX,
                 cameraY,
@@ -383,9 +448,12 @@ public class Game {
                 selectedHotbarIndex,
                 inventory.getAmount(WOOD_FENCE_ITEM_ID),
                 buildManager,
+                hotbarItems,
                 arrowProjectiles,
+                thrownBombs,
                 droppedItems,
                 explosionEffects,
+                fireBombBurnZones,
                 droppedCollectibles,
                 floatingDamageTexts,
                 screenShakeX,
@@ -569,8 +637,18 @@ public class Game {
 
         if (inputHandler.isJustPressed(KeyCode.ESCAPE) && renderer.closeTopOverlay()) {
             renderer.hideToast();
+            suppressWorldPrimaryUntilMouseRelease = true;
             inputHandler.update();
             return true;
+        }
+
+        if (suppressWorldPrimaryUntilMouseRelease && !inputHandler.isMouseLeftPressed()) {
+            suppressWorldPrimaryUntilMouseRelease = false;
+        }
+        boolean skipWorldPrimaryClickThisFrame = skipWorldPrimaryClickOnce;
+        if (skipWorldPrimaryClickThisFrame) {
+            inputHandler.consumeMouseLeftClick();
+            skipWorldPrimaryClickOnce = false;
         }
 
         if (buildManager.getBuildMode() == BuildMode.BUILDING && inputHandler.isJustPressed(KeyCode.ESCAPE)) {
@@ -589,7 +667,9 @@ public class Game {
         // Q rotate:
         // - M峄梚 l岷 b岷 Q se doi huong N -> E -> S -> W.
         // - Preview se cap nhat ngay sau do trong cung frame.
-        if (inputHandler.isJustPressed(KeyCode.Q)) {
+        if (FIRE_BOMB_ITEM_ID.equals(getSelectedHotbarItemId()) && inputHandler.isJustPressed(KeyCode.Q)) {
+            throwSelectedFireBomb(now);
+        } else if (inputHandler.isJustPressed(KeyCode.Q)) {
             buildController.onRotatePressed();
         }
         boolean mouseOverUi = renderer.isMouseOverUi(inputHandler.getMouseX(), inputHandler.getMouseY());
@@ -638,12 +718,20 @@ public class Game {
             player.moveDown();
         }
 
-        if (!blockingOverlayVisible && !hotbarClickConsumed && inputHandler.isMouseLeftJustClicked() && !mouseOverUi) {
-            if (buildManager.getBuildMode() == BuildMode.BUILDING) {
+        if (!suppressWorldPrimaryUntilMouseRelease
+                && !skipWorldPrimaryClickThisFrame
+                && !blockingOverlayVisible
+                && !hotbarClickConsumed
+                && inputHandler.isMouseLeftJustClicked()
+                && !mouseOverUi) {
+            String selectedItemId = getSelectedHotbarItemId();
+            if (FIRE_BOMB_ITEM_ID.equals(selectedItemId)) {
+                throwSelectedFireBomb(now);
+            } else if (buildManager.getBuildMode() == BuildMode.BUILDING) {
                 // Dat wall:
                 // - Chi dat khi click tren world, khong de len UI.
                 // - BuildManager se validate occupied tile/collision truoc khi tao wall.
-                // - Dat thanh cong moi tru 1 stone_wall trong inventory.
+                // - Dat thanh cong moi tru 1 Wood Fence trong inventory.
                 if (buildController.onPrimaryClickPlace(player, inventory)) {
                     logPlacedBuild(buildManager.getLastPlacedObject());
                     refreshBuildInventoryUi();
@@ -680,8 +768,11 @@ public class Game {
         updateScreenImpulse(now);
         updateEnemySpawning(now);
         updateEnemies(now);
+        updateFriendlyArchers(now);
         updateArcherTowers(now);
         updateBombTraps(now);
+        updateThrownBombs(now);
+        updateFireBombBurnZones(now);
         updateArrowProjectiles(now);
 
         if (bossEnemy != null && !bossEnemy.isAlive()) {
@@ -833,7 +924,9 @@ public class Game {
             case POTION_ITEM_ID -> 12;
             case TORCH_ITEM_ID -> TORCH_PRICE;
             case ARCHER_TOWER_ITEM_ID -> ARCHER_TOWER_PRICE;
+            case FRIENDLY_ARCHER_ITEM_ID -> FRIENDLY_ARCHER_PRICE;
             case BOMB_TRAP_ITEM_ID -> BOMB_TRAP_PRICE;
+            case FIRE_BOMB_ITEM_ID -> FIRE_BOMB_PRICE;
             case BASIC_SWORD_ITEM_ID -> 18;
             case PICKAXE_ITEM_ID -> 14;
             case CARROT_ITEM_ID -> 3;
@@ -857,6 +950,21 @@ public class Game {
             return;
         }
 
+        if (FRIENDLY_ARCHER_ITEM_ID.equals(resolvedItemId)) {
+            boolean spawned = spawnFriendlyArcherNearPlayer();
+            if (!spawned) {
+                inventory.addItem(COIN_ITEM_ID, price);
+                logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, false, "spawn-failed");
+                renderer.showToast("No valid tile for Archer");
+                return;
+            }
+            refreshBuildInventoryUi();
+            logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, true, "spawned");
+            System.out.println("Bought FRIENDLY_ARCHER spawned coin = " + inventory.getAmount(COIN_ITEM_ID));
+            renderer.showToast("Bought Archer");
+            return;
+        }
+
         int beforeAmount = inventory.getAmount(resolvedItemId);
         inventory.addItem(resolvedItemId, 1);
         boolean inventoryAddResult = inventory.getAmount(resolvedItemId) == beforeAmount + 1;
@@ -875,6 +983,8 @@ public class Game {
             System.out.println("Bought ARCHER_TOWER quantity = " + inventory.getAmount(ARCHER_TOWER_ITEM_ID) + " coin = " + inventory.getAmount(COIN_ITEM_ID));
         } else if (BOMB_TRAP_ITEM_ID.equals(resolvedItemId)) {
             System.out.println("Bought BOMB_TRAP quantity = " + inventory.getAmount(BOMB_TRAP_ITEM_ID) + " coin = " + inventory.getAmount(COIN_ITEM_ID));
+        } else if (FIRE_BOMB_ITEM_ID.equals(resolvedItemId)) {
+            System.out.println("Bought FIRE_BOMB quantity = " + inventory.getAmount(FIRE_BOMB_ITEM_ID) + " coin = " + inventory.getAmount(COIN_ITEM_ID));
         }
         renderer.showToast("Bought " + prettifyItemName(resolvedItemId));
     }
@@ -882,6 +992,7 @@ public class Game {
     private void restartSurvival() {
         // Reset world moi: clear enemy/resource procedural va inventory.
         enemies.clear();
+        friendlyArcherManager.clear();
         bossEnemy = null;
         buildManager.clearObjects();
         inventory.restore(Map.of());
@@ -891,8 +1002,10 @@ public class Game {
         floatingDamageTexts.clear();
         droppedItems.clear();
         arrowProjectiles.clear();
+        thrownBombs.clear();
         droppedCollectibles.clear();
         explosionEffects.clear();
+        fireBombBurnZones.clear();
         cameraShakeUntilNs = 0L;
         screenFlashUntilNs = 0L;
         screenShakeX = 0.0;
@@ -909,6 +1022,8 @@ public class Game {
         setSelectedHotbarIndex(selectedHotbarIndex);
 
         resetWorldPosition();
+        loadMapWoodFences();
+        spawnAmbientBlackGrouse();
         gameState = GameState.PLAYING;
     }
 
@@ -950,8 +1065,16 @@ public class Game {
             if (enemy == null) {
                 continue;
             }
-            if (!enemy.isAlive()) {
+            if (enemy.shouldRemoveFromWorld()) {
                 dead.add(enemy);
+                continue;
+            }
+            if (!enemy.isAlive()) {
+                enemy.update(now, player, worldWidth, worldHeight);
+                continue;
+            }
+            if (!enemy.isHostile()) {
+                enemy.update(now, player, worldWidth, worldHeight);
                 continue;
             }
 
@@ -966,12 +1089,16 @@ public class Game {
             } else {
                 enemy.update(now, player, worldWidth, worldHeight);
             }
-            if (isEnemyCollidingWithPlacedWall(enemy)) {
+            if (isEnemyCollidingWithPlacedWall(enemy) || isEnemyCollidingWithFriendlyArcher(enemy)) {
                 enemy.setPosition(oldEnemyX, oldEnemyY);
             }
 
             enemy.tryAttackPlayer(player, now);
             tryAttackBaseCamp(enemy, now);
+            FriendlyArcher ally = firstCollidingFriendlyArcher(enemy);
+            if (ally != null) {
+                enemy.tryAttackEntity(ally, now);
+            }
         }
 
         if (!dead.isEmpty()) {
@@ -1014,6 +1141,41 @@ public class Game {
         }
     }
 
+    private void updateFriendlyArchers(long now) {
+        friendlyArcherManager.update(
+                now,
+                player,
+                enemies,
+                arrowProjectiles,
+                new FriendlyArcherManager.WorldQuery() {
+                    @Override
+                    public boolean canOccupy(FriendlyArcher archer, double x, double y, double width, double height) {
+                        return Game.this.canFriendlyArcherOccupy(archer, x, y, width, height);
+                    }
+
+                    @Override
+                    public int getTileWidth() {
+                        return buildCollisionManager.getTileWidth();
+                    }
+
+                    @Override
+                    public int getTileHeight() {
+                        return buildCollisionManager.getTileHeight();
+                    }
+
+                    @Override
+                    public double getWorldWidth() {
+                        return worldWidth;
+                    }
+
+                    @Override
+                    public double getWorldHeight() {
+                        return worldHeight;
+                    }
+                }
+        );
+    }
+
     private void updateArrowProjectiles(long now) {
         if (arrowProjectiles.isEmpty()) {
             return;
@@ -1050,6 +1212,105 @@ public class Game {
         }
         if (!expired.isEmpty()) {
             arrowProjectiles.removeAll(expired);
+        }
+    }
+
+    private void updateThrownBombs(long now) {
+        if (thrownBombs.isEmpty()) {
+            return;
+        }
+        List<ThrownBomb> exploded = new ArrayList<>();
+        for (ThrownBomb bomb : thrownBombs) {
+            if (bomb == null) {
+                continue;
+            }
+            bomb.update(now);
+            if (!bomb.shouldExplode()) {
+                continue;
+            }
+            exploded.add(bomb);
+            triggerFireBombExplosion(bomb, now);
+        }
+        if (!exploded.isEmpty()) {
+            thrownBombs.removeAll(exploded);
+        }
+    }
+
+    private void triggerFireBombExplosion(ThrownBomb bomb, long now) {
+        if (bomb == null) {
+            return;
+        }
+        fireBombBurnZones.add(new FireBombBurnZone(
+                bomb.getX(),
+                bomb.getY(),
+                bomb.getBlastRadius(),
+                GameBalance.FIRE_BOMB_BURN_DAMAGE,
+                now,
+                GameBalance.FIRE_BOMB_BURN_DURATION_NS,
+                GameBalance.FIRE_BOMB_FADE_DURATION_NS,
+                GameBalance.FIRE_BOMB_DAMAGE_TICK_NS,
+                wallAssetManager.getAnimationFrames("fire_bomb_blast"),
+                wallAssetManager.getAnimationFrames("fire_bomb_ember")
+        ));
+        cameraShakeUntilNs = Math.max(cameraShakeUntilNs, now + 180_000_000L);
+        screenFlashUntilNs = Math.max(screenFlashUntilNs, now + 90_000_000L);
+
+        for (Enemy enemy : enemies) {
+            if (enemy == null || !enemy.isAlive()) {
+                continue;
+            }
+            if (distance(bomb.getX(), bomb.getY(), enemy.getCenterX(), enemy.getCenterY()) > bomb.getBlastRadius()) {
+                continue;
+            }
+            DamageResult damageResult = DamageSystem.applyDamage(player, enemy, GameBalance.FIRE_BOMB_IMPACT_DAMAGE, now);
+            spawnEnemyDamageText(enemy, damageResult, now);
+        }
+    }
+
+    private void updateFireBombBurnZones(long now) {
+        if (fireBombBurnZones.isEmpty()) {
+            return;
+        }
+        List<FireBombBurnZone> expired = new ArrayList<>();
+        for (FireBombBurnZone zone : fireBombBurnZones) {
+            if (zone == null) {
+                continue;
+            }
+            if (zone.isExpired(now)) {
+                expired.add(zone);
+                continue;
+            }
+            if (!zone.shouldApplyDamage(now)) {
+                continue;
+            }
+            int tickDamage = zone.resolveTickDamage(now);
+            if (zone.contains(player.getCenterX(), player.getCenterY())) {
+                DamageResult playerDamage = DamageSystem.applyDamage(null, player, tickDamage, now);
+                if (playerDamage.getFinalDamage() > 0) {
+                    floatingDamageTexts.add(new FloatingDamageText(
+                            "-" + playerDamage.getFinalDamage(),
+                            player.getCenterX(),
+                            player.getY() - 10,
+                            now,
+                            DAMAGE_TEXT_LIFETIME_NS,
+                            false
+                    ));
+                }
+            }
+            for (Enemy enemy : enemies) {
+                if (enemy == null || !enemy.isAlive()) {
+                    continue;
+                }
+                if (!zone.contains(enemy.getCenterX(), enemy.getCenterY())) {
+                    continue;
+                }
+                DamageResult damageResult = DamageSystem.applyDamage(player, enemy, tickDamage, now);
+                spawnEnemyDamageText(enemy, damageResult, now);
+            }
+            zone.markDamageApplied(now);
+        }
+        if (!expired.isEmpty()) {
+            fireBombBurnZones.removeAll(expired);
         }
     }
 
@@ -1246,6 +1507,45 @@ public class Game {
                 Map.of("item", drop.getItemId(), "amount", drop.getAmount())));
     }
 
+    private boolean throwSelectedFireBomb(long now) {
+        if (inventory.getAmount(FIRE_BOMB_ITEM_ID) <= 0) {
+            renderer.showToast("No fire bomb");
+            return false;
+        }
+        if (!inventory.consumeItem(FIRE_BOMB_ITEM_ID, 1)) {
+            renderer.showToast("Cannot use fire bomb");
+            return false;
+        }
+
+        double sourceX = player.getCenterX();
+        double sourceY = player.getCenterY() - 8.0;
+        double targetX = cameraX + (inputHandler.getMouseX() / CAMERA_ZOOM);
+        double targetY = cameraY + (inputHandler.getMouseY() / CAMERA_ZOOM);
+        double dx = targetX - sourceX;
+        double dy = targetY - sourceY;
+        double dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > FIRE_BOMB_THROW_RANGE && dist > 0.0001) {
+            targetX = sourceX + dx / dist * FIRE_BOMB_THROW_RANGE;
+            targetY = sourceY + dy / dist * FIRE_BOMB_THROW_RANGE;
+        }
+
+        thrownBombs.add(new ThrownBomb(
+                sourceX,
+                sourceY,
+                targetX,
+                targetY,
+                FIRE_BOMB_THROW_SPEED,
+                GameBalance.FIRE_BOMB_RADIUS,
+                GameBalance.FIRE_BOMB_IMPACT_DAMAGE,
+                now,
+                FIRE_BOMB_FUSE_NS,
+                FIRE_BOMB_RENDER_SIZE
+        ));
+        refreshBuildInventoryUi();
+        renderer.showToast("Fire Bomb thrown");
+        return true;
+    }
+
     private boolean applyAttackToFirstEnemy(double x, double y, double w, double h, int damage, long nowNs) {
         for (Enemy enemy : enemies) {
             if (enemy == null || !enemy.isAlive()) {
@@ -1402,6 +1702,146 @@ public class Game {
                 enemy.getHeight(),
                 buildManager.getPlacedObjects()
         );
+    }
+
+    private boolean isEnemyCollidingWithFriendlyArcher(Enemy enemy) {
+        return firstCollidingFriendlyArcher(enemy) != null;
+    }
+
+    private FriendlyArcher firstCollidingFriendlyArcher(Enemy enemy) {
+        if (enemy == null) {
+            return null;
+        }
+        for (FriendlyArcher archer : friendlyArcherManager.getArchers()) {
+            if (archer == null || !archer.isAlive()) {
+                continue;
+            }
+            if (CollisionSystem.intersects(enemy, archer)) {
+                return archer;
+            }
+        }
+        return null;
+    }
+
+    private boolean canFriendlyArcherOccupy(FriendlyArcher archer, double x, double y, double width, double height) {
+        if (buildCollisionManager.isBlockedByStaticObjects(x, y, width, height)
+                || buildCollisionManager.isBlockedByTerrain(x, y, width, height)
+                || buildCollisionManager.isBlockedByWater(x, y, width, height)) {
+            return false;
+        }
+        if (buildCollisionManager.intersectsPlacedBuildObject(x, y, width, height, buildManager.getPlacedObjects())) {
+            return false;
+        }
+        for (Enemy enemy : enemies) {
+            if (enemy == null || !enemy.isAlive()) {
+                continue;
+            }
+            if (CollisionSystem.intersects(x, y, width, height, enemy.getX(), enemy.getY(), enemy.getWidth(), enemy.getHeight())) {
+                return false;
+            }
+        }
+        for (FriendlyArcher other : friendlyArcherManager.getArchers()) {
+            if (other == null || other == archer || !other.isAlive()) {
+                continue;
+            }
+            if (CollisionSystem.intersects(x, y, width, height, other.getX(), other.getY(), other.getWidth(), other.getHeight())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean spawnFriendlyArcherNearPlayer() {
+        int playerGridX = (int) Math.floor(player.getCenterX() / buildCollisionManager.getTileWidth());
+        int playerGridY = (int) Math.floor(player.getCenterY() / buildCollisionManager.getTileHeight());
+
+        for (int radius = 1; radius <= 8; radius++) {
+            int[][] priority = {
+                    {playerGridX + radius, playerGridY},
+                    {playerGridX - radius, playerGridY},
+                    {playerGridX, playerGridY + radius},
+                    {playerGridX, playerGridY - radius}
+            };
+            for (int[] tile : priority) {
+                if (trySpawnFriendlyArcherAtTile(tile[0], tile[1])) {
+                    return true;
+                }
+            }
+
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dy = -radius; dy <= radius; dy++) {
+                    if (Math.max(Math.abs(dx), Math.abs(dy)) != radius) {
+                        continue;
+                    }
+                    if (trySpawnFriendlyArcherAtTile(playerGridX + dx, playerGridY + dy)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean trySpawnFriendlyArcherAtTile(int gridX, int gridY) {
+        if (!isValidFriendlyArcherTile(gridX, gridY)) {
+            return false;
+        }
+        FriendlyArcher archer = friendlyArcherManager.spawnAtTile(
+                gridX,
+                gridY,
+                buildCollisionManager.getTileWidth(),
+                buildCollisionManager.getTileHeight()
+        );
+        if (!canFriendlyArcherOccupy(archer, archer.getX(), archer.getY(), archer.getWidth(), archer.getHeight())) {
+            friendlyArcherManager.getArchers().remove(archer);
+            return false;
+        }
+        return true;
+    }
+
+    private boolean isValidFriendlyArcherTile(int gridX, int gridY) {
+        if (mapData == null) {
+            return false;
+        }
+        if (gridX < 0 || gridY < 0 || gridX >= mapData.getWidthInTiles() || gridY >= mapData.getHeightInTiles()) {
+            return false;
+        }
+        if (buildManager.getPlacedObjectAt(gridX, gridY) != null) {
+            return false;
+        }
+        if (intersectsPlayerTile(gridX, gridY)) {
+            return false;
+        }
+        int tileWidth = buildCollisionManager.getTileWidth();
+        int tileHeight = buildCollisionManager.getTileHeight();
+        double x = gridX * tileWidth;
+        double y = gridY * tileHeight;
+        if (buildCollisionManager.isBlockedByStaticObjects(x, y, tileWidth, tileHeight)
+                || buildCollisionManager.isBlockedByTerrain(x, y, tileWidth, tileHeight)
+                || buildCollisionManager.isBlockedByWater(x, y, tileWidth, tileHeight)) {
+            return false;
+        }
+        for (Enemy enemy : enemies) {
+            if (enemy == null || !enemy.isAlive()) {
+                continue;
+            }
+            if (CollisionSystem.intersects(x, y, tileWidth, tileHeight, enemy.getX(), enemy.getY(), enemy.getWidth(), enemy.getHeight())) {
+                return false;
+            }
+        }
+        for (FriendlyArcher archer : friendlyArcherManager.getArchers()) {
+            if (archer == null || !archer.isAlive()) {
+                continue;
+            }
+            if (CollisionSystem.intersects(x, y, tileWidth, tileHeight, archer.getX(), archer.getY(), archer.getWidth(), archer.getHeight())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void spawnAmbientBlackGrouse() {
+        blackGrouseSpawnManager.spawnInitialFlock(enemies);
     }
 
     private int countAliveEnemyByType(String type) {
@@ -1592,7 +2032,9 @@ public class Game {
             case POTION_ITEM_ID -> "Potion";
             case TORCH_ITEM_ID -> "Torch";
             case ARCHER_TOWER_ITEM_ID -> "Archer Tower";
+            case FRIENDLY_ARCHER_ITEM_ID -> "Archer";
             case BOMB_TRAP_ITEM_ID -> "Bomb Trap";
+            case FIRE_BOMB_ITEM_ID -> "Fire Bomb";
             case BASIC_SWORD_ITEM_ID -> "Basic Sword";
             case PICKAXE_ITEM_ID -> "Pickaxe";
             case COIN_ITEM_ID -> "Coin";
@@ -1662,6 +2104,92 @@ public class Game {
         }
     }
 
+    private void loadMapWoodFences() {
+        if (mapData == null) {
+            return;
+        }
+        Set<String> fenceTiles = new LinkedHashSet<>();
+
+        int mapWidthTiles = mapData.getWidthInTiles();
+        int mapHeightTiles = mapData.getHeightInTiles();
+        int centerX = mapWidthTiles / 2;
+        int centerY = mapHeightTiles / 2;
+        int fenceWidth = 60;
+        int fenceHeight = 40;
+        int left = centerX - fenceWidth / 2;
+        int top = centerY - fenceHeight / 2;
+        int right = left + fenceWidth - 1;
+        int bottom = top + fenceHeight - 1;
+        int gateSize = 4;
+        int gateStartX = centerX - gateSize / 2;
+        int gateEndX = gateStartX + gateSize - 1;
+        int gateStartY = centerY - gateSize / 2;
+        int gateEndY = gateStartY + gateSize - 1;
+
+        for (int x = left; x <= right; x++) {
+            if (x < gateStartX || x > gateEndX) {
+                fenceTiles.add(x + ":" + top);
+                fenceTiles.add(x + ":" + bottom);
+            }
+        }
+
+        for (int y = top; y <= bottom; y++) {
+            if (y < gateStartY || y > gateEndY) {
+                fenceTiles.add(left + ":" + y);
+                fenceTiles.add(right + ":" + y);
+            }
+        }
+
+        for (String key : fenceTiles) {
+            String[] parts = key.split(":");
+            if (parts.length != 2) {
+                continue;
+            }
+            addMapWoodFence(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]));
+        }
+    }
+
+    private void addMapWoodFence(int gridX, int gridY) {
+        if (mapData == null) {
+            return;
+        }
+        if (gridX < 0 || gridY < 0 || gridX >= mapData.getWidthInTiles() || gridY >= mapData.getHeightInTiles()) {
+            return;
+        }
+        if (intersectsPlayerTile(gridX, gridY)) {
+            return;
+        }
+        if (buildManager.getPlacedObjectAt(gridX, gridY) != null) {
+            return;
+        }
+        FenceEntity fence = new FenceEntity(
+                gridX,
+                gridY,
+                mapData.getTileWidth(),
+                mapData.getTileHeight()
+        );
+        fence.setHealth(GameBalance.WOOD_FENCE_MAX_HP);
+        fence.setSaveEnabled(false);
+        buildManager.addPlacedObject(fence);
+    }
+
+    private boolean intersectsPlayerTile(int gridX, int gridY) {
+        int tileWidth = mapData == null ? 16 : mapData.getTileWidth();
+        int tileHeight = mapData == null ? 16 : mapData.getTileHeight();
+        double x = gridX * tileWidth;
+        double y = gridY * tileHeight;
+        return CollisionSystem.intersects(
+                player.getX() + player.getWidth() * 0.22,
+                player.getY() + player.getHeight() * 0.30,
+                player.getWidth() * 0.56,
+                player.getHeight() * 0.62,
+                x,
+                y,
+                tileWidth,
+                tileHeight
+        );
+    }
+
     // updateHotbarSelectionInput:
     // - Doc phim 1..9 va click hotbar de doi slot dang chon.
     // - Input: state input frame hien tai.
@@ -1705,11 +2233,11 @@ public class Game {
             return;
         }
         // Slot -> item:
-        // - Hien tai chi slot 1 chua stone_wall.
+        // - Hien tai slot nao co item build thi BuildManager se tu doc tu toolbar model.
         // - Chon slot nay se thong bao cho BuildManager bat BUILD_WALL_MODE.
         // - Cac slot khac de null de game thoat khoi che do xay.
         selectedHotbarIndex = slotIndex;
-        buildController.onToolbarSlotSelected(slotIndex, inventory);
+        syncSelectedHotbarMode();
     }
 
     private void updateDroppedItemPickup() {
@@ -1741,8 +2269,79 @@ public class Game {
     }
 
     private void refreshBuildInventoryUi() {
+        String previouslySelectedItemId = getSelectedHotbarItemId();
         buildManager.syncToolbar(inventory.snapshot());
-        setSelectedHotbarIndex(Math.max(0, Math.min(selectedHotbarIndex, 8)));
+        rebuildHotbarItems();
+        if (previouslySelectedItemId != null && !previouslySelectedItemId.isBlank()) {
+            int matchedIndex = findHotbarIndexByItemId(previouslySelectedItemId);
+            if (matchedIndex >= 0) {
+                selectedHotbarIndex = matchedIndex;
+            }
+        }
+        if (selectedHotbarIndex >= hotbarItems.size()) {
+            selectedHotbarIndex = Math.max(0, hotbarItems.size() - 1);
+        }
+        if (selectedHotbarIndex < 0) {
+            selectedHotbarIndex = 0;
+        }
+        syncSelectedHotbarMode();
+    }
+
+    private void rebuildHotbarItems() {
+        hotbarItems.clear();
+        Map<String, Integer> snapshot = inventory.snapshot();
+        for (String itemId : HOTBAR_PRIORITY) {
+            if (itemId == null || itemId.isBlank()) {
+                continue;
+            }
+            int amount = snapshot.getOrDefault(itemId, 0);
+            if (amount <= 0) {
+                continue;
+            }
+            ItemUiMeta meta = renderer.getItemMeta(itemId);
+            hotbarItems.add(new HotbarItemStack(itemId, amount, meta, isBuildItemId(itemId)));
+            if (hotbarItems.size() >= 9) {
+                return;
+            }
+        }
+    }
+
+    private void syncSelectedHotbarMode() {
+        String selectedItemId = getSelectedHotbarItemId();
+        if (selectedItemId == null || selectedItemId.isBlank()) {
+            buildManager.cancelBuildMode();
+            return;
+        }
+        if (isBuildItemId(selectedItemId)) {
+            buildController.onSelectBuildItem(selectedItemId);
+            return;
+        }
+        buildManager.cancelBuildMode();
+    }
+
+    private String getSelectedHotbarItemId() {
+        if (selectedHotbarIndex < 0 || selectedHotbarIndex >= hotbarItems.size()) {
+            return "";
+        }
+        HotbarItemStack stack = hotbarItems.get(selectedHotbarIndex);
+        return stack == null ? "" : stack.getItemId();
+    }
+
+    private boolean isBuildItemId(String itemId) {
+        return buildManager.getRegistry().findByItemId(itemId) != null;
+    }
+
+    private int findHotbarIndexByItemId(String itemId) {
+        if (itemId == null || itemId.isBlank()) {
+            return -1;
+        }
+        for (int i = 0; i < hotbarItems.size(); i++) {
+            HotbarItemStack stack = hotbarItems.get(i);
+            if (stack != null && itemId.equals(stack.getItemId())) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private void onResourceDestroyed(system.resource.ResourceNode resource) {
@@ -1866,9 +2465,11 @@ public class Game {
         }
         return switch (itemId.trim().toLowerCase()) {
             case WALL_ITEM_ALIAS -> WOOD_FENCE_ITEM_ID;
-            case "stone_wall", "wood_fence", "wood fence" -> WOOD_FENCE_ITEM_ID;
-            case "cung", "archer", "archer_tower" -> ARCHER_TOWER_ITEM_ID;
+            case "wood_fence", "wood fence" -> WOOD_FENCE_ITEM_ID;
+            case "cung", "archer_tower" -> ARCHER_TOWER_ITEM_ID;
+            case "archer", "friendly_archer", "friendly archer" -> FRIENDLY_ARCHER_ITEM_ID;
             case "bomb", "bomb_trap", "bomb trap", "bom" -> BOMB_TRAP_ITEM_ID;
+            case "fire_bomb", "fire bomb", "firebomb", "bom_lua", "bomb_fire" -> FIRE_BOMB_ITEM_ID;
             default -> itemId.trim().toLowerCase();
         };
     }

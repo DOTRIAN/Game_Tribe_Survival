@@ -112,8 +112,8 @@ public class ShopOverlay extends StackPane {
         iconPane.setPrefSize(52, 52);
         if (item.getImageIcon() != null) {
             ImageView imageView = new ImageView(item.getImageIcon());
-            imageView.setFitWidth(34);
-            imageView.setFitHeight(34);
+            imageView.setFitWidth(44);
+            imageView.setFitHeight(44);
             imageView.setPreserveRatio(true);
             imageView.setSmooth(false);
             iconPane.getChildren().add(imageView);

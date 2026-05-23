@@ -60,7 +60,9 @@ public class UIManager {
                 itemMetaMap.get("wall"),
                 itemMetaMap.get("torch"),
                 itemMetaMap.get("archer_tower"),
+                itemMetaMap.get("friendly_archer"),
                 itemMetaMap.get("bomb_trap"),
+                itemMetaMap.get("fire_bomb"),
                 itemMetaMap.get("potion"),
                 itemMetaMap.get("basic_sword"),
                 itemMetaMap.get("pickaxe"),
@@ -77,7 +79,7 @@ public class UIManager {
         this.hotbarContainer = new HBox(hotbarOverlay);
         this.shopOverlay = new ShopOverlay();
         this.inventoryOverlay = new InventoryOverlay();
-        this.guideOverlay = buildSimpleOverlay("Guide", "WASD move\nSPACE run\nB shop\nI inventory\nM minimap\nQ rotate wall\nESC close overlay");
+        this.guideOverlay = buildSimpleOverlay("Guide", "WASD move\nSPACE run\nB shop\nI inventory\nM minimap\nSelect Fire Bomb then click map\nESC close overlay");
         this.pauseOverlay = buildSimpleOverlay("Paused", "Press P to resume\nESC returns to menu");
         this.gameOverOverlay = buildSimpleOverlay("Game Over", "Press R to restart");
         this.victoryOverlay = buildSimpleOverlay("Victory", "ENTER start new world\nESC save and back to menu");
@@ -226,7 +228,7 @@ public class UIManager {
     public void updateHud(Player player,
                           Map<String, Integer> inventorySnapshot,
                           int selectedHotbarIndex,
-                          BuildManager buildManager,
+                          List<HotbarItemStack> hotbarItems,
                           double worldWidth,
                           double worldHeight,
                           double cameraX,
@@ -238,7 +240,7 @@ public class UIManager {
         hudOverlay.update(player);
         resourcePanel.updateResources(inventorySnapshot, itemMetaMap);
         hotbarOverlay.setSelectedIndex(selectedHotbarIndex);
-        hotbarOverlay.update(buildManager == null ? null : buildManager.getToolbar(), assetManager);
+        hotbarOverlay.update(hotbarItems);
         minimapOverlay.setVisible(settings.isMinimapVisible());
         minimapOverlay.setManaged(settings.isMinimapVisible());
         if (settings.isMinimapVisible()) {
@@ -411,15 +413,18 @@ public class UIManager {
         Image wallIcon = assetManager.getSprite("wood_fence_icon");
         Image torchIcon = assetManager.getSprite("torch_icon");
         Image archerTowerIcon = assetManager.getSprite("archer_tower_icon");
+        Image friendlyArcherIcon = assetManager.getSprite("friendly_archer_icon");
         Image bombIcon = assetManager.getSprite("bomb_trap_icon");
+        Image fireBombIcon = assetManager.getSprite("fire_bomb_shop_icon");
         meta.put("wall", new ItemUiMeta("wall", "Wood Fence", "Buildable wooden fence that auto-connects left and right.", GameBalance.WOOD_FENCE_PRICE, "WF", wallIcon));
         meta.put("wood_fence", new ItemUiMeta("wood_fence", "Wood Fence", "Buildable wooden fence that auto-connects left and right.", GameBalance.WOOD_FENCE_PRICE, "WF", wallIcon));
-        meta.put("stone_wall", new ItemUiMeta("stone_wall", "Wood Fence", "Legacy alias mapped to the new wood fence item.", GameBalance.WOOD_FENCE_PRICE, "WF", wallIcon));
         meta.put("wood_wall", new ItemUiMeta("wood_wall", "Wood Wall", "Legacy wooden wall kept for existing saves.", GameBalance.WOOD_WALL_PRICE, "WW", wallIcon));
         meta.put("potion", new ItemUiMeta("potion", "Potion", "Emergency heal during survival runs.", 12, "PT", null));
         meta.put("torch", new ItemUiMeta("torch", "Torch", "Animated torch that lights dark areas after placement.", GameBalance.TORCH_PRICE, "TR", torchIcon));
         meta.put("archer_tower", new ItemUiMeta("archer_tower", "Archer Tower", "Auto attacks enemies entering its range.", GameBalance.ARCHER_TOWER_PRICE, "AT", archerTowerIcon));
+        meta.put("friendly_archer", new ItemUiMeta("friendly_archer", "Archer", "Friendly ranged unit", GameBalance.FRIENDLY_ARCHER_PRICE, "AR", friendlyArcherIcon));
         meta.put("bomb_trap", new ItemUiMeta("bomb_trap", "Bomb Trap", "Armed trap that explodes when enemies enter trigger range.", GameBalance.BOMB_TRAP_PRICE, "BT", bombIcon));
+        meta.put("fire_bomb", new ItemUiMeta("fire_bomb", "Fire Bomb", "Throw toward cursor and explode in an area.", GameBalance.FIRE_BOMB_PRICE, "FB", fireBombIcon));
         meta.put("basic_sword", new ItemUiMeta("basic_sword", "Basic Sword", "Starter melee weapon.", 18, "SD", null));
         meta.put("pickaxe", new ItemUiMeta("pickaxe", "Pickaxe", "Useful for mining and gathering.", 14, "PX", null));
         meta.put("coin", new ItemUiMeta("coin", "Coin", "Common shop currency.", 0, "CN", null));
@@ -428,5 +433,12 @@ public class UIManager {
         meta.put("fiber", new ItemUiMeta("fiber", "Fiber", "Soft crafting material.", 0, "FB", null));
         meta.put("carrot", new ItemUiMeta("carrot", "Carrot", "Simple food item.", 3, "CR", null));
         return meta;
+    }
+
+    public ItemUiMeta getItemMeta(String itemId) {
+        if (itemId == null || itemId.isBlank()) {
+            return null;
+        }
+        return itemMetaMap.get(itemId.trim().toLowerCase());
     }
 }

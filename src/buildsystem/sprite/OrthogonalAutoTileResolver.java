@@ -1,6 +1,7 @@
 package buildsystem.sprite;
 
 import buildsystem.core.BuildDefinition;
+import buildsystem.fence.FenceConnectionSystem;
 import buildsystem.object.BuildObject;
 
 import java.util.Collection;
@@ -11,6 +12,12 @@ import java.util.Collection;
  * - Co the tai su dung cho wall/fence/pipe/cable/road vi dieu kien duy nhat la cung autoTileGroup.
  */
 public class OrthogonalAutoTileResolver implements AutoTileResolver {
+    private final FenceConnectionSystem fenceConnectionSystem;
+
+    public OrthogonalAutoTileResolver() {
+        this.fenceConnectionSystem = new FenceConnectionSystem();
+    }
+
     @Override
     public SpriteSelection resolve(BuildDefinition definition,
                                    int tileX,
@@ -18,12 +25,7 @@ public class OrthogonalAutoTileResolver implements AutoTileResolver {
                                    Collection<BuildObject> placedObjects,
                                    double preferredRotationDegrees) {
         if (definition != null && "wood_fence".equalsIgnoreCase(definition.getAutoTileGroup())) {
-            boolean left = hasNeighbor(definition, tileX - 1, tileY, placedObjects);
-            boolean right = hasNeighbor(definition, tileX + 1, tileY, placedObjects);
-            boolean up = hasNeighbor(definition, tileX, tileY - 1, placedObjects);
-            boolean down = hasNeighbor(definition, tileX, tileY + 1, placedObjects);
-            int mask = (left ? 1 : 0) | (right ? 2 : 0) | (up ? 4 : 0) | (down ? 8 : 0);
-            return new SpriteSelection("wood_fence_mask_" + mask, 0.0, mask);
+            return fenceConnectionSystem.resolve(definition, tileX, tileY, placedObjects);
         }
         boolean north = hasNeighbor(definition, tileX, tileY - 1, placedObjects);
         boolean east = hasNeighbor(definition, tileX + 1, tileY, placedObjects);

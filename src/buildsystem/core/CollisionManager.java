@@ -73,8 +73,8 @@ public class CollisionManager implements BuildWorldQuery {
                     y,
                     width,
                     height,
-                    object.getRenderX(),
-                    object.getRenderY(),
+                    object.getCollisionX(),
+                    object.getCollisionY(),
                     object.getCollisionWidth(),
                     object.getCollisionHeight())) {
                 return true;

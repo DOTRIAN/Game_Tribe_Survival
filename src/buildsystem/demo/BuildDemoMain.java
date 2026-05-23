@@ -38,7 +38,7 @@ public class BuildDemoMain extends Application {
         BuildManager buildManager = new BuildManager(assetManager, collisionManager);
         BuildController buildController = new BuildController(buildManager);
         Inventory inventory = new Inventory();
-        inventory.addItem("stone_wall", 24);
+        inventory.addItem("wood_fence", 24);
         inventory.addItem("wood_wall", 20);
         inventory.addItem("torch", 12);
         inventory.addItem("spike_trap", 8);
@@ -142,7 +142,7 @@ public class BuildDemoMain extends Application {
         graphics.setFont(Font.font("Consolas", 14));
         graphics.fillText("1..9 select build | Q rotate | Click place | BuildSystem demo dung chung BuildManager", 20, 24);
         graphics.fillText("Selected: " + (buildManager.getSelectedDefinition() == null ? "none" : buildManager.getSelectedDefinition().getDisplayName()), 20, 48);
-        graphics.fillText("Stone Wall: " + inventory.getAmount("stone_wall")
+        graphics.fillText("Wood Fence: " + inventory.getAmount("wood_fence")
                 + " | Wood Wall: " + inventory.getAmount("wood_wall")
                 + " | Torch: " + inventory.getAmount("torch")
                 + " | Trap: " + inventory.getAmount("spike_trap"), 20, 72);
