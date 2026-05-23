@@ -228,7 +228,7 @@ public class Game {
         this.inputHandler = new InputHandler();
         this.wallAssetManager = new AssetManager();
         CollectibleDrop.preloadAssets();
-        this.player = new Player(100, 100, 58, 58, 1, 100);
+        this.player = new Player(100, 100, 58, 58, 4, 100);
         this.baseCamp = new BaseCamp(0, 0, 116, 116, 500);
         this.gameLoop = new GameLoop(this);
         this.enemies = new ArrayList<>();
@@ -477,16 +477,21 @@ public class Game {
 
     private MapData tryLoadMap() {
         try {
-            // Yeu cau moi: uu tien map chinh trong assets/Map_Game.
-            return new TiledMapLoader().load("assets/Map_Game/map.tmx");
+            // Uu tien map hien tai team dang su dung.
+            return new TiledMapLoader().load("assets/Map_Game/mapdep.tmx");
         } catch (Exception firstError) {
-            // Giu fallback de game khong vo ngay ca khi map team dang sua.
-            System.out.println("Cannot load assets/Map_Game/map.tmx: " + firstError.getMessage());
+            // Fallback theo thu tu de game van khoi dong khi map chinh dang duoc chinh sua.
+            System.out.println("Cannot load assets/Map_Game/mapdep.tmx: " + firstError.getMessage());
             try {
-                return new TiledMapLoader().load("assets/maps/mapdemo.tmx");
-            } catch (Exception secondError) {
-                System.out.println("Cannot load fallback map: " + secondError.getMessage());
-                return null;
+                return new TiledMapLoader().load("assets/Map_Game/map.tmx");
+            } catch (Exception legacyError) {
+                System.out.println("Cannot load legacy map assets/Map_Game/map.tmx: " + legacyError.getMessage());
+                try {
+                    return new TiledMapLoader().load("assets/maps/mapdemo.tmx");
+                } catch (Exception secondError) {
+                    System.out.println("Cannot load fallback map: " + secondError.getMessage());
+                    return null;
+                }
             }
         }
     }
