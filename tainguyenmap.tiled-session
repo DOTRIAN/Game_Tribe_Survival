@@ -1,16 +1,16 @@
 {
     "activeFile": "assets/Map_Game/mapdep.tmx",
     "expandedProjectPaths": [
-        "assets",
-        ".",
         "assets/Map_Game",
+        ".",
+        "assets",
         "assets/maps"
     ],
     "file.lastUsedOpenFilter": "All Files (*)",
     "fileStates": {
         "": {
             "scaleInDock": 0.33,
-            "scaleInEditor": 0.25
+            "scaleInEditor": 1
         },
         "#cot": {
             "scaleInDock": 0.5
@@ -92,8 +92,8 @@
             "scale": 0.5,
             "selectedLayer": 1,
             "viewCenter": {
-                "x": 896,
-                "y": 720
+                "x": 1281,
+                "y": 512
             }
         },
         "assets/Map_Game/mapdep.tmx#Rocks_source_no_shadow": {
@@ -105,7 +105,7 @@
             "scaleInEditor": 1.5
         },
         "assets/Map_Game/mapdep.tmx#cay_co": {
-            "scaleInDock": 0.25,
+            "scaleInDock": 0.5,
             "scaleInEditor": 0.25
         },
         "assets/Map_Game/mapdep.tmx#cot": {
@@ -121,13 +121,13 @@
             "scaleInDock": 0.33
         },
         "assets/Map_Game/mapdep.tmx#hang": {
-            "scaleInDock": 0.125
+            "scaleInDock": 0.33
         },
         "assets/Map_Game/mapdep.tmx#map_fin": {
             "scaleInDock": 0.125
         },
         "assets/Map_Game/mapdep.tmx#tent_xoa_bg": {
-            "scaleInDock": 0.33,
+            "scaleInDock": 0.5,
             "scaleInEditor": 0.33
         },
         "assets/Map_Game/mapdep.tmx#tree_xoa_bg": {
