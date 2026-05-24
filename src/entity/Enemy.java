@@ -24,7 +24,7 @@ import java.util.Map;
  *   4) Render animation run/idle + lat trai/phai
  *
  * Muc tieu OOP:
- * - Class con (OrcEnemy, SkeletonEnemy,...) chi can truyen asset + stat rieng.
+ * - Class con chi can truyen asset + stat rieng.
  * - Gameplay core trong Game xu ly bang da hinh (List<Enemy>).
  */
 public abstract class Enemy extends Entity {

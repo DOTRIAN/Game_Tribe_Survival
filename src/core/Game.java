@@ -20,17 +20,16 @@ import drop.DroppedItem;
 import entity.BaseCamp;
 import entity.ArrowProjectile;
 import entity.BlackGrouseSpawnManager;
-import entity.BossEnemy;
 import entity.Enemy;
 import entity.Entity;
 import entity.FriendlyArcher;
 import entity.FriendlyArcherManager;
 import entity.GolemEnemy;
-import entity.OrcEnemy;
 import entity.Player;
-import entity.SkeletonEnemy;
 import entity.ThrownBomb;
 import entity.WallJumperEnemy;
+import entity.WolfEnemy;
+import entity.WolfSpawnManager;
 import event.GameEvent;
 import event.GameEventBus;
 import event.GameEventType;
@@ -79,7 +78,6 @@ import java.util.Set;
  * Game:
  * - Core game loop state cho mode sinh ton vo han.
  * - Khong con choi theo man; nguoi choi sinh ton trong 1 world lien tuc.
- * - Dieu kien thang: giet boss.
  * - Dieu kien thua: player chet hoac base camp bi pha.
  * - Co save/load session de thoat game vao lai choi tiep.
  */
@@ -98,7 +96,6 @@ public class Game {
     private static final long GOLEM_SPAWN_MIN_INTERVAL_NS = 7_500_000_000L;
     private static final long GOLEM_SPAWN_MAX_INTERVAL_NS = 11_500_000_000L;
     private static final long AUTOSAVE_INTERVAL_NS = 20_000_000_000L;
-    private static final int BOSS_SPAWN_DAY = 6;
     private static final int WALL_JUMPER_MAX_ALIVE = 5;
     private static final int GOLEM_MAX_ALIVE = 2;
 
@@ -114,11 +111,11 @@ public class Game {
     private final BuildController buildController;
     private final CollisionManager buildCollisionManager;
     private final BlackGrouseSpawnManager blackGrouseSpawnManager;
+    private final WolfSpawnManager wolfSpawnManager;
     private final Player player;
     private final BaseCamp baseCamp;
     private final List<Enemy> enemies;
     private final FriendlyArcherManager friendlyArcherManager;
-    private BossEnemy bossEnemy;
 
     private final List<MapObjectData> mapCollisions;
     private final ResourceManager resourceManager;
@@ -352,6 +349,22 @@ public class Game {
                 player,
                 random
         );
+        this.wolfSpawnManager = new WolfSpawnManager(
+                buildCollisionManager,
+                this::canWolfOccupy,
+                new WolfEnemy.WorldQuery() {
+                    @Override
+                    public BuildObject findNearestWallToAttack(WolfEnemy enemy, double maxDistance) {
+                        return Game.this.findNearestWolfWallToAttack(enemy, maxDistance);
+                    }
+
+                    @Override
+                    public boolean damageWall(WolfEnemy enemy, BuildObject wall, long nowNs) {
+                        return Game.this.damageWolfWall(enemy, wall, nowNs);
+                    }
+                },
+                random
+        );
         this.buildController = new BuildController(buildManager);
         this.renderer = new Renderer(stage, inputHandler, wallAssetManager);
         this.renderer.setMapData(loadedMap);
@@ -366,13 +379,14 @@ public class Game {
         }
         loadMapWoodFences();
         spawnAmbientBlackGrouse();
+        spawnCornerWolves();
         refreshBuildInventoryUi();
         renderer.setContinueAvailable(hasLoadedSaveSnapshot);
         renderer.setSettingsBackAction(this::closeSettingsFromUi);
 
         // Event system: hien tai chi log cac event quan trong de debug gameplay.
         eventBus.subscribe(event -> {
-            if (event.getType() == GameEventType.WORLD_SAVED || event.getType() == GameEventType.BOSS_KILLED) {
+            if (event.getType() == GameEventType.WORLD_SAVED) {
                 System.out.println("[Event] " + event.getType() + " " + event.getPayload());
             }
         });
@@ -1023,12 +1037,6 @@ public class Game {
         updateFireBombBurnZones(now);
         updateArrowProjectiles(now);
 
-        if (bossEnemy != null && !bossEnemy.isAlive()) {
-            victoryAtNs = now;
-            gameState = GameState.LEVEL_COMPLETE;
-            eventBus.publish(new GameEvent(GameEventType.BOSS_KILLED, Map.of("day", getCurrentSurvivalDay(now))));
-        }
-
         if (!player.isAlive() || !baseCamp.isAlive()) {
             // Luu ly do thua de UI hien dung thong diep thay vi mac dinh "player chet".
             gameOverReason = !player.isAlive() ? GameOverReason.PLAYER_DIED : GameOverReason.BASE_CAMP_DESTROYED;
@@ -1072,7 +1080,7 @@ public class Game {
         if (inputHandler.isJustPressed(KeyCode.F11)) {
             renderer.toggleFullscreen();
         }
-        // Sau khi thang boss: Enter de tao world moi, ESC de quay menu.
+        // Neu co trigger chien thang khac trong tuong lai: Enter tao world moi, ESC quay menu.
         if (inputHandler.isJustPressed(KeyCode.ENTER)) {
             restartSurvival();
         }
@@ -1254,8 +1262,8 @@ public class Game {
     private void restartSurvival() {
         // Reset world moi: clear enemy/resource procedural va inventory.
         enemies.clear();
+        wolfSpawnManager.clear();
         friendlyArcherManager.clear();
-        bossEnemy = null;
         buildManager.clearObjects();
         inventory.restore(Map.of());
         seedStartingBuildItems();
@@ -1287,6 +1295,7 @@ public class Game {
         resetWorldPosition();
         loadMapWoodFences();
         spawnAmbientBlackGrouse();
+        spawnCornerWolves();
         gameState = GameState.PLAYING;
     }
 
@@ -1297,34 +1306,11 @@ public class Game {
             return;
         }
 
-        boolean isNight = dayNightCycle.isNight(now);
-        int targetOrc = isNight ? 8 : 2;
-        int targetSkeleton = isNight ? 8 : 0;
-
-        int aliveOrc = countAliveEnemyByType("ORC");
-        int aliveSkeleton = countAliveEnemyByType("SKELETON");
-
-        if (aliveOrc < targetOrc) {
-            double[] spawn = randomEdgeSpawnPoint();
-            enemies.add(new OrcEnemy(spawn[0], spawn[1]));
-        }
-        if (aliveSkeleton < targetSkeleton) {
-            double[] spawn = randomEdgeSpawnPoint();
-            enemies.add(new SkeletonEnemy(spawn[0], spawn[1]));
-        }
-
-        // Spawn boss 1 lan khi dat moc ngay.
-        if (bossEnemy == null && getCurrentSurvivalDay(now) >= BOSS_SPAWN_DAY) {
-            double[] spawn = randomEdgeSpawnPoint();
-            bossEnemy = new BossEnemy(spawn[0], spawn[1]);
-            enemies.add(bossEnemy);
-            eventBus.publish(new GameEvent(GameEventType.BOSS_SPAWNED, Map.of("x", spawn[0], "y", spawn[1])));
-        }
-
         lastEnemySpawnAtNs = now;
     }
 
     private void updateEnemies(long now) {
+        wolfSpawnManager.updateAll(now, dayNightCycle.isNight(now), player, baseCamp, worldWidth, worldHeight);
         List<Enemy> dead = new ArrayList<>();
         for (Enemy enemy : enemies) {
             if (enemy == null) {
@@ -1365,6 +1351,13 @@ public class Game {
                 }
                 continue;
             }
+            if (enemy instanceof WolfEnemy) {
+                if (enemy.shouldRemoveFromWorld()) {
+                    handleEnemyDeathDrops(enemy);
+                    dead.add(enemy);
+                }
+                continue;
+            }
             if (!enemy.isAlive()) {
                 handleEnemyDeathDrops(enemy);
                 enemy.update(now, player, worldWidth, worldHeight);
@@ -1399,6 +1392,7 @@ public class Game {
         if (!dead.isEmpty()) {
             enemies.removeAll(dead);
         }
+        wolfSpawnManager.cleanupRemoved();
     }
 
     private void updateArcherTowers(long now) {
@@ -1748,8 +1742,7 @@ public class Game {
             return;
         }
 
-        // Damage base camp theo loai quai de tao khac biet threat.
-        int damage = "BOSS".equalsIgnoreCase(enemy.getEnemyType()) ? 6 : 1;
+        int damage = 1;
         DamageSystem.applyDamage(enemy, baseCamp, damage);
         eventBus.publish(new GameEvent(GameEventType.BASE_CAMP_DAMAGED, Map.of("damage", damage, "hp", baseCamp.getHp())));
     }
@@ -1779,6 +1772,61 @@ public class Game {
             renderer.setChestVisible(false);
             renderer.showToast("Chest destroyed");
         }
+    }
+
+    private BuildObject findNearestWolfWallToAttack(WolfEnemy enemy, double maxDistance) {
+        if (enemy == null || maxDistance <= 0.0) {
+            return null;
+        }
+        BuildObject nearest = null;
+        double nearestDistance = maxDistance;
+        for (BuildObject object : buildManager.getPlacedObjects()) {
+            if (object == null || !object.isAlive()) {
+                continue;
+            }
+            if (object.getType() != buildsystem.core.BuildType.FENCE
+                    && object.getType() != buildsystem.core.BuildType.WOOD_WALL
+                    && object.getType() != buildsystem.core.BuildType.STONE_WALL
+                    && object.getType() != buildsystem.core.BuildType.DOOR) {
+                continue;
+            }
+            double distance = edgeDistanceBetween(enemy, object);
+            if (distance > nearestDistance) {
+                continue;
+            }
+            nearest = object;
+            nearestDistance = distance;
+        }
+        return nearest;
+    }
+
+    private boolean damageWolfWall(WolfEnemy enemy, BuildObject wall, long now) {
+        if (enemy == null || wall == null || !wall.isAlive()) {
+            return false;
+        }
+        double attackPadding = 18.0;
+        BuildDamageResult hitResult = buildManager.hitFirstDamageableIntersecting(
+                enemy.getCollisionX() - attackPadding,
+                enemy.getCollisionY() - attackPadding,
+                enemy.getCollisionWidth() + attackPadding * 2.0,
+                enemy.getCollisionHeight() + attackPadding * 2.0,
+                enemy.getDamage(),
+                now,
+                object -> object == wall
+        );
+        if (hitResult == null) {
+            return false;
+        }
+        spawnBuildDamageText(hitResult, now);
+        if (hitResult.isDestroyed() && hitResult.getDropAmount() > 0 && !hitResult.getDropItemId().isBlank()) {
+            spawnDroppedItem(
+                    hitResult.getDropItemId(),
+                    hitResult.getDropAmount(),
+                    hitResult.getObject().getCenterX(),
+                    hitResult.getObject().getCenterY()
+            );
+        }
+        return true;
     }
 
     private void toggleCampChestOverlay(long now) {
@@ -2120,13 +2168,6 @@ public class Game {
         long elapsedNs = WorldSaveService.toLong(save.get("elapsedNs"), 0L);
         worldStartedAtNs = System.nanoTime() - Math.max(0L, elapsedNs);
 
-        boolean bossDefeated = WorldSaveService.toInt(save.get("bossDefeated"), 0) == 1;
-        if (!bossDefeated && getCurrentSurvivalDay(System.nanoTime()) >= BOSS_SPAWN_DAY) {
-            double[] spawn = randomEdgeSpawnPoint();
-            bossEnemy = new BossEnemy(spawn[0], spawn[1]);
-            enemies.add(bossEnemy);
-        }
-
         eventBus.publish(new GameEvent(GameEventType.WORLD_LOADED, Map.of("file", SURVIVAL_SAVE_FILE)));
         return true;
     }
@@ -2139,7 +2180,6 @@ public class Game {
         snapshot.put("playerEnergy", player.getEnergy());
         snapshot.put("baseCampHp", baseCamp.getHp());
         snapshot.put("elapsedNs", Math.max(0L, System.nanoTime() - worldStartedAtNs));
-        snapshot.put("bossDefeated", (bossEnemy != null && !bossEnemy.isAlive()) ? 1 : 0);
         snapshot.put("inventory", WorldSaveService.buildInventorySnapshot(inventory));
         snapshot.put("buildObjects", buildManager.exportSaveData());
         snapshot.put("droppedItems", exportDroppedItems());
@@ -2374,6 +2414,44 @@ public class Game {
         return true;
     }
 
+    private boolean canWolfOccupy(WolfEnemy enemy, double x, double y, double width, double height) {
+        if (enemy == null) {
+            return false;
+        }
+        double collisionX = enemy.getCollisionXAt(x, width, height);
+        double collisionY = enemy.getCollisionYAt(y, width, height);
+        double collisionWidth = enemy.getCollisionWidthAt(width, height);
+        double collisionHeight = enemy.getCollisionHeightAt(width, height);
+        if (collisionX < 0 || collisionY < 0 || collisionX + collisionWidth > worldWidth || collisionY + collisionHeight > worldHeight) {
+            return false;
+        }
+        if (buildCollisionManager.isBlockedByStaticObjects(collisionX, collisionY, collisionWidth, collisionHeight)
+                || buildCollisionManager.isBlockedByTerrain(collisionX, collisionY, collisionWidth, collisionHeight)
+                || buildCollisionManager.isBlockedByWater(collisionX, collisionY, collisionWidth, collisionHeight)
+                || buildCollisionManager.intersectsPlacedBuildObject(collisionX, collisionY, collisionWidth, collisionHeight, buildManager.getPlacedObjects())) {
+            return false;
+        }
+        for (Enemy other : enemies) {
+            if (other == null || other == enemy || !other.isAlive() || other.shouldRemoveFromWorld()) {
+                continue;
+            }
+            if (CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
+                    other.getCollisionX(), other.getCollisionY(), other.getCollisionWidth(), other.getCollisionHeight())) {
+                return false;
+            }
+        }
+        for (FriendlyArcher archer : friendlyArcherManager.getArchers()) {
+            if (archer == null || !archer.isAlive()) {
+                continue;
+            }
+            if (CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
+                    archer.getCollisionX(), archer.getCollisionY(), archer.getCollisionWidth(), archer.getCollisionHeight())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private boolean spawnFriendlyArcherNearPlayer() {
         int playerGridX = (int) Math.floor(player.getCenterX() / buildCollisionManager.getTileWidth());
         int playerGridY = (int) Math.floor(player.getCenterY() / buildCollisionManager.getTileHeight());
@@ -2467,6 +2545,10 @@ public class Game {
         blackGrouseSpawnManager.spawnInitialFlock(enemies);
     }
 
+    private void spawnCornerWolves() {
+        wolfSpawnManager.spawnAtMapCorners(enemies, worldWidth, worldHeight);
+    }
+
     private int countAliveEnemyByType(String type) {
         int count = 0;
         for (Enemy enemy : enemies) {
@@ -2507,15 +2589,8 @@ public class Game {
 
     private String buildSurvivalObjectiveStatus(long now) {
         int day = getCurrentSurvivalDay(now);
-        String bossStatus;
-        if (bossEnemy == null) {
-            bossStatus = day >= BOSS_SPAWN_DAY ? "Boss: spawning" : "Boss unlock day " + BOSS_SPAWN_DAY;
-        } else {
-            bossStatus = bossEnemy.isAlive() ? "Boss HP: " + bossEnemy.getHp() : "Boss defeated";
-        }
         return "Day " + day
-                + " | Base HP " + baseCamp.getHp() + "/" + baseCamp.getMaxHp()
-                + " | " + bossStatus;
+                + " | Base HP " + baseCamp.getHp() + "/" + baseCamp.getMaxHp();
     }
 
     // getGameOverMessage:
@@ -2760,6 +2835,35 @@ public class Game {
         double dx = bx - ax;
         double dy = by - ay;
         return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    private double edgeDistanceBetween(Entity entity, BuildObject object) {
+        if (entity == null || object == null) {
+            return Double.POSITIVE_INFINITY;
+        }
+        double dx = axisGap(
+                entity.getCollisionX(),
+                entity.getCollisionX() + entity.getCollisionWidth(),
+                object.getCollisionX(),
+                object.getCollisionX() + object.getCollisionWidth()
+        );
+        double dy = axisGap(
+                entity.getCollisionY(),
+                entity.getCollisionY() + entity.getCollisionHeight(),
+                object.getCollisionY(),
+                object.getCollisionY() + object.getCollisionHeight()
+        );
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    private double axisGap(double minA, double maxA, double minB, double maxB) {
+        if (maxA < minB) {
+            return minB - maxA;
+        }
+        if (maxB < minA) {
+            return minA - maxB;
+        }
+        return 0.0;
     }
 
     // seedStartingBuildItems:
