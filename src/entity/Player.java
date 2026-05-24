@@ -416,6 +416,26 @@ public class Player extends Entity {
         return sprinting ? speed * SPRINT_SPEED_MULTIPLIER : speed;
     }
 
+    @Override
+    protected double collisionInsetLeft(double width, double height) {
+        return width * 0.22;
+    }
+
+    @Override
+    protected double collisionInsetRight(double width, double height) {
+        return width * 0.22;
+    }
+
+    @Override
+    protected double collisionInsetTop(double width, double height) {
+        return height * 0.30;
+    }
+
+    @Override
+    protected double collisionInsetBottom(double width, double height) {
+        return height * 0.08;
+    }
+
     // Tru nang luong, tra ve false neu khong du de thuc hien hanh dong.
     public boolean consumeEnergy(double amount) {
         if (amount <= 0) {

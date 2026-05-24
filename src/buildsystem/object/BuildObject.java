@@ -162,11 +162,11 @@ public abstract class BuildObject {
     }
 
     public double getCollisionX() {
-        return getLogicX();
+        return getRenderX() + (getRenderWidth() - getCollisionWidth()) / 2.0;
     }
 
     public double getCollisionY() {
-        return getLogicY();
+        return getRenderY() + getRenderHeight() - getCollisionHeight();
     }
 
     public void addComponent(BuildComponent component) {

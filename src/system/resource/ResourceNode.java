@@ -132,10 +132,42 @@ public class ResourceNode extends Entity {
      * - Utility check AABB collision de dung cho movement/collision system.
      */
     public boolean intersects(double otherX, double otherY, double otherW, double otherH) {
-        return x < otherX + otherW
-                && x + width > otherX
-                && y < otherY + otherH
-                && y + height > otherY;
+        return getCollisionX() < otherX + otherW
+                && getCollisionX() + getCollisionWidth() > otherX
+                && getCollisionY() < otherY + otherH
+                && getCollisionY() + getCollisionHeight() > otherY;
+    }
+
+    @Override
+    protected double collisionInsetLeft(double width, double height) {
+        return switch (resourceType) {
+            case TREE -> width * 0.28;
+            case ROCK -> width * 0.18;
+            default -> width * 0.12;
+        };
+    }
+
+    @Override
+    protected double collisionInsetRight(double width, double height) {
+        return collisionInsetLeft(width, height);
+    }
+
+    @Override
+    protected double collisionInsetTop(double width, double height) {
+        return switch (resourceType) {
+            case TREE -> height * 0.58;
+            case ROCK -> height * 0.24;
+            default -> height * 0.18;
+        };
+    }
+
+    @Override
+    protected double collisionInsetBottom(double width, double height) {
+        return switch (resourceType) {
+            case TREE -> height * 0.06;
+            case ROCK -> height * 0.10;
+            default -> height * 0.10;
+        };
     }
 
     /**
