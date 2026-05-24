@@ -79,7 +79,7 @@ public class UIManager {
         this.hotbarContainer = new HBox(hotbarOverlay);
         this.shopOverlay = new ShopOverlay();
         this.inventoryOverlay = new InventoryOverlay();
-        this.guideOverlay = buildSimpleOverlay("Guide", "WASD move\nSPACE run\nB shop\nI inventory\nM minimap\nSelect Fire Bomb then click map\nESC close overlay");
+        this.guideOverlay = buildSimpleOverlay("Guide", "WASD move\nSPACE run\nB shop\nI inventory\nM minimap\nSelect bomb and press Q to throw\nESC close overlay");
         this.pauseOverlay = buildSimpleOverlay("Paused", "Press P to resume\nESC returns to menu");
         this.gameOverOverlay = buildSimpleOverlay("Game Over", "Press R to restart");
         this.victoryOverlay = buildSimpleOverlay("Victory", "ENTER start new world\nESC save and back to menu");
@@ -423,7 +423,7 @@ public class UIManager {
         meta.put("torch", new ItemUiMeta("torch", "Torch", "Animated torch that lights dark areas after placement.", GameBalance.TORCH_PRICE, "TR", torchIcon));
         meta.put("archer_tower", new ItemUiMeta("archer_tower", "Archer Tower", "Auto attacks enemies entering its range.", GameBalance.ARCHER_TOWER_PRICE, "AT", archerTowerIcon));
         meta.put("friendly_archer", new ItemUiMeta("friendly_archer", "Archer", "Friendly ranged unit", GameBalance.FRIENDLY_ARCHER_PRICE, "AR", friendlyArcherIcon));
-        meta.put("bomb_trap", new ItemUiMeta("bomb_trap", "Bomb Trap", "Armed trap that explodes when enemies enter trigger range.", GameBalance.BOMB_TRAP_PRICE, "BT", bombIcon));
+        meta.put("bomb_trap", new ItemUiMeta("bomb_trap", "Bomb Trap", "Throw with Q and explode in an area, damaging units, fences, and resources.", GameBalance.BOMB_TRAP_PRICE, "BT", bombIcon));
         meta.put("fire_bomb", new ItemUiMeta("fire_bomb", "Fire Bomb", "Throw toward cursor and explode in an area.", GameBalance.FIRE_BOMB_PRICE, "FB", fireBombIcon));
         meta.put("basic_sword", new ItemUiMeta("basic_sword", "Basic Sword", "Starter melee weapon.", 18, "SD", null));
         meta.put("pickaxe", new ItemUiMeta("pickaxe", "Pickaxe", "Useful for mining and gathering.", 14, "PX", null));

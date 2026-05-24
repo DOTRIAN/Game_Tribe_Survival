@@ -8,6 +8,7 @@ import javafx.scene.control.ScrollPane;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.layout.StackPane;
 
@@ -135,6 +136,10 @@ public class ShopOverlay extends StackPane {
 
         Button buyButton = new Button("Buy");
         buyButton.getStyleClass().add("shop-buy-button");
+        buyButton.setWrapText(false);
+        buyButton.setMinWidth(76);
+        buyButton.setPrefWidth(76);
+        buyButton.setMaxWidth(Region.USE_PREF_SIZE);
         buyButton.setOnAction(event -> {
             if (buyListener != null) {
                 buyListener.accept(item.getItemId());

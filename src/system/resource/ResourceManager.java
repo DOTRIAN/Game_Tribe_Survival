@@ -180,6 +180,29 @@ public class ResourceManager {
         return null;
     }
 
+    public List<ResourceHitResult> damageResourcesInRadius(double centerX, double centerY, double radius, int damage, long nowNs) {
+        List<ResourceHitResult> results = new ArrayList<>();
+        if (radius <= 0 || damage <= 0) {
+            return results;
+        }
+        double radiusSquared = radius * radius;
+        for (ResourceNode node : resourcesById.values()) {
+            if (node == null || !node.isAlive()) {
+                continue;
+            }
+            double dx = node.getCenterX() - centerX;
+            double dy = node.getCenterY() - centerY;
+            if (dx * dx + dy * dy > radiusSquared) {
+                continue;
+            }
+            ResourceHitResult hitResult = hitResource(node.getObjectId(), damage, nowNs);
+            if (hitResult != null) {
+                results.add(hitResult);
+            }
+        }
+        return results;
+    }
+
     /**
      * update:
      * - Goi moi frame de xu ly respawn neu node dat dieu kien.

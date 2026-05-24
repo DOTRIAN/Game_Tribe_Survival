@@ -25,6 +25,7 @@ import entity.OrcEnemy;
 import entity.Player;
 import entity.SkeletonEnemy;
 import entity.ThrownBomb;
+import entity.WallJumperEnemy;
 import event.GameEvent;
 import event.GameEventBus;
 import event.GameEventType;
@@ -84,8 +85,11 @@ public class Game {
 
     // Cac moc spawn theo gameplay sinh ton.
     private static final long ENEMY_SPAWN_INTERVAL_NS = 600_000_000L;
+    private static final long WALL_JUMPER_SPAWN_MIN_INTERVAL_NS = 2_800_000_000L;
+    private static final long WALL_JUMPER_SPAWN_MAX_INTERVAL_NS = 4_300_000_000L;
     private static final long AUTOSAVE_INTERVAL_NS = 20_000_000_000L;
     private static final int BOSS_SPAWN_DAY = 6;
+    private static final int WALL_JUMPER_MAX_ALIVE = 5;
 
     // World save file cho mode sinh ton.
     private static final String SURVIVAL_SAVE_FILE = "data/survival_world.json";
@@ -128,6 +132,7 @@ public class Game {
     private MapData mapData;
     private long worldStartedAtNs;
     private long lastEnemySpawnAtNs;
+    private long nextWallJumperSpawnAtNs;
     private long lastAutoSaveAtNs;
     private long lastUpdateNowNs;
     private long victoryAtNs;
@@ -204,6 +209,9 @@ public class Game {
     private static final int FRIENDLY_ARCHER_PRICE = GameBalance.FRIENDLY_ARCHER_PRICE;
     private static final int BOMB_TRAP_PRICE = GameBalance.BOMB_TRAP_PRICE;
     private static final int FIRE_BOMB_PRICE = GameBalance.FIRE_BOMB_PRICE;
+    private static final double BOMB_TRAP_THROW_SPEED = 7.6;
+    private static final double BOMB_TRAP_THROW_RANGE = 240.0;
+    private static final double BOMB_TRAP_RENDER_SIZE = 18.0;
     private static final double FIRE_BOMB_THROW_SPEED = 8.2;
     private static final double FIRE_BOMB_THROW_RANGE = 260.0;
     private static final long FIRE_BOMB_FUSE_NS = 900_000_000L;
@@ -261,6 +269,7 @@ public class Game {
         this.worldHeight = 1_000_000;
         this.worldStartedAtNs = System.nanoTime();
         this.lastEnemySpawnAtNs = 0L;
+        this.nextWallJumperSpawnAtNs = 0L;
         this.lastAutoSaveAtNs = 0L;
         this.lastUpdateNowNs = -1L;
         this.victoryAtNs = -1L;
@@ -428,6 +437,7 @@ public class Game {
         renderer.render(
                 gameState,
                 player,
+                baseCamp,
                 enemies,
                 friendlyArcherManager.getArchers(),
                 now,
@@ -672,8 +682,10 @@ public class Game {
         // Q rotate:
         // - M峄梚 l岷 b岷 Q se doi huong N -> E -> S -> W.
         // - Preview se cap nhat ngay sau do trong cung frame.
-        if (FIRE_BOMB_ITEM_ID.equals(getSelectedHotbarItemId()) && inputHandler.isJustPressed(KeyCode.Q)) {
-            throwSelectedFireBomb(now);
+        String selectedHotbarItemId = getSelectedHotbarItemId();
+        if ((FIRE_BOMB_ITEM_ID.equals(selectedHotbarItemId) || BOMB_TRAP_ITEM_ID.equals(selectedHotbarItemId))
+                && inputHandler.isJustPressed(KeyCode.Q)) {
+            throwSelectedThrowableBomb(selectedHotbarItemId, now);
         } else if (inputHandler.isJustPressed(KeyCode.Q)) {
             buildController.onRotatePressed();
         }
@@ -730,9 +742,7 @@ public class Game {
                 && inputHandler.isMouseLeftJustClicked()
                 && !mouseOverUi) {
             String selectedItemId = getSelectedHotbarItemId();
-            if (FIRE_BOMB_ITEM_ID.equals(selectedItemId)) {
-                throwSelectedFireBomb(now);
-            } else if (buildManager.getBuildMode() == BuildMode.BUILDING) {
+            if (buildManager.getBuildMode() == BuildMode.BUILDING) {
                 // Dat wall:
                 // - Chi dat khi click tren world, khong de len UI.
                 // - BuildManager se validate occupied tile/collision truoc khi tao wall.
@@ -1022,6 +1032,7 @@ public class Game {
         baseCamp.setHpForLoad(baseCamp.getMaxHp());
         worldStartedAtNs = System.nanoTime();
         lastEnemySpawnAtNs = 0L;
+        nextWallJumperSpawnAtNs = 0L;
         lastUpdateNowNs = -1L;
         selectedHotbarIndex = 0;
         setSelectedHotbarIndex(selectedHotbarIndex);
@@ -1033,6 +1044,7 @@ public class Game {
     }
 
     private void updateEnemySpawning(long now) {
+        updateWallJumperSpawning(now);
         if (now - lastEnemySpawnAtNs < ENEMY_SPAWN_INTERVAL_NS) {
             return;
         }
@@ -1072,6 +1084,20 @@ public class Game {
             }
             if (enemy.shouldRemoveFromWorld()) {
                 dead.add(enemy);
+                continue;
+            }
+            if (enemy instanceof WallJumperEnemy wallJumperEnemy) {
+                wallJumperEnemy.updateTowardBase(now, baseCamp, worldWidth, worldHeight);
+                int beforeHp = baseCamp.getHp();
+                if (wallJumperEnemy.tryAttackBase(baseCamp, now)) {
+                    int dealt = Math.max(0, beforeHp - baseCamp.getHp());
+                    if (dealt > 0) {
+                        eventBus.publish(new GameEvent(GameEventType.BASE_CAMP_DAMAGED, Map.of("damage", dealt, "hp", baseCamp.getHp())));
+                    }
+                }
+                if (wallJumperEnemy.shouldRemoveFromWorld()) {
+                    dead.add(wallJumperEnemy);
+                }
                 continue;
             }
             if (!enemy.isAlive()) {
@@ -1234,7 +1260,11 @@ public class Game {
                 continue;
             }
             exploded.add(bomb);
-            triggerFireBombExplosion(bomb, now);
+            if (BOMB_TRAP_ITEM_ID.equals(bomb.getBombItemId())) {
+                triggerThrownBombTrapExplosion(bomb, now);
+            } else {
+                triggerFireBombExplosion(bomb, now);
+            }
         }
         if (!exploded.isEmpty()) {
             thrownBombs.removeAll(exploded);
@@ -1272,6 +1302,19 @@ public class Game {
         }
     }
 
+    private void triggerThrownBombTrapExplosion(ThrownBomb bomb, long now) {
+        if (bomb == null) {
+            return;
+        }
+        applyBombExplosion(new BombSystem.BombExplosionEvent(
+                null,
+                bomb.getX(),
+                bomb.getY(),
+                bomb.getBlastRadius(),
+                bomb.getDamage()
+        ), now);
+    }
+
     private void updateFireBombBurnZones(long now) {
         if (fireBombBurnZones.isEmpty()) {
             return;
@@ -1291,16 +1334,7 @@ public class Game {
             int tickDamage = zone.resolveTickDamage(now);
             if (zone.contains(player.getCenterX(), player.getCenterY())) {
                 DamageResult playerDamage = DamageSystem.applyDamage(null, player, tickDamage, now);
-                if (playerDamage.getFinalDamage() > 0) {
-                    floatingDamageTexts.add(new FloatingDamageText(
-                            "-" + playerDamage.getFinalDamage(),
-                            player.getCenterX(),
-                            player.getY() - 10,
-                            now,
-                            DAMAGE_TEXT_LIFETIME_NS,
-                            false
-                    ));
-                }
+                spawnPlayerDamageText(playerDamage, now);
             }
             for (Enemy enemy : enemies) {
                 if (enemy == null || !enemy.isAlive()) {
@@ -1326,7 +1360,7 @@ public class Game {
                 bombs.add(bombTrap);
             }
         }
-        BombSystem.BombUpdateResult result = bombSystem.update(now, bombs, enemies);
+        BombSystem.BombUpdateResult result = bombSystem.update(now, bombs);
         if (result.getExplosionEvents().isEmpty()) {
             return;
         }
@@ -1342,6 +1376,11 @@ public class Game {
         explosionEffects.add(new ExplosionEffect(event.getWorldX(), event.getWorldY(), event.getRadius(), now));
         cameraShakeUntilNs = Math.max(cameraShakeUntilNs, now + 260_000_000L);
         screenFlashUntilNs = Math.max(screenFlashUntilNs, now + 170_000_000L);
+
+        if (distance(event.getWorldX(), event.getWorldY(), player.getCenterX(), player.getCenterY()) <= event.getRadius()) {
+            DamageResult playerDamage = DamageSystem.applyDamage(null, player, event.getEnemyDamage(), now);
+            spawnPlayerDamageText(playerDamage, now);
+        }
 
         for (Enemy enemy : enemies) {
             if (enemy == null || !enemy.isAlive()) {
@@ -1378,6 +1417,7 @@ public class Game {
                 );
             }
         }
+        applyResourceExplosionDamage(event.getWorldX(), event.getWorldY(), event.getRadius(), event.getEnemyDamage(), now);
 
         BuildObject bombObject = event.getBomb();
         if (bombObject != null) {
@@ -1512,13 +1552,16 @@ public class Game {
                 Map.of("item", drop.getItemId(), "amount", drop.getAmount())));
     }
 
-    private boolean throwSelectedFireBomb(long now) {
-        if (inventory.getAmount(FIRE_BOMB_ITEM_ID) <= 0) {
-            renderer.showToast("No fire bomb");
+    private boolean throwSelectedThrowableBomb(String itemId, long now) {
+        if (itemId == null || itemId.isBlank()) {
             return false;
         }
-        if (!inventory.consumeItem(FIRE_BOMB_ITEM_ID, 1)) {
-            renderer.showToast("Cannot use fire bomb");
+        if (inventory.getAmount(itemId) <= 0) {
+            renderer.showToast("No " + prettifyItemName(itemId).toLowerCase());
+            return false;
+        }
+        if (!inventory.consumeItem(itemId, 1)) {
+            renderer.showToast("Cannot use " + prettifyItemName(itemId).toLowerCase());
             return false;
         }
 
@@ -1529,26 +1572,74 @@ public class Game {
         double dx = targetX - sourceX;
         double dy = targetY - sourceY;
         double dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist > FIRE_BOMB_THROW_RANGE && dist > 0.0001) {
-            targetX = sourceX + dx / dist * FIRE_BOMB_THROW_RANGE;
-            targetY = sourceY + dy / dist * FIRE_BOMB_THROW_RANGE;
+        double throwRange = FIRE_BOMB_ITEM_ID.equals(itemId) ? FIRE_BOMB_THROW_RANGE : BOMB_TRAP_THROW_RANGE;
+        if (dist > throwRange && dist > 0.0001) {
+            targetX = sourceX + dx / dist * throwRange;
+            targetY = sourceY + dy / dist * throwRange;
         }
 
+        double throwSpeed = FIRE_BOMB_ITEM_ID.equals(itemId) ? FIRE_BOMB_THROW_SPEED : BOMB_TRAP_THROW_SPEED;
+        double blastRadius = FIRE_BOMB_ITEM_ID.equals(itemId) ? GameBalance.FIRE_BOMB_RADIUS : GameBalance.BOMB_TRAP_EXPLOSION_RADIUS_TILES * 16.0;
+        int damage = FIRE_BOMB_ITEM_ID.equals(itemId) ? GameBalance.FIRE_BOMB_IMPACT_DAMAGE : GameBalance.BOMB_TRAP_DAMAGE;
+        long fuseNs = FIRE_BOMB_ITEM_ID.equals(itemId) ? FIRE_BOMB_FUSE_NS : GameBalance.BOMB_TRAP_FUSE_NS;
+        double renderSize = FIRE_BOMB_ITEM_ID.equals(itemId) ? FIRE_BOMB_RENDER_SIZE : BOMB_TRAP_RENDER_SIZE;
         thrownBombs.add(new ThrownBomb(
+                itemId,
                 sourceX,
                 sourceY,
                 targetX,
                 targetY,
-                FIRE_BOMB_THROW_SPEED,
-                GameBalance.FIRE_BOMB_RADIUS,
-                GameBalance.FIRE_BOMB_IMPACT_DAMAGE,
+                throwSpeed,
+                blastRadius,
+                damage,
                 now,
-                FIRE_BOMB_FUSE_NS,
-                FIRE_BOMB_RENDER_SIZE
+                fuseNs,
+                renderSize
         ));
         refreshBuildInventoryUi();
-        renderer.showToast("Fire Bomb thrown");
+        renderer.showToast(prettifyItemName(itemId) + " thrown");
         return true;
+    }
+
+    private void updateWallJumperSpawning(long now) {
+        if (countAliveEnemyByType("WALL_JUMPER") >= WALL_JUMPER_MAX_ALIVE) {
+            return;
+        }
+        if (nextWallJumperSpawnAtNs <= 0L) {
+            nextWallJumperSpawnAtNs = now;
+        }
+        if (now < nextWallJumperSpawnAtNs) {
+            return;
+        }
+
+        WallJumperEnemy spawned = spawnWallJumperEnemy();
+        nextWallJumperSpawnAtNs = now + randomWallJumperSpawnDelayNs();
+        if (spawned != null) {
+            enemies.add(spawned);
+        }
+    }
+
+    private WallJumperEnemy spawnWallJumperEnemy() {
+        int tileSize = Math.max(buildCollisionManager.getTileWidth(), buildCollisionManager.getTileHeight());
+        for (int attempt = 0; attempt < 18; attempt++) {
+            double[] spawn = randomEdgeSpawnPoint(
+                    WallJumperEnemy.defaultRenderWidth(tileSize),
+                    WallJumperEnemy.defaultRenderHeight(tileSize)
+            );
+            WallJumperEnemy enemy = new WallJumperEnemy(spawn[0], spawn[1], tileSize, this::canWallJumperOccupy);
+            if (canWallJumperOccupy(enemy, enemy.getX(), enemy.getY(), enemy.getWidth(), enemy.getHeight())) {
+                return enemy;
+            }
+        }
+        return null;
+    }
+
+    private long randomWallJumperSpawnDelayNs() {
+        if (WALL_JUMPER_SPAWN_MAX_INTERVAL_NS <= WALL_JUMPER_SPAWN_MIN_INTERVAL_NS) {
+            return WALL_JUMPER_SPAWN_MIN_INTERVAL_NS;
+        }
+        long span = WALL_JUMPER_SPAWN_MAX_INTERVAL_NS - WALL_JUMPER_SPAWN_MIN_INTERVAL_NS;
+        return WALL_JUMPER_SPAWN_MIN_INTERVAL_NS + (long) (random.nextDouble() * span);
     }
 
     private boolean applyAttackToFirstEnemy(double x, double y, double w, double h, int damage, long nowNs) {
@@ -1756,6 +1847,34 @@ public class Game {
         return true;
     }
 
+    private boolean canWallJumperOccupy(WallJumperEnemy enemy, double x, double y, double width, double height) {
+        if (buildCollisionManager.isBlockedByStaticObjects(x, y, width, height)
+                || buildCollisionManager.isBlockedByTerrain(x, y, width, height)
+                || buildCollisionManager.isBlockedByWater(x, y, width, height)) {
+            return false;
+        }
+        if (CollisionSystem.intersects(x, y, width, height, player.getX(), player.getY(), player.getWidth(), player.getHeight())) {
+            return false;
+        }
+        for (FriendlyArcher archer : friendlyArcherManager.getArchers()) {
+            if (archer == null || !archer.isAlive()) {
+                continue;
+            }
+            if (CollisionSystem.intersects(x, y, width, height, archer.getX(), archer.getY(), archer.getWidth(), archer.getHeight())) {
+                return false;
+            }
+        }
+        for (Enemy other : enemies) {
+            if (other == null || other == enemy || other.shouldRemoveFromWorld() || !other.isAlive()) {
+                continue;
+            }
+            if (CollisionSystem.intersects(x, y, width, height, other.getX(), other.getY(), other.getWidth(), other.getHeight())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private boolean spawnFriendlyArcherNearPlayer() {
         int playerGridX = (int) Math.floor(player.getCenterX() / buildCollisionManager.getTileWidth());
         int playerGridY = (int) Math.floor(player.getCenterY() / buildCollisionManager.getTileHeight());
@@ -1860,23 +1979,29 @@ public class Game {
     }
 
     private double[] randomEdgeSpawnPoint() {
+        return randomEdgeSpawnPoint(64.0, 64.0);
+    }
+
+    private double[] randomEdgeSpawnPoint(double objectWidth, double objectHeight) {
         int side = random.nextInt(4);
         double margin = 12;
         double x;
         double y;
+        double width = Math.max(1.0, objectWidth);
+        double height = Math.max(1.0, objectHeight);
 
         if (side == 0) {
-            x = random.nextDouble() * Math.max(1, worldWidth - 64);
+            x = random.nextDouble() * Math.max(1, worldWidth - width);
             y = margin;
         } else if (side == 1) {
-            x = Math.max(0, worldWidth - 64 - margin);
-            y = random.nextDouble() * Math.max(1, worldHeight - 64);
+            x = Math.max(0, worldWidth - width - margin);
+            y = random.nextDouble() * Math.max(1, worldHeight - height);
         } else if (side == 2) {
-            x = random.nextDouble() * Math.max(1, worldWidth - 64);
-            y = Math.max(0, worldHeight - 64 - margin);
+            x = random.nextDouble() * Math.max(1, worldWidth - width);
+            y = Math.max(0, worldHeight - height - margin);
         } else {
             x = margin;
-            y = random.nextDouble() * Math.max(1, worldHeight - 64);
+            y = random.nextDouble() * Math.max(1, worldHeight - height);
         }
         return new double[]{x, y};
     }
@@ -1990,6 +2115,20 @@ public class Game {
         ));
     }
 
+    private void spawnPlayerDamageText(DamageResult result, long nowNs) {
+        if (result == null || result.getFinalDamage() <= 0) {
+            return;
+        }
+        floatingDamageTexts.add(new FloatingDamageText(
+                "-" + result.getFinalDamage(),
+                player.getCenterX(),
+                player.getY() - 10,
+                nowNs,
+                DAMAGE_TEXT_LIFETIME_NS,
+                result.isCritical()
+        ));
+    }
+
     private void spawnResourceDamageText(ResourceHitResult hitResult, long nowNs) {
         if (hitResult == null || hitResult.getDamageApplied() <= 0 || hitResult.getResourceNode() == null) {
             return;
@@ -2002,6 +2141,34 @@ public class Game {
                 DAMAGE_TEXT_LIFETIME_NS,
                 false
         ));
+    }
+
+    private void applyResourceExplosionDamage(double centerX, double centerY, double radius, int damage, long nowNs) {
+        List<ResourceHitResult> resourceHits = resourceManager.damageResourcesInRadius(centerX, centerY, radius, damage, nowNs);
+        for (ResourceHitResult hitResult : resourceHits) {
+            if (hitResult == null) {
+                continue;
+            }
+            spawnResourceDamageText(hitResult, nowNs);
+            if (!hitResult.isDestroyed() || hitResult.getDropResult() == null) {
+                continue;
+            }
+            ResourceType destroyedType = hitResult.getResourceNode() == null ? ResourceType.UNKNOWN : hitResult.getResourceNode().getResourceType();
+            DropResult drop = hitResult.getDropResult();
+            if (destroyedType == ResourceType.TREE || destroyedType == ResourceType.ROCK) {
+                onResourceDestroyed(hitResult.getResourceNode());
+            } else {
+                inventory.addItem(drop.getItemId(), drop.getAmount());
+                if (isFoodItem(drop.getItemId())) {
+                    player.recoverEnergy(FOOD_ENERGY_BONUS);
+                }
+            }
+            eventBus.publish(new GameEvent(GameEventType.RESOURCE_COLLECTED,
+                    Map.of("item", drop.getItemId(), "amount", drop.getAmount())));
+        }
+        if (!resourceHits.isEmpty()) {
+            refreshBuildInventoryUi();
+        }
     }
 
     private void spawnBuildDamageText(BuildDamageResult hitResult, long nowNs) {
@@ -2333,6 +2500,9 @@ public class Game {
     }
 
     private boolean isBuildItemId(String itemId) {
+        if (BOMB_TRAP_ITEM_ID.equals(itemId) || FIRE_BOMB_ITEM_ID.equals(itemId)) {
+            return false;
+        }
         return buildManager.getRegistry().findByItemId(itemId) != null;
     }
 

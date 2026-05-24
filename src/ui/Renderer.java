@@ -16,6 +16,7 @@ import entity.Enemy;
 import entity.FriendlyArcher;
 import entity.Player;
 import entity.ArrowProjectile;
+import entity.BaseCamp;
 import entity.ThrownBomb;
 import input.InputHandler;
 import javafx.scene.Scene;
@@ -128,7 +129,7 @@ public class Renderer {
         return Math.max(1.0, canvas.getHeight());
     }
 
-    public void render(GameState gameState, Player player, List<Enemy> enemies, List<FriendlyArcher> friendlyArchers, long now,
+    public void render(GameState gameState, Player player, BaseCamp baseCamp, List<Enemy> enemies, List<FriendlyArcher> friendlyArchers, long now,
                        double cameraX, double cameraY, int menuIndex, boolean welcomeFlashing,
                        String playerNameDraft, int maxNameLength,
                        List<Level> levels, PlayerProgress playerProgress, int selectedLevelIndex,
@@ -183,7 +184,7 @@ public class Renderer {
         }
 
         if (gameState == GameState.PLAYING || gameState == GameState.PAUSED || gameState == GameState.GAME_OVER || gameState == GameState.LEVEL_COMPLETE) {
-            renderGameplay(player, enemies, friendlyArchers, now, cameraX, cameraY, currentLevel, objectiveStatus,
+            renderGameplay(player, baseCamp, enemies, friendlyArchers, now, cameraX, cameraY, currentLevel, objectiveStatus,
                     allResources, collectedResources, buildManager, arrowProjectiles, thrownBombs, droppedItems, explosionEffects, fireBombBurnZones, droppedCollectibles, floatingDamageTexts,
                     cameraShakeX, cameraShakeY, screenFlashAlpha,
                     darknessAlpha, isNight, dayNightPhase, worldWidth, worldHeight, viewportWidth, viewportHeight);
@@ -317,6 +318,7 @@ public class Renderer {
     }
 
     private void renderGameplay(Player player,
+                                BaseCamp baseCamp,
                                 List<Enemy> enemies,
                                 List<FriendlyArcher> friendlyArchers,
                                 long now,
@@ -363,6 +365,7 @@ public class Renderer {
         renderExplosionEffects(explosionEffects, cameraX, cameraY, now);
         renderFireBombBurnZones(fireBombBurnZones, cameraX, cameraY, now);
         renderCollectibleItems(droppedCollectibles, cameraX, cameraY, now);
+        renderBaseCampHpBar(baseCamp, cameraX, cameraY);
 
         player.draw(graphicsContext, cameraX, cameraY);
         renderArcherTowers(archerTowers, cameraX, cameraY, now);
@@ -645,7 +648,6 @@ public class Renderer {
         if (thrownBombs == null || thrownBombs.isEmpty()) {
             return;
         }
-        Image[] bombFrames = buildAssetManager.getAnimationFrames("fire_bomb_throw");
         for (ThrownBomb bomb : thrownBombs) {
             if (bomb == null) {
                 continue;
@@ -653,9 +655,7 @@ public class Renderer {
             double size = bomb.getRenderSize();
             double screenX = bomb.getX() - cameraX;
             double screenY = bomb.getY() - cameraY - bomb.getArcHeight();
-            Image bombSprite = bombFrames.length == 0
-                    ? buildAssetManager.getSprite("fire_bomb_projectile")
-                    : bombFrames[(int) ((nowNs / 90_000_000L) % bombFrames.length)];
+            Image bombSprite = resolveThrownBombSprite(bomb, nowNs);
             if (bombSprite != null && !bombSprite.isError()) {
                 graphicsContext.drawImage(bombSprite, screenX - size * 0.5, screenY - size * 0.5, size, size);
             } else {
@@ -663,6 +663,50 @@ public class Renderer {
                 graphicsContext.fillOval(screenX - size * 0.5, screenY - size * 0.5, size, size);
             }
         }
+    }
+
+    private void renderBaseCampHpBar(BaseCamp baseCamp, double cameraX, double cameraY) {
+        if (baseCamp == null || baseCamp.getMaxHp() <= 0) {
+            return;
+        }
+        double barWidth = Math.max(48.0, baseCamp.getWidth() * 0.72);
+        double barHeight = 7.0;
+        double screenX = Math.round(baseCamp.getCenterX() - cameraX - barWidth * 0.5);
+        double screenY = Math.round(baseCamp.getY() - cameraY - 14.0);
+        double hpRatio = Math.max(0.0, Math.min(1.0, baseCamp.getHp() / (double) baseCamp.getMaxHp()));
+
+        graphicsContext.setFill(Color.color(0.08, 0.08, 0.08, 0.88));
+        graphicsContext.fillRoundRect(screenX - 2, screenY - 2, barWidth + 4, barHeight + 4, 8, 8);
+        graphicsContext.setFill(Color.color(0.24, 0.07, 0.07, 0.92));
+        graphicsContext.fillRoundRect(screenX, screenY, barWidth, barHeight, 6, 6);
+        graphicsContext.setFill(Color.web("#d95f5f"));
+        graphicsContext.fillRoundRect(screenX, screenY, barWidth * hpRatio, barHeight, 6, 6);
+        graphicsContext.setStroke(Color.color(1.0, 0.92, 0.76, 0.85));
+        graphicsContext.setLineWidth(1.0);
+        graphicsContext.strokeRoundRect(screenX - 1, screenY - 1, barWidth + 2, barHeight + 2, 7, 7);
+    }
+
+    private Image resolveThrownBombSprite(ThrownBomb bomb, long nowNs) {
+        if (bomb == null) {
+            return null;
+        }
+        if ("bomb_trap".equalsIgnoreCase(bomb.getBombItemId())) {
+            Image[] frames = buildAssetManager.getAnimationFrames("bomb_trap");
+            if (frames.length > 0) {
+                int frameIndex = bomb.resolveBombTrapFrameIndex(nowNs, frames.length);
+                if (frameIndex >= 0 && frameIndex < frames.length) {
+                    return frames[frameIndex];
+                }
+                return frames[0];
+            }
+            return buildAssetManager.getSprite("bomb_trap_icon");
+        }
+
+        Image[] bombFrames = buildAssetManager.getAnimationFrames("fire_bomb_throw");
+        if (bombFrames.length > 0) {
+            return bombFrames[(int) ((nowNs / 90_000_000L) % bombFrames.length)];
+        }
+        return buildAssetManager.getSprite("fire_bomb_projectile");
     }
 
     private void renderCollectibleItems(List<CollectibleDrop> droppedCollectibles, double cameraX, double cameraY, long nowNs) {
