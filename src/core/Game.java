@@ -10,11 +10,13 @@ import buildsystem.object.ArcherTower;
 import buildsystem.object.BombTrap;
 import buildsystem.object.BuildObject;
 import buildsystem.sprite.AssetManager;
+import drop.AnimatedDropItem;
+import drop.BombDropItem;
+import drop.DropItemType;
+import drop.DropManager;
+import drop.DropSpec;
+import drop.DroppedItem;
 import entity.BaseCamp;
-import entity.BombDropItem;
-import entity.CollectibleDrop;
-import entity.DropType;
-import entity.DroppedItem;
 import entity.ArrowProjectile;
 import entity.BlackGrouseSpawnManager;
 import entity.BossEnemy;
@@ -125,7 +127,6 @@ public class Game {
     private final List<DroppedItem> droppedItems;
     private final List<ArrowProjectile> arrowProjectiles;
     private final List<ThrownBomb> thrownBombs;
-    private final List<CollectibleDrop> droppedCollectibles;
     private final List<ExplosionEffect> explosionEffects;
     private final List<FireBombBurnZone> fireBombBurnZones;
     private final BombSystem bombSystem;
@@ -202,16 +203,27 @@ public class Game {
             CARROT_ITEM_ID,
             WOOD_WALL_ITEM_ID
     };
-    private static final int DROP_STACK_MIN = 1;
-    private static final int DROP_STACK_MAX = 5;
-    private static final int COIN_VALUE_PER_ITEM = 5;
-    private static final int XP_VALUE_PER_ITEM = 2;
-    private static final double COLLECTIBLE_SIZE = 18.0;
     private static final double DROP_MIN_RADIUS = 20.0;
     private static final double DROP_MAX_RADIUS = 60.0;
     private static final double DROP_MIN_DISTANCE = 16.0;
     private static final int DROP_POSITION_MAX_ATTEMPTS = 24;
     private static final boolean DEBUG_DROP_LOGS = false;
+    private static final List<DropSpec> TREE_DROP_TABLE = List.of(
+            new DropSpec(DropItemType.WOOD, 2),
+            new DropSpec(DropItemType.XP, 2)
+    );
+    private static final List<DropSpec> ROCK_DROP_TABLE = List.of(
+            new DropSpec(DropItemType.ROCK, 2),
+            new DropSpec(DropItemType.XP, 2)
+    );
+    private static final List<DropSpec> ENEMY_DROP_TABLE = List.of(
+            new DropSpec(DropItemType.GOLD, 2),
+            new DropSpec(DropItemType.XP, 2)
+    );
+    private static final List<DropSpec> ANIMAL_DROP_TABLE = List.of(
+            new DropSpec(DropItemType.NIKU, 2),
+            new DropSpec(DropItemType.XP, 2)
+    );
     private static final int WOOD_FENCE_PRICE = GameBalance.WOOD_FENCE_PRICE;
     private static final int WOOD_WALL_PRICE = GameBalance.WOOD_WALL_PRICE;
     private static final int TORCH_PRICE = GameBalance.TORCH_PRICE;
@@ -245,7 +257,7 @@ public class Game {
         // - Khoi tao tat ca subsystem runtime cho 1 session sinh ton.
         this.inputHandler = new InputHandler();
         this.wallAssetManager = new AssetManager();
-        CollectibleDrop.preloadAssets();
+        DropManager.preloadAll();
         this.player = new Player(100, 100, 58, 58, 4, 100);
         this.baseCamp = new BaseCamp(0, 0, 116, 116, DEFAULT_BASE_CAMP_HP);
         this.gameLoop = new GameLoop(this);
@@ -256,7 +268,6 @@ public class Game {
         this.droppedItems = new ArrayList<>();
         this.arrowProjectiles = new ArrayList<>();
         this.thrownBombs = new ArrayList<>();
-        this.droppedCollectibles = new ArrayList<>();
         this.explosionEffects = new ArrayList<>();
         this.fireBombBurnZones = new ArrayList<>();
         this.bombSystem = new BombSystem();
@@ -475,7 +486,6 @@ public class Game {
                 droppedItems,
                 explosionEffects,
                 fireBombBurnZones,
-                droppedCollectibles,
                 floatingDamageTexts,
                 screenShakeX,
                 screenShakeY,
@@ -974,7 +984,6 @@ public class Game {
 
         resourceManager.update(now);
         updateDroppedItemPickup();
-        checkCollectDroppedItems();
         cleanupExpiredDamageTexts(now);
         cleanupExpiredExplosionEffects(now);
         updateScreenImpulse(now);
@@ -1215,7 +1224,6 @@ public class Game {
         droppedItems.clear();
         arrowProjectiles.clear();
         thrownBombs.clear();
-        droppedCollectibles.clear();
         explosionEffects.clear();
         fireBombBurnZones.clear();
         cameraShakeUntilNs = 0L;
@@ -1282,6 +1290,7 @@ public class Game {
                 continue;
             }
             if (enemy.shouldRemoveFromWorld()) {
+                handleEnemyDeathDrops(enemy);
                 dead.add(enemy);
                 continue;
             }
@@ -1316,6 +1325,7 @@ public class Game {
                 continue;
             }
             if (!enemy.isAlive()) {
+                handleEnemyDeathDrops(enemy);
                 enemy.update(now, player, worldWidth, worldHeight);
                 continue;
             }
@@ -2513,6 +2523,7 @@ public class Game {
     private boolean isFoodItem(String itemId) {
         String normalized = itemId == null ? "" : itemId.trim().toLowerCase();
         return normalized.contains("meat")
+                || normalized.contains("niku")
                 || normalized.contains("carrot")
                 || normalized.contains("vegetable")
                 || normalized.contains("food");
@@ -2531,56 +2542,49 @@ public class Game {
             case BASIC_SWORD_ITEM_ID -> "Basic Sword";
             case PICKAXE_ITEM_ID -> "Pickaxe";
             case COIN_ITEM_ID -> "Coin";
+            case "rock" -> "Rock";
+            case "niku" -> "Niku";
             case CARROT_ITEM_ID -> "Carrot";
             default -> itemId;
         };
     }
 
     private void spawnDroppedItem(String itemId, int amount, double centerX, double centerY) {
-        if (itemId == null || itemId.isBlank() || amount <= 0) {
+        spawnDroppedItem(DropItemType.fromId(itemId), amount, centerX, centerY);
+    }
+
+    private void spawnDroppedItem(DropItemType type, int amount, double centerX, double centerY) {
+        if (type == null || type == DropItemType.UNKNOWN || amount <= 0) {
             return;
         }
-        if (BOMB_TRAP_ITEM_ID.equals(itemId)) {
+        if (type == DropItemType.BOMB_TRAP) {
             droppedItems.add(new BombDropItem(amount, centerX, centerY));
             return;
         }
-        String spriteKey = resolveDroppedSpriteKey(itemId);
-        double[] size = resolveDroppedItemSize(itemId);
+        double[] size = resolveDroppedItemSize(type);
         double x = centerX - size[0] / 2.0;
         double y = centerY - size[1] / 2.0;
-        droppedItems.add(new DroppedItem(itemId, spriteKey, amount, x, y, size[0], size[1]));
+        droppedItems.add(new AnimatedDropItem(type, amount, x, y, size[0], size[1]));
     }
 
-    private String resolveDroppedSpriteKey(String itemId) {
-        if (TORCH_ITEM_ID.equals(itemId)) {
-            return "torch_icon";
+    private double[] resolveDroppedItemSize(DropItemType type) {
+        if (type == null || type == DropItemType.UNKNOWN) {
+            return new double[]{GameBalance.DROPPED_ITEM_SIZE, GameBalance.DROPPED_ITEM_SIZE};
         }
-        if (ARCHER_TOWER_ITEM_ID.equals(itemId)) {
-            return "archer_tower_icon";
-        }
-        if (BOMB_TRAP_ITEM_ID.equals(itemId)) {
-            return "bomb_trap_icon";
-        }
-        if ("stone".equalsIgnoreCase(itemId)) {
-            return "";
-        }
-        return "wall_icon";
-    }
-
-    private double[] resolveDroppedItemSize(String itemId) {
+        String itemId = type.getInventoryItemId();
         if (TORCH_ITEM_ID.equals(itemId)) {
             return new double[]{GameBalance.DROPPED_TORCH_WIDTH, GameBalance.DROPPED_TORCH_HEIGHT};
         }
         if (ARCHER_TOWER_ITEM_ID.equals(itemId)) {
             return new double[]{GameBalance.DROPPED_ARCHER_TOWER_WIDTH, GameBalance.DROPPED_ARCHER_TOWER_HEIGHT};
         }
-        if (BOMB_TRAP_ITEM_ID.equals(itemId)) {
+        if (type == DropItemType.BOMB_TRAP) {
             return new double[]{GameBalance.DROPPED_BOMB_TRAP_SIZE, GameBalance.DROPPED_BOMB_TRAP_SIZE};
         }
-        if ("stone".equalsIgnoreCase(itemId)) {
+        if (type == DropItemType.ROCK) {
             return new double[]{GameBalance.DROPPED_STONE_WIDTH, GameBalance.DROPPED_STONE_HEIGHT};
         }
-        return new double[]{GameBalance.DROPPED_ITEM_SIZE, GameBalance.DROPPED_ITEM_SIZE};
+        return new double[]{type.getRenderWidth(), type.getRenderHeight()};
     }
 
     private double distance(double ax, double ay, double bx, double by) {
@@ -2737,7 +2741,7 @@ public class Game {
         if (droppedItems.isEmpty()) {
             return;
         }
-        boolean pickedAny = false;
+        boolean pickedInventoryItem = false;
         double px = player.getX() + player.getWidth() * 0.22;
         double py = player.getY() + player.getHeight() * 0.30;
         double pw = player.getWidth() * 0.56;
@@ -2748,17 +2752,36 @@ public class Game {
                 continue;
             }
             if (CollisionSystem.intersects(px, py, pw, ph, droppedItem.getX(), droppedItem.getY(), droppedItem.getWidth(), droppedItem.getHeight())) {
-                inventory.addItem(droppedItem.getItemId(), droppedItem.getAmount());
+                pickedInventoryItem |= applyDroppedItemPickup(droppedItem);
                 picked.add(droppedItem);
-                pickedAny = true;
             }
         }
         if (!picked.isEmpty()) {
             droppedItems.removeAll(picked);
         }
-        if (pickedAny) {
+        if (pickedInventoryItem) {
             refreshBuildInventoryUi();
         }
+    }
+
+    private boolean applyDroppedItemPickup(DroppedItem droppedItem) {
+        if (droppedItem == null || droppedItem.getAmount() <= 0) {
+            return false;
+        }
+        DropItemType type = droppedItem.getType();
+        if (type == null || type == DropItemType.UNKNOWN) {
+            return false;
+        }
+        if (type.isExperienceDrop()) {
+            player.addExperience(droppedItem.getAmount());
+            return false;
+        }
+        String inventoryItemId = type.getInventoryItemId();
+        if (inventoryItemId == null || inventoryItemId.isBlank()) {
+            return false;
+        }
+        inventory.addItem(inventoryItemId, droppedItem.getAmount());
+        return true;
     }
 
     private void refreshBuildInventoryUi() {
@@ -2844,44 +2867,46 @@ public class Game {
         if (resource == null) {
             return;
         }
-        if (resource.getResourceType() != ResourceType.TREE && resource.getResourceType() != ResourceType.ROCK) {
-            return;
-        }
         if (DEBUG_DROP_LOGS) {
             System.out.println("Resource destroyed at: " + resource.getCenterX() + ", " + resource.getCenterY());
         }
-        spawnDrops(resource.getCenterX(), resource.getCenterY());
+        List<DropSpec> dropTable = switch (resource.getResourceType()) {
+            case TREE -> TREE_DROP_TABLE;
+            case ROCK -> ROCK_DROP_TABLE;
+            default -> List.of();
+        };
+        spawnDropTable(resource.getCenterX(), resource.getCenterY(), dropTable);
     }
 
-    private void spawnDrops(double x, double y) {
-        int goldCount = DROP_STACK_MIN + random.nextInt(DROP_STACK_MAX - DROP_STACK_MIN + 1);
-        int xpCount = DROP_STACK_MIN + random.nextInt(DROP_STACK_MAX - DROP_STACK_MIN + 1);
+    private void spawnDropTable(double x, double y, List<DropSpec> dropTable) {
+        if (dropTable == null || dropTable.isEmpty()) {
+            return;
+        }
         List<Point2D> usedPositions = new ArrayList<>();
 
-        for (int i = 0; i < goldCount; i++) {
-            Point2D pos = getNonOverlappingDropPosition(x, y, usedPositions);
-            spawnDropItem(DropType.COIN, pos.getX(), pos.getY());
-            usedPositions.add(pos);
-        }
-        for (int i = 0; i < xpCount; i++) {
-            Point2D pos = getNonOverlappingDropPosition(x, y, usedPositions);
-            spawnDropItem(DropType.XP, pos.getX(), pos.getY());
-            usedPositions.add(pos);
-        }
-    }
-
-    private void spawnDropItem(DropType type, double x, double y) {
-        int value = type == DropType.COIN ? COIN_VALUE_PER_ITEM : XP_VALUE_PER_ITEM;
-        droppedCollectibles.add(new CollectibleDrop(type, x, y, value, COLLECTIBLE_SIZE));
-        if (DEBUG_DROP_LOGS) {
-            System.out.println("Spawn drop: " + type + " at " + x + ", " + y);
+        for (DropSpec spec : dropTable) {
+            if (spec == null || spec.getType() == DropItemType.UNKNOWN || spec.getQuantity() <= 0) {
+                continue;
+            }
+            for (int index = 0; index < spec.getQuantity(); index++) {
+                Point2D pos = getNonOverlappingDropPosition(x, y, spec.getType(), usedPositions);
+                spawnDroppedItem(
+                        spec.getType(),
+                        1,
+                        pos.getX() + spec.getType().getRenderWidth() * 0.5,
+                        pos.getY() + spec.getType().getRenderHeight() * 0.5
+                );
+                usedPositions.add(pos);
+            }
         }
     }
 
-    private Point2D getNonOverlappingDropPosition(double centerX, double centerY, List<Point2D> usedPositions) {
+    private Point2D getNonOverlappingDropPosition(double centerX, double centerY, DropItemType type, List<Point2D> usedPositions) {
+        double width = type == null ? GameBalance.DROPPED_ITEM_SIZE : type.getRenderWidth();
+        double height = type == null ? GameBalance.DROPPED_ITEM_SIZE : type.getRenderHeight();
         Point2D fallback = new Point2D(
-                centerX - COLLECTIBLE_SIZE * 0.5,
-                centerY - COLLECTIBLE_SIZE * 0.5
+                centerX - width * 0.5,
+                centerY - height * 0.5
         );
         if (usedPositions == null) {
             return fallback;
@@ -2890,8 +2915,8 @@ public class Game {
         for (int attempt = 0; attempt < DROP_POSITION_MAX_ATTEMPTS; attempt++) {
             double angle = random.nextDouble() * Math.PI * 2.0;
             double radius = DROP_MIN_RADIUS + random.nextDouble() * (DROP_MAX_RADIUS - DROP_MIN_RADIUS);
-            double px = centerX + Math.cos(angle) * radius - COLLECTIBLE_SIZE * 0.5;
-            double py = centerY + Math.sin(angle) * radius - COLLECTIBLE_SIZE * 0.5;
+            double px = centerX + Math.cos(angle) * radius - width * 0.5;
+            double py = centerY + Math.sin(angle) * radius - height * 0.5;
             Point2D candidate = new Point2D(px, py);
 
             boolean overlaps = false;
@@ -2908,51 +2933,13 @@ public class Game {
         return fallback;
     }
 
-    private void checkCollectDroppedItems() {
-        if (droppedCollectibles.isEmpty()) {
+    private void handleEnemyDeathDrops(Enemy enemy) {
+        if (enemy == null || enemy.hasSpawnedDeathDrop() || enemy.isAlive()) {
             return;
         }
-        double px = player.getX() + player.getWidth() * 0.22;
-        double py = player.getY() + player.getHeight() * 0.30;
-        double pw = player.getWidth() * 0.56;
-        double ph = player.getHeight() * 0.62;
-
-        List<CollectibleDrop> picked = new ArrayList<>();
-        for (CollectibleDrop item : droppedCollectibles) {
-            if (item == null) {
-                continue;
-            }
-            if (!CollisionSystem.intersects(px, py, pw, ph, item.getX(), item.getY(), item.getWidth(), item.getHeight())) {
-                continue;
-            }
-            if (item.getType() == DropType.COIN) {
-                addCoin(item.getValue());
-            } else {
-                addXp(item.getValue());
-            }
-            if (DEBUG_DROP_LOGS) {
-                System.out.println("Collected: " + item.getType() + " value=" + item.getValue());
-            }
-            picked.add(item);
-        }
-        if (!picked.isEmpty()) {
-            droppedCollectibles.removeAll(picked);
-        }
-    }
-
-    private void addCoin(int amount) {
-        if (amount <= 0) {
-            return;
-        }
-        inventory.addItem(COIN_ITEM_ID, amount);
-        refreshBuildInventoryUi();
-    }
-
-    private void addXp(int amount) {
-        if (amount <= 0) {
-            return;
-        }
-        player.addExperience(amount);
+        List<DropSpec> dropTable = enemy.isHostile() ? ENEMY_DROP_TABLE : ANIMAL_DROP_TABLE;
+        enemy.markDeathDropSpawned();
+        spawnDropTable(enemy.getCenterX(), enemy.getCenterY(), dropTable);
     }
 
     private String normalizeShopItemId(String itemId) {

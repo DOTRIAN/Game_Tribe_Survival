@@ -61,14 +61,23 @@ public final class GameBalance {
     public static final double FRIENDLY_ARCHER_RENDER_WIDTH = 46.0 * 58.0 / 52.0;
     public static final double FRIENDLY_ARCHER_RENDER_HEIGHT = 58.0;
 
-    public static final double DROPPED_ITEM_SIZE = 14.0;
+    public static final long DROPPED_ITEM_ANIMATION_FRAME_NS = 150_000_000L;
+    public static final double DROPPED_ITEM_SIZE = 22.0;
+    public static final double DROPPED_WOOD_WIDTH = 50.0;
+    public static final double DROPPED_WOOD_HEIGHT = 50.0;
+    public static final double DROPPED_NIKU_WIDTH = 50.0;
+    public static final double DROPPED_NIKU_HEIGHT = 50.0;
+    public static final double DROPPED_GOLD_WIDTH = 18.0;
+    public static final double DROPPED_GOLD_HEIGHT = 18.0;
+    public static final double DROPPED_XP_WIDTH = 18.0;
+    public static final double DROPPED_XP_HEIGHT = 18.0;
     public static final double DROPPED_TORCH_WIDTH = TORCH_WORLD_WIDTH / 3.0;
     public static final double DROPPED_TORCH_HEIGHT = TORCH_WORLD_HEIGHT / 3.0;
     public static final double DROPPED_ARCHER_TOWER_WIDTH = ARCHER_TOWER_WORLD_WIDTH / 2.6;
     public static final double DROPPED_ARCHER_TOWER_HEIGHT = ARCHER_TOWER_WORLD_HEIGHT / 2.6;
-    public static final double DROPPED_BOMB_TRAP_SIZE = 11.0;
-    public static final double DROPPED_STONE_WIDTH = 12.0;
-    public static final double DROPPED_STONE_HEIGHT = 12.0;
+    public static final double DROPPED_BOMB_TRAP_SIZE = 16.0;
+    public static final double DROPPED_STONE_WIDTH = 50.0;
+    public static final double DROPPED_STONE_HEIGHT = 50.0;
 
     private GameBalance() {
     }

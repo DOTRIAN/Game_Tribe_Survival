@@ -10,8 +10,7 @@ import buildsystem.core.BuildPreview;
 import buildsystem.sprite.AssetManager;
 import core.GameBalance;
 import core.GameState;
-import entity.CollectibleDrop;
-import entity.DroppedItem;
+import drop.DroppedItem;
 import entity.Enemy;
 import entity.FriendlyArcher;
 import entity.Player;
@@ -24,7 +23,6 @@ import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.effect.BlendMode;
 import javafx.scene.image.Image;
-import javafx.scene.image.ImageView;
 import javafx.scene.layout.AnchorPane;
 import javafx.scene.layout.StackPane;
 import javafx.scene.paint.Color;
@@ -143,7 +141,6 @@ public class Renderer {
                        List<DroppedItem> droppedItems,
                        List<ExplosionEffect> explosionEffects,
                        List<FireBombBurnZone> fireBombBurnZones,
-                       List<CollectibleDrop> droppedCollectibles,
                        List<FloatingDamageText> floatingDamageTexts,
                        double cameraShakeX,
                        double cameraShakeY,
@@ -185,7 +182,7 @@ public class Renderer {
 
         if (gameState == GameState.PLAYING || gameState == GameState.PAUSED || gameState == GameState.GAME_OVER || gameState == GameState.LEVEL_COMPLETE) {
             renderGameplay(player, baseCamp, enemies, friendlyArchers, now, cameraX, cameraY, currentLevel, objectiveStatus,
-                    allResources, collectedResources, buildManager, arrowProjectiles, thrownBombs, droppedItems, explosionEffects, fireBombBurnZones, droppedCollectibles, floatingDamageTexts,
+                    allResources, collectedResources, buildManager, arrowProjectiles, thrownBombs, droppedItems, explosionEffects, fireBombBurnZones, floatingDamageTexts,
                     cameraShakeX, cameraShakeY, screenFlashAlpha,
                     darknessAlpha, isNight, dayNightPhase, worldWidth, worldHeight, viewportWidth, viewportHeight);
             return;
@@ -334,7 +331,6 @@ public class Renderer {
                                 List<DroppedItem> droppedItems,
                                 List<ExplosionEffect> explosionEffects,
                                 List<FireBombBurnZone> fireBombBurnZones,
-                                List<CollectibleDrop> droppedCollectibles,
                                 List<FloatingDamageText> floatingDamageTexts,
                                 double cameraShakeX,
                                 double cameraShakeY,
@@ -364,7 +360,6 @@ public class Renderer {
         renderDroppedItems(droppedItems, cameraX, cameraY, now);
         renderExplosionEffects(explosionEffects, cameraX, cameraY, now);
         renderFireBombBurnZones(fireBombBurnZones, cameraX, cameraY, now);
-        renderCollectibleItems(droppedCollectibles, cameraX, cameraY, now);
         renderBaseCampHpBar(baseCamp, cameraX, cameraY);
 
         player.draw(graphicsContext, cameraX, cameraY);
@@ -571,7 +566,7 @@ public class Renderer {
                 continue;
             }
             double bobOffset = Math.sin(nowNs / 140_000_000.0) * 1.25;
-            Image image = buildAssetManager.getSprite(droppedItem.getSpriteKey());
+            Image image = droppedItem.getCurrentImage(nowNs);
             if (image != null && !image.isError()) {
                 graphicsContext.drawImage(
                         image,
@@ -707,30 +702,6 @@ public class Renderer {
             return bombFrames[(int) ((nowNs / 90_000_000L) % bombFrames.length)];
         }
         return buildAssetManager.getSprite("fire_bomb_projectile");
-    }
-
-    private void renderCollectibleItems(List<CollectibleDrop> droppedCollectibles, double cameraX, double cameraY, long nowNs) {
-        if (droppedCollectibles == null) {
-            return;
-        }
-        for (CollectibleDrop collectible : droppedCollectibles) {
-            if (collectible == null) {
-                continue;
-            }
-            collectible.updateAnimation(nowNs);
-            ImageView sprite = collectible.getImageView();
-            if (sprite == null || sprite.getImage() == null || sprite.getImage().isError()) {
-                continue;
-            }
-            double bobOffset = Math.sin(nowNs / 140_000_000.0 + collectible.getX() * 0.03) * 1.0;
-            graphicsContext.drawImage(
-                    sprite.getImage(),
-                    collectible.getX() - cameraX,
-                    collectible.getY() - cameraY + bobOffset,
-                    collectible.getWidth(),
-                    collectible.getHeight()
-            );
-        }
     }
 
     private void renderBuildPreview(BuildManager buildManager, double cameraX, double cameraY) {
