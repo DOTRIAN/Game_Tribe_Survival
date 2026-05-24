@@ -180,6 +180,18 @@ public abstract class Enemy extends Entity {
         lastAttackAtNs = now;
     }
 
+    public boolean canAttackNow(long now) {
+        return now - lastAttackAtNs >= attackCooldownNs;
+    }
+
+    public void markAttackNow(long now) {
+        lastAttackAtNs = now;
+    }
+
+    public int getDamage() {
+        return damage;
+    }
+
     public void draw(GraphicsContext graphicsContext, double cameraX, double cameraY, long nowNs) {
         if (!isAlive()) {
             return;

@@ -6,6 +6,7 @@ import buildsystem.object.BuildObject;
 import buildsystem.fence.FenceEntity;
 import buildsystem.object.ArcherTower;
 import buildsystem.object.BombTrap;
+import buildsystem.object.Chest;
 import buildsystem.core.BuildPreview;
 import buildsystem.sprite.AssetManager;
 import core.GameBalance;
@@ -159,20 +160,22 @@ public class Renderer {
         if (gameState == GameState.NAME_INPUT) {
             uiManager.setNameDraft(playerNameDraft, maxNameLength);
         }
-        uiManager.updateHud(
-                player,
-                collectedResources,
-                selectedHotbarIndex,
-                hotbarItems,
-                worldWidth,
-                worldHeight,
-                cameraX,
-                cameraY,
-                CAMERA_ZOOM,
-                viewportWidth,
-                viewportHeight,
-                enemies
-        );
+        if (gameState == GameState.PLAYING || gameState == GameState.PAUSED || gameState == GameState.GAME_OVER || gameState == GameState.LEVEL_COMPLETE) {
+            uiManager.updateHud(
+                    player,
+                    collectedResources,
+                    selectedHotbarIndex,
+                    hotbarItems,
+                    worldWidth,
+                    worldHeight,
+                    cameraX,
+                    cameraY,
+                    CAMERA_ZOOM,
+                    viewportWidth,
+                    viewportHeight,
+                    enemies
+            );
+        }
 
         graphicsContext.setFill(Color.web("#121416"));
         graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
@@ -224,6 +227,10 @@ public class Renderer {
         uiManager.configureInventoryClose(listener);
     }
 
+    public void setChestCloseAction(Runnable listener) {
+        uiManager.configureChestClose(listener);
+    }
+
     public String getEnteredName() {
         return uiManager.getEnteredName();
     }
@@ -266,6 +273,14 @@ public class Renderer {
 
     public void toggleInventory() {
         uiManager.setInventoryVisible(!uiManager.isInventoryVisible());
+    }
+
+    public void setChestVisible(boolean visible) {
+        uiManager.setChestVisible(visible);
+    }
+
+    public boolean isChestVisible() {
+        return uiManager.isChestVisible();
     }
 
     public void toggleMinimap() {
@@ -893,6 +908,24 @@ public class Renderer {
                 return frames[0];
             }
         }
+        if ("chest".equalsIgnoreCase(buildType) && object instanceof Chest chest) {
+            if (chest.isAjar(nowNs)) {
+                Image frame = buildAssetManager.getSprite("chest_ajar");
+                if (frame != null && !frame.isError()) {
+                    return frame;
+                }
+            }
+            if (chest.isOpen(nowNs)) {
+                Image frame = buildAssetManager.getSprite("chest_open");
+                if (frame != null && !frame.isError()) {
+                    return frame;
+                }
+            }
+            Image closed = buildAssetManager.getSprite("chest_closed");
+            if (closed != null && !closed.isError()) {
+                return closed;
+            }
+        }
         try {
             return buildAssetManager.getSprite(object.getSpriteKey());
         } catch (Exception ignored) {
@@ -966,8 +999,8 @@ public class Renderer {
         double playerWorldY = player.getY() + player.getHeight() / 2.0;
         double playerScreenX = (playerWorldX - cameraX) * CAMERA_ZOOM;
         double playerScreenY = (playerWorldY - cameraY) * CAMERA_ZOOM;
-        double playerLightRadius = isNight ? 120 : 170;
-        drawRadialLight(playerScreenX, playerScreenY, playerLightRadius, Color.color(1.0, 0.96, 0.86, 0.58));
+        double playerLightRadius = isNight ? 145 : 180;
+        drawRadialLight(playerScreenX, playerScreenY, playerLightRadius, Color.color(1.0, 0.98, 0.90, 0.42));
 
         if (buildManager != null) {
             for (BuildObject object : buildManager.getPlacedObjects()) {
@@ -980,15 +1013,15 @@ public class Renderer {
                 }
                 double screenX = (object.getCenterX() - cameraX) * CAMERA_ZOOM;
                 double screenY = (object.getCenterY() - cameraY) * CAMERA_ZOOM;
-                double radius = lightComponent.getRadius() * CAMERA_ZOOM;
-                double alpha = Math.max(0.18, Math.min(0.85, lightComponent.getIntensity() * 0.72));
-                drawRadialLight(screenX, screenY, radius, Color.color(1.0, 0.82, 0.46, alpha));
+                double radius = lightComponent.getRadius() * CAMERA_ZOOM * 1.12;
+                double alpha = Math.max(0.16, Math.min(0.52, lightComponent.getIntensity() * 0.48));
+                drawRadialLight(screenX, screenY, radius, Color.color(1.0, 0.86, 0.52, alpha));
             }
         }
 
         double bonfireWorldX = 1060;
         double bonfireWorldY = 520;
-        drawRadialLight((bonfireWorldX - cameraX) * CAMERA_ZOOM, (bonfireWorldY - cameraY) * CAMERA_ZOOM, 180, Color.color(1.0, 0.80, 0.40, 0.62));
+        drawRadialLight((bonfireWorldX - cameraX) * CAMERA_ZOOM, (bonfireWorldY - cameraY) * CAMERA_ZOOM, 210, Color.color(1.0, 0.84, 0.46, 0.36));
         graphicsContext.restore();
         graphicsContext.setGlobalBlendMode(BlendMode.SRC_OVER);
     }
@@ -1041,7 +1074,8 @@ public class Renderer {
                 false,
                 CycleMethod.NO_CYCLE,
                 new Stop(0.0, centerColor),
-                new Stop(0.55, Color.color(centerColor.getRed(), centerColor.getGreen(), centerColor.getBlue(), centerColor.getOpacity() * 0.36)),
+                new Stop(0.28, Color.color(centerColor.getRed(), centerColor.getGreen(), centerColor.getBlue(), centerColor.getOpacity() * 0.72)),
+                new Stop(0.62, Color.color(centerColor.getRed(), centerColor.getGreen(), centerColor.getBlue(), centerColor.getOpacity() * 0.30)),
                 new Stop(1.0, Color.color(0, 0, 0, 0.0))
         );
         graphicsContext.setFill(gradient);

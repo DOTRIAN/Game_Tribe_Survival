@@ -391,11 +391,24 @@ public class BuildManager {
                                                             double height,
                                                             int damage,
                                                             long nowNs) {
+        return hitFirstDamageableIntersecting(x, y, width, height, damage, nowNs, null);
+    }
+
+    public BuildDamageResult hitFirstDamageableIntersecting(double x,
+                                                            double y,
+                                                            double width,
+                                                            double height,
+                                                            int damage,
+                                                            long nowNs,
+                                                            Predicate<BuildObject> filter) {
         if (damage <= 0) {
             return null;
         }
         for (BuildObject object : new ArrayList<>(objectsById.values())) {
             if (object == null || !object.isAlive()) {
+                continue;
+            }
+            if (filter != null && !filter.test(object)) {
                 continue;
             }
             if (!intersectsRect(

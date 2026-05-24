@@ -9,6 +9,7 @@ import buildsystem.fence.FenceEntity;
 import buildsystem.object.ArcherTower;
 import buildsystem.object.BombTrap;
 import buildsystem.object.BuildObject;
+import buildsystem.object.Chest;
 import buildsystem.sprite.AssetManager;
 import entity.BaseCamp;
 import entity.BombDropItem;
@@ -186,6 +187,7 @@ public class Game {
     private static final String ARCHER_TOWER_ITEM_ID = "archer_tower";
     private static final String FRIENDLY_ARCHER_ITEM_ID = "friendly_archer";
     private static final String BOMB_TRAP_ITEM_ID = "bomb_trap";
+    private static final String CHEST_ITEM_ID = "chest";
     private static final String FIRE_BOMB_ITEM_ID = "fire_bomb";
     private static final String BASIC_SWORD_ITEM_ID = "basic_sword";
     private static final String PICKAXE_ITEM_ID = "pickaxe";
@@ -194,6 +196,7 @@ public class Game {
             WOOD_FENCE_ITEM_ID,
             TORCH_ITEM_ID,
             ARCHER_TOWER_ITEM_ID,
+            CHEST_ITEM_ID,
             BOMB_TRAP_ITEM_ID,
             FIRE_BOMB_ITEM_ID,
             BASIC_SWORD_ITEM_ID,
@@ -219,6 +222,7 @@ public class Game {
     private static final int FRIENDLY_ARCHER_PRICE = GameBalance.FRIENDLY_ARCHER_PRICE;
     private static final int BOMB_TRAP_PRICE = GameBalance.BOMB_TRAP_PRICE;
     private static final int FIRE_BOMB_PRICE = GameBalance.FIRE_BOMB_PRICE;
+    private static final int CHEST_PRICE = GameBalance.CHEST_PRICE;
     private static final double BOMB_TRAP_THROW_SPEED = 7.6;
     private static final double BOMB_TRAP_THROW_RANGE = 240.0;
     private static final double BOMB_TRAP_RENDER_SIZE = 18.0;
@@ -226,6 +230,7 @@ public class Game {
     private static final double FIRE_BOMB_THROW_RANGE = 260.0;
     private static final long FIRE_BOMB_FUSE_NS = 900_000_000L;
     private static final double FIRE_BOMB_RENDER_SIZE = 18.0;
+    private static final double CHEST_INTERACT_RANGE = 78.0;
 
     // selectedHotbarIndex:
     // - Luu slot nguoi choi dang chon tren thanh hotbar.
@@ -240,6 +245,7 @@ public class Game {
     private boolean suppressWorldPrimaryUntilMouseRelease;
     private boolean skipWorldPrimaryClickOnce;
     private boolean debugCollisionOverlayEnabled;
+    private Chest openedChest;
 
     public Game(Stage stage) {
         // Constructor:
@@ -296,6 +302,7 @@ public class Game {
         this.suppressWorldPrimaryUntilMouseRelease = false;
         this.skipWorldPrimaryClickOnce = false;
         this.debugCollisionOverlayEnabled = false;
+        this.openedChest = null;
 
         MapData loadedMap = tryLoadMap();
         this.mapData = loadedMap;
@@ -404,6 +411,12 @@ public class Game {
             suppressWorldPrimaryUntilMouseRelease = true;
             skipWorldPrimaryClickOnce = true;
             renderer.setInventoryVisible(false);
+        });
+        renderer.setChestCloseAction(() -> {
+            inputHandler.consumeMouseLeftClick();
+            suppressWorldPrimaryUntilMouseRelease = true;
+            skipWorldPrimaryClickOnce = true;
+            closeChestOverlay();
         });
     }
 
@@ -851,6 +864,9 @@ public class Game {
         if (inputHandler.isJustPressed(KeyCode.I)) {
             renderer.toggleInventory();
         }
+        if (inputHandler.isJustPressed(KeyCode.C)) {
+            toggleCampChestOverlay(now);
+        }
 
         if (inputHandler.isJustPressed(KeyCode.ESCAPE) && renderer.closeTopOverlay()) {
             renderer.hideToast();
@@ -893,6 +909,9 @@ public class Game {
         }
         boolean mouseOverUi = renderer.isMouseOverUi(inputHandler.getMouseX(), inputHandler.getMouseY());
         boolean blockingOverlayVisible = renderer.isBlockingOverlayVisible();
+        if (renderer.isChestVisible() && findNearestUsableChest(player.getCenterX(), player.getCenterY(), CHEST_INTERACT_RANGE) == null) {
+            closeChestOverlay();
+        }
         // Build preview:
         // - Chuyen mouse screen-space sang world-space qua camera/zoom.
         // - Snap ve grid de preview va wall that nam dung tren tile map.
@@ -1145,6 +1164,7 @@ public class Game {
             case TORCH_ITEM_ID -> TORCH_PRICE;
             case ARCHER_TOWER_ITEM_ID -> ARCHER_TOWER_PRICE;
             case FRIENDLY_ARCHER_ITEM_ID -> FRIENDLY_ARCHER_PRICE;
+            case CHEST_ITEM_ID -> CHEST_PRICE;
             case BOMB_TRAP_ITEM_ID -> BOMB_TRAP_PRICE;
             case FIRE_BOMB_ITEM_ID -> FIRE_BOMB_PRICE;
             case BASIC_SWORD_ITEM_ID -> 18;
@@ -1182,6 +1202,19 @@ public class Game {
             logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, true, "spawned");
             System.out.println("Bought FRIENDLY_ARCHER spawned coin = " + inventory.getAmount(COIN_ITEM_ID));
             renderer.showToast("Bought Archer");
+            return;
+        }
+        if (CHEST_ITEM_ID.equals(resolvedItemId)) {
+            if (hasAnyAliveChest() || inventory.getAmount(CHEST_ITEM_ID) > 0) {
+                inventory.addItem(COIN_ITEM_ID, price);
+                logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, false, "already-exists");
+                renderer.showToast("Chest already exists");
+                return;
+            }
+            inventory.addItem(CHEST_ITEM_ID, 1);
+            refreshBuildInventoryUi();
+            logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, true, "success");
+            renderer.showToast("Bought Chest");
             return;
         }
 
@@ -1350,6 +1383,7 @@ public class Game {
             if (ally != null) {
                 enemy.tryAttackEntity(ally, now);
             }
+            tryAttackCampChest(enemy, now);
         }
 
         if (!dead.isEmpty()) {
@@ -1708,6 +1742,107 @@ public class Game {
         int damage = "BOSS".equalsIgnoreCase(enemy.getEnemyType()) ? 6 : 1;
         DamageSystem.applyDamage(enemy, baseCamp, damage);
         eventBus.publish(new GameEvent(GameEventType.BASE_CAMP_DAMAGED, Map.of("damage", damage, "hp", baseCamp.getHp())));
+    }
+
+    private void tryAttackCampChest(Enemy enemy, long now) {
+        if (enemy == null || !enemy.isAlive() || !enemy.canAttackNow(now)) {
+            return;
+        }
+        BuildDamageResult hitResult = buildManager.hitFirstDamageableIntersecting(
+                enemy.getCollisionX(),
+                enemy.getCollisionY(),
+                enemy.getCollisionWidth(),
+                enemy.getCollisionHeight(),
+                enemy.getDamage(),
+                now,
+                object -> object != null && object.getType() == buildsystem.core.BuildType.CHEST
+        );
+        if (hitResult == null) {
+            return;
+        }
+        enemy.markAttackNow(now);
+        spawnBuildDamageText(hitResult, now);
+        if (hitResult.isDestroyed()) {
+            if (openedChest == hitResult.getObject()) {
+                openedChest = null;
+            }
+            renderer.setChestVisible(false);
+            renderer.showToast("Chest destroyed");
+        }
+    }
+
+    private void toggleCampChestOverlay(long now) {
+        if (renderer.isChestVisible()) {
+            closeChestOverlay();
+            return;
+        }
+        Chest chest = findNearestUsableChest(player.getCenterX(), player.getCenterY(), CHEST_INTERACT_RANGE);
+        if (chest == null) {
+            renderer.showToast("No chest nearby");
+            closeChestOverlay();
+            return;
+        }
+        chest.openTemporarily(now);
+        openedChest = chest;
+        renderer.setChestVisible(true);
+    }
+
+    private void closeChestOverlay() {
+        if (openedChest != null) {
+            openedChest.close();
+            openedChest = null;
+        }
+        renderer.setChestVisible(false);
+    }
+
+    private Chest findNearestUsableChest(double centerX, double centerY, double range) {
+        Chest nearest = null;
+        double nearestDistance = Math.max(0.0, range);
+        for (BuildObject object : buildManager.getPlacedObjects()) {
+            if (!(object instanceof Chest chest) || !chest.isAlive()) {
+                continue;
+            }
+            double dist = distance(centerX, centerY, chest.getCenterX(), chest.getCenterY());
+            if (dist > nearestDistance) {
+                continue;
+            }
+            nearest = chest;
+            nearestDistance = dist;
+        }
+        return nearest;
+    }
+
+    private void ensureCampChestExists() {
+        if (hasAnyAliveChest()) {
+            return;
+        }
+        int tileWidth = Math.max(1, buildCollisionManager.getTileWidth());
+        int tileHeight = Math.max(1, buildCollisionManager.getTileHeight());
+        int baseTileX = (int) Math.floor(baseCamp.getCenterX() / tileWidth);
+        int baseTileY = (int) Math.floor(baseCamp.getCenterY() / tileHeight);
+        int[][] offsets = {
+                {2, 0}, {-2, 0}, {0, 2}, {0, -2}, {3, 1}, {-3, 1}, {1, 3}, {-1, -3}
+        };
+        for (int[] offset : offsets) {
+            int tileX = baseTileX + offset[0];
+            int tileY = baseTileY + offset[1];
+            if (buildManager.spawnWorldObject(CHEST_ITEM_ID, tileX, tileY, player)) {
+                BuildObject placed = buildManager.getPlacedObjectAt(tileX, tileY);
+                if (placed != null) {
+                    placed.setHealth(GameBalance.CHEST_HITS_TO_BREAK);
+                }
+                return;
+            }
+        }
+    }
+
+    private boolean hasAnyAliveChest() {
+        for (BuildObject object : buildManager.getPlacedObjects()) {
+            if (object instanceof Chest chest && chest.isAlive()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void performPlayerAttack(long now, Player.AttackAnimationType attackType) {
@@ -2559,6 +2694,7 @@ public class Game {
             case TORCH_ITEM_ID -> "Torch";
             case ARCHER_TOWER_ITEM_ID -> "Archer Tower";
             case FRIENDLY_ARCHER_ITEM_ID -> "Archer";
+            case CHEST_ITEM_ID -> "Chest";
             case BOMB_TRAP_ITEM_ID -> "Bomb Trap";
             case FIRE_BOMB_ITEM_ID -> "Fire Bomb";
             case BASIC_SWORD_ITEM_ID -> "Basic Sword";
@@ -2997,6 +3133,7 @@ public class Game {
             case "wood_fence", "wood fence" -> WOOD_FENCE_ITEM_ID;
             case "cung", "archer_tower" -> ARCHER_TOWER_ITEM_ID;
             case "archer", "friendly_archer", "friendly archer" -> FRIENDLY_ARCHER_ITEM_ID;
+            case "chest", "ruong", "ruong_do" -> CHEST_ITEM_ID;
             case "bomb", "bomb_trap", "bomb trap", "bom" -> BOMB_TRAP_ITEM_ID;
             case "fire_bomb", "fire bomb", "firebomb", "bom_lua", "bomb_fire" -> FIRE_BOMB_ITEM_ID;
             default -> itemId.trim().toLowerCase();

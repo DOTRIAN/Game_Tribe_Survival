@@ -145,13 +145,13 @@ public class BuildRegistry {
                 .build());
 
         register(BuildDefinition.builder(BuildType.CHEST, "chest", "Chest")
-                .defaultSpriteKey("wall_single")
-                .iconSpriteKey("wall_icon")
+                .defaultSpriteKey("chest_closed")
+                .iconSpriteKey("chest_icon")
                 .placementStrategy(new GridPlacementStrategy())
                 .rotatable(false)
                 .collisionEnabled(true)
                 .waterRestricted(true)
-                .health(150)
+                .health(GameBalance.CHEST_HITS_TO_BREAK)
                 .buildCost(1)
                 .objectBuilder(seed -> new Chest(seed.getDefinition(), seed))
                 .build());
