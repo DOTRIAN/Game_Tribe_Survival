@@ -29,6 +29,7 @@ import java.util.Map;
  */
 public abstract class Enemy extends Entity {
     protected int damage;
+    private boolean deathDropSpawned;
 
     private final SpriteAnimation runAnimation;
     private final SpriteAnimation idleAnimation;
@@ -82,6 +83,7 @@ public abstract class Enemy extends Entity {
         this.facingRight = true;
         this.huggingTarget = false;
         this.lastAttackAtNs = 0L;
+        this.deathDropSpawned = false;
     }
 
     @Override
@@ -245,6 +247,14 @@ public abstract class Enemy extends Entity {
 
     public boolean shouldRemoveFromWorld() {
         return !isAlive();
+    }
+
+    public boolean hasSpawnedDeathDrop() {
+        return deathDropSpawned;
+    }
+
+    public void markDeathDropSpawned() {
+        this.deathDropSpawned = true;
     }
 
     // Dung cho spawn manager phan loai loai quai.

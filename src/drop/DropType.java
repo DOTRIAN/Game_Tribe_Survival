@@ -1,4 +1,4 @@
-package entity;
+package drop;
 
 public enum DropType {
     COIN,
