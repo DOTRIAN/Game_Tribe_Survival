@@ -1229,7 +1229,6 @@
   </tile>
   <tile id="421">
    <properties>
-    <property name="Collision" value="on"/>
     <property name="Hp_tree" type="int" value="10"/>
     <property name="Tree" value="on"/>
    </properties>

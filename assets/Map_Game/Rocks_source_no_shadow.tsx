@@ -8,13 +8,11 @@
  </tile>
  <tile id="1">
   <properties>
-   <property name="Collision" value="on"/>
    <property name="Hp_stone" type="int" value="10"/>
   </properties>
  </tile>
  <tile id="2">
   <properties>
-   <property name="Collision" value="on"/>
    <property name="Hp_stone" type="int" value="10"/>
   </properties>
  </tile>
@@ -30,7 +28,6 @@
  </tile>
  <tile id="5">
   <properties>
-   <property name="Collision" value="on"/>
    <property name="Hp_stone" type="int" value="10"/>
   </properties>
  </tile>
@@ -57,7 +54,6 @@
  </tile>
  <tile id="10">
   <properties>
-   <property name="Collision" value="on"/>
    <property name="Hp_stone" type="int" value="10"/>
   </properties>
  </tile>
@@ -127,7 +123,6 @@
  </tile>
  <tile id="23">
   <properties>
-   <property name="Collision" value="on"/>
    <property name="Hp_stone" type="int" value="10"/>
   </properties>
  </tile>
@@ -377,7 +372,6 @@
  </tile>
  <tile id="70">
   <properties>
-   <property name="Collision" value="on"/>
    <property name="Hp_stone" type="int" value="10"/>
   </properties>
  </tile>
@@ -388,7 +382,6 @@
  </tile>
  <tile id="73">
   <properties>
-   <property name="Collision" value="on"/>
    <property name="Hp_stone" type="int" value="10"/>
   </properties>
  </tile>
@@ -573,7 +566,6 @@
  </tile>
  <tile id="130">
   <properties>
-   <property name="Collision" value="on"/>
    <property name="Hp_stone" type="int" value="6"/>
   </properties>
  </tile>
@@ -585,31 +577,26 @@
  </tile>
  <tile id="134">
   <properties>
-   <property name="Collision" value="on"/>
    <property name="Hp_stone" type="int" value="6"/>
   </properties>
  </tile>
  <tile id="137">
   <properties>
-   <property name="Collision" value="on"/>
    <property name="Hp_stone" type="int" value="6"/>
   </properties>
  </tile>
  <tile id="138">
   <properties>
-   <property name="Collision" value="on"/>
    <property name="Hp_stone" type="int" value="6"/>
   </properties>
  </tile>
  <tile id="141">
   <properties>
-   <property name="Collision" value="on"/>
    <property name="Hp_stone" type="int" value="6"/>
   </properties>
  </tile>
  <tile id="142">
   <properties>
-   <property name="Collision" value="on"/>
    <property name="Hp_stone" type="int" value="6"/>
   </properties>
  </tile>
@@ -723,7 +710,6 @@
  </tile>
  <tile id="184">
   <properties>
-   <property name="Collision" value="on"/>
    <property name="Hp_stone" type="int" value="6"/>
   </properties>
  </tile>
@@ -757,7 +743,6 @@
  </tile>
  <tile id="198">
   <properties>
-   <property name="Collision" value="on"/>
    <property name="Hp_stone" type="int" value="6"/>
   </properties>
  </tile>
@@ -802,7 +787,6 @@
  </tile>
  <tile id="214">
   <properties>
-   <property name="Collision" value="on"/>
    <property name="Hp_stone" type="int" value="6"/>
   </properties>
  </tile>
@@ -829,7 +813,6 @@
  </tile>
  <tile id="241">
   <properties>
-   <property name="Collision" value="on"/>
    <property name="Hp_stone" type="int" value="4"/>
   </properties>
  </tile>
@@ -841,13 +824,11 @@
  </tile>
  <tile id="243">
   <properties>
-   <property name="Collision" value="on"/>
    <property name="Hp_stone" type="int" value="4"/>
   </properties>
  </tile>
  <tile id="244">
   <properties>
-   <property name="Collision" value="on"/>
    <property name="Hp_stone" type="int" value="4"/>
   </properties>
  </tile>
@@ -877,7 +858,6 @@
  </tile>
  <tile id="257">
   <properties>
-   <property name="Collision" value="on"/>
    <property name="Hp_stone" type="int" value="4"/>
   </properties>
  </tile>
@@ -889,7 +869,6 @@
  </tile>
  <tile id="259">
   <properties>
-   <property name="Collision" value="on"/>
    <property name="Hp_stone" type="int" value="4"/>
   </properties>
  </tile>
@@ -901,19 +880,16 @@
  </tile>
  <tile id="261">
   <properties>
-   <property name="Collision" value="on"/>
    <property name="Hp_stone" type="int" value="4"/>
   </properties>
  </tile>
  <tile id="262">
   <properties>
-   <property name="Collision" value="on"/>
    <property name="Hp_stone" type="int" value="4"/>
   </properties>
  </tile>
  <tile id="263">
   <properties>
-   <property name="Collision" value="on"/>
    <property name="Hp_stone" type="int" value="4"/>
   </properties>
  </tile>
