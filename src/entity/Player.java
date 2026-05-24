@@ -412,7 +412,7 @@ public class Player extends Entity {
         this.sprinting = sprinting;
     }
 
-    private double getCurrentMoveSpeed() {
+    public double getCurrentMoveSpeed() {
         return sprinting ? speed * SPRINT_SPEED_MULTIPLIER : speed;
     }
 

@@ -19,8 +19,10 @@ import entity.ArrowProjectile;
 import entity.BlackGrouseSpawnManager;
 import entity.BossEnemy;
 import entity.Enemy;
+import entity.Entity;
 import entity.FriendlyArcher;
 import entity.FriendlyArcherManager;
+import entity.GolemEnemy;
 import entity.OrcEnemy;
 import entity.Player;
 import entity.SkeletonEnemy;
@@ -42,6 +44,7 @@ import map.TiledMapLoader;
 import system.CollisionSystem;
 import system.DamageResult;
 import system.DamageSystem;
+import system.MovementSlideSystem;
 import system.resource.DropResult;
 import system.resource.ResourceContractValidator;
 import system.resource.ResourceHitResult;
@@ -87,9 +90,12 @@ public class Game {
     private static final long ENEMY_SPAWN_INTERVAL_NS = 600_000_000L;
     private static final long WALL_JUMPER_SPAWN_MIN_INTERVAL_NS = 2_800_000_000L;
     private static final long WALL_JUMPER_SPAWN_MAX_INTERVAL_NS = 4_300_000_000L;
+    private static final long GOLEM_SPAWN_MIN_INTERVAL_NS = 7_500_000_000L;
+    private static final long GOLEM_SPAWN_MAX_INTERVAL_NS = 11_500_000_000L;
     private static final long AUTOSAVE_INTERVAL_NS = 20_000_000_000L;
     private static final int BOSS_SPAWN_DAY = 6;
     private static final int WALL_JUMPER_MAX_ALIVE = 5;
+    private static final int GOLEM_MAX_ALIVE = 2;
 
     // World save file cho mode sinh ton.
     private static final String SURVIVAL_SAVE_FILE = "data/survival_world.json";
@@ -133,6 +139,7 @@ public class Game {
     private long worldStartedAtNs;
     private long lastEnemySpawnAtNs;
     private long nextWallJumperSpawnAtNs;
+    private long nextGolemSpawnAtNs;
     private long lastAutoSaveAtNs;
     private long lastUpdateNowNs;
     private long victoryAtNs;
@@ -270,6 +277,7 @@ public class Game {
         this.worldStartedAtNs = System.nanoTime();
         this.lastEnemySpawnAtNs = 0L;
         this.nextWallJumperSpawnAtNs = 0L;
+        this.nextGolemSpawnAtNs = 0L;
         this.lastAutoSaveAtNs = 0L;
         this.lastUpdateNowNs = -1L;
         this.victoryAtNs = -1L;
@@ -722,18 +730,22 @@ public class Game {
         boolean sprinting = movingByInput && inputHandler.isPressed(KeyCode.SPACE);
         player.setSprinting(sprinting);
 
+        double playerDx = 0.0;
+        double playerDy = 0.0;
+        double playerStep = player.getCurrentMoveSpeed();
         if (moveLeft) {
-            player.moveLeft();
+            playerDx -= playerStep;
         }
         if (moveRight) {
-            player.moveRight();
+            playerDx += playerStep;
         }
         if (moveUp) {
-            player.moveUp();
+            playerDy -= playerStep;
         }
         if (moveDown) {
-            player.moveDown();
+            playerDy += playerStep;
         }
+        movePlayerWithSliding(playerDx, playerDy);
 
         if (!suppressWorldPrimaryUntilMouseRelease
                 && !skipWorldPrimaryClickThisFrame
@@ -758,11 +770,6 @@ public class Game {
             if (player.consumeEnergy(SKILL_F_ENERGY_COST)) {
                 performPlayerAttack(now, Player.AttackAnimationType.SLICE);
             }
-        }
-
-        player.clampPosition(0, 0, worldWidth, worldHeight);
-        if (isPlayerCollidingWithMapCollision()) {
-            player.setPosition(oldX, oldY);
         }
 
         boolean moving = oldX != player.getX() || oldY != player.getY();
@@ -1033,6 +1040,7 @@ public class Game {
         worldStartedAtNs = System.nanoTime();
         lastEnemySpawnAtNs = 0L;
         nextWallJumperSpawnAtNs = 0L;
+        nextGolemSpawnAtNs = 0L;
         lastUpdateNowNs = -1L;
         selectedHotbarIndex = 0;
         setSelectedHotbarIndex(selectedHotbarIndex);
@@ -1045,6 +1053,7 @@ public class Game {
 
     private void updateEnemySpawning(long now) {
         updateWallJumperSpawning(now);
+        updateGolemSpawning(now);
         if (now - lastEnemySpawnAtNs < ENEMY_SPAWN_INTERVAL_NS) {
             return;
         }
@@ -1086,6 +1095,22 @@ public class Game {
                 dead.add(enemy);
                 continue;
             }
+            if (enemy instanceof GolemEnemy golemEnemy) {
+                golemEnemy.updateAi(now, baseCamp, player, friendlyArcherManager.getArchers(), worldWidth, worldHeight);
+                int baseHpBefore = baseCamp.getHp();
+                if (golemEnemy.applyAttackIfReady(now)) {
+                    if (golemEnemy.getCurrentTarget() instanceof BaseCamp) {
+                        int dealt = Math.max(0, baseHpBefore - baseCamp.getHp());
+                        if (dealt > 0) {
+                            eventBus.publish(new GameEvent(GameEventType.BASE_CAMP_DAMAGED, Map.of("damage", dealt, "hp", baseCamp.getHp())));
+                        }
+                    }
+                }
+                if (golemEnemy.shouldRemoveFromWorld()) {
+                    dead.add(golemEnemy);
+                }
+                continue;
+            }
             if (enemy instanceof WallJumperEnemy wallJumperEnemy) {
                 wallJumperEnemy.updateTowardBase(now, baseCamp, worldWidth, worldHeight);
                 int beforeHp = baseCamp.getHp();
@@ -1118,10 +1143,7 @@ public class Game {
             if (chaseCamp) {
                 moveEnemyToward(enemy, baseCamp);
             } else {
-                enemy.update(now, player, worldWidth, worldHeight);
-            }
-            if (isEnemyCollidingWithPlacedWall(enemy) || isEnemyCollidingWithFriendlyArcher(enemy)) {
-                enemy.setPosition(oldEnemyX, oldEnemyY);
+                moveEnemyToward(enemy, player);
             }
 
             enemy.tryAttackPlayer(player, now);
@@ -1457,18 +1479,23 @@ public class Game {
         return nearest;
     }
 
-    private void moveEnemyToward(Enemy enemy, BaseCamp target) {
+    private void moveEnemyToward(Enemy enemy, Entity target) {
         double dx = target.getCenterX() - enemy.getCenterX();
         double dy = target.getCenterY() - enemy.getCenterY();
         double distance = Math.sqrt(dx * dx + dy * dy);
         if (distance < 1) {
             return;
         }
-        enemy.setPosition(
-                enemy.getX() + (dx / distance) * enemy.getSpeed(),
-                enemy.getY() + (dy / distance) * enemy.getSpeed()
+        MovementSlideSystem.MoveResult result = MovementSlideSystem.move(
+                enemy.getX(),
+                enemy.getY(),
+                enemy.getWidth(),
+                enemy.getHeight(),
+                (dx / distance) * enemy.getSpeed(),
+                (dy / distance) * enemy.getSpeed(),
+                (x, y, width, height) -> canHostileEnemyOccupy(enemy, x, y, width, height)
         );
-        enemy.clampPosition(0, 0, worldWidth, worldHeight);
+        enemy.setPosition(result.x(), result.y());
     }
 
     private void tryAttackBaseCamp(Enemy enemy, long now) {
@@ -1619,6 +1646,42 @@ public class Game {
         }
     }
 
+    private void updateGolemSpawning(long now) {
+        if (countAliveEnemyByType("GOLEM") >= GOLEM_MAX_ALIVE) {
+            return;
+        }
+        if (nextGolemSpawnAtNs <= 0L) {
+            nextGolemSpawnAtNs = now;
+        }
+        if (now < nextGolemSpawnAtNs) {
+            return;
+        }
+        GolemEnemy spawned = spawnGolemEnemy();
+        nextGolemSpawnAtNs = now + randomGolemSpawnDelayNs();
+        if (spawned != null) {
+            enemies.add(spawned);
+        }
+    }
+
+    private GolemEnemy spawnGolemEnemy() {
+        for (int attempt = 0; attempt < 16; attempt++) {
+            double[] spawn = randomEdgeSpawnPoint(112.0, 112.0);
+            GolemEnemy enemy = new GolemEnemy(spawn[0], spawn[1], this::canGolemOccupy);
+            if (canGolemOccupy(enemy, enemy.getX(), enemy.getY(), enemy.getWidth(), enemy.getHeight())) {
+                return enemy;
+            }
+        }
+        return null;
+    }
+
+    private long randomGolemSpawnDelayNs() {
+        if (GOLEM_SPAWN_MAX_INTERVAL_NS <= GOLEM_SPAWN_MIN_INTERVAL_NS) {
+            return GOLEM_SPAWN_MIN_INTERVAL_NS;
+        }
+        long span = GOLEM_SPAWN_MAX_INTERVAL_NS - GOLEM_SPAWN_MIN_INTERVAL_NS;
+        return GOLEM_SPAWN_MIN_INTERVAL_NS + (long) (random.nextDouble() * span);
+    }
+
     private WallJumperEnemy spawnWallJumperEnemy() {
         int tileSize = Math.max(buildCollisionManager.getTileWidth(), buildCollisionManager.getTileHeight());
         for (int attempt = 0; attempt < 18; attempt++) {
@@ -1767,41 +1830,65 @@ public class Game {
         }
     }
 
-    private boolean isPlayerCollidingWithMapCollision() {
-        double px = player.getX() + player.getWidth() * 0.22;
-        double py = player.getY() + player.getHeight() * 0.30;
-        double pw = player.getWidth() * 0.56;
-        double ph = player.getHeight() * 0.62;
+    private void movePlayerWithSliding(double dx, double dy) {
+        MovementSlideSystem.MoveResult result = MovementSlideSystem.move(
+                player.getX(),
+                player.getY(),
+                player.getWidth(),
+                player.getHeight(),
+                dx,
+                dy,
+                (x, y, width, height) -> canPlayerOccupyAt(x, y, width, height)
+        );
+        player.setPosition(result.x(), result.y());
+    }
+
+    private boolean canPlayerOccupyAt(double x, double y, double width, double height) {
+        if (x < 0 || y < 0 || x + width > worldWidth || y + height > worldHeight) {
+            return false;
+        }
+        double px = x + width * 0.22;
+        double py = y + height * 0.30;
+        double pw = width * 0.56;
+        double ph = height * 0.62;
 
         for (MapObjectData object : mapCollisions) {
             if (!"Collision".equalsIgnoreCase(object.getType())) {
                 continue;
             }
             if (object.intersects(px, py, pw, ph)) {
-                return true;
+                return false;
             }
         }
         if (tileCollisionResolver != null && tileCollisionResolver.isBlocked(px, py, pw, ph)) {
-            return true;
-        }
-        return buildCollisionManager.intersectsPlacedBuildObject(px, py, pw, ph, buildManager.getPlacedObjects());
-    }
-
-    private boolean isEnemyCollidingWithPlacedWall(Enemy enemy) {
-        if (enemy == null) {
             return false;
         }
-        return buildCollisionManager.intersectsPlacedBuildObject(
-                enemy.getX(),
-                enemy.getY(),
-                enemy.getWidth(),
-                enemy.getHeight(),
-                buildManager.getPlacedObjects()
-        );
+        return !buildCollisionManager.intersectsPlacedBuildObject(px, py, pw, ph, buildManager.getPlacedObjects());
     }
 
     private boolean isEnemyCollidingWithFriendlyArcher(Enemy enemy) {
         return firstCollidingFriendlyArcher(enemy) != null;
+    }
+
+    private boolean canHostileEnemyOccupy(Enemy enemy, double x, double y, double width, double height) {
+        if (enemy == null) {
+            return false;
+        }
+        if (x < 0 || y < 0 || x + width > worldWidth || y + height > worldHeight) {
+            return false;
+        }
+        if (buildCollisionManager.intersectsPlacedBuildObject(x, y, width, height, buildManager.getPlacedObjects())) {
+            return false;
+        }
+        for (FriendlyArcher archer : friendlyArcherManager.getArchers()) {
+            if (archer == null || !archer.isAlive()) {
+                continue;
+            }
+            if (CollisionSystem.intersects(x, y, width, height, archer.getX(), archer.getY(), archer.getWidth(), archer.getHeight())) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private FriendlyArcher firstCollidingFriendlyArcher(Enemy enemy) {
@@ -1866,6 +1953,29 @@ public class Game {
         }
         for (Enemy other : enemies) {
             if (other == null || other == enemy || other.shouldRemoveFromWorld() || !other.isAlive()) {
+                continue;
+            }
+            if (CollisionSystem.intersects(x, y, width, height, other.getX(), other.getY(), other.getWidth(), other.getHeight())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean canGolemOccupy(GolemEnemy enemy, double x, double y, double width, double height) {
+        if (enemy == null) {
+            return false;
+        }
+        if (x < 0 || y < 0 || x + width > worldWidth || y + height > worldHeight) {
+            return false;
+        }
+        if (buildCollisionManager.isBlockedByTerrain(x, y, width, height)
+                || buildCollisionManager.isBlockedByWater(x, y, width, height)
+                || buildCollisionManager.intersectsPlacedBuildObject(x, y, width, height, buildManager.getPlacedObjects())) {
+            return false;
+        }
+        for (Enemy other : enemies) {
+            if (other == null || other == enemy || !other.isAlive() || other.shouldRemoveFromWorld()) {
                 continue;
             }
             if (CollisionSystem.intersects(x, y, width, height, other.getX(), other.getY(), other.getWidth(), other.getHeight())) {

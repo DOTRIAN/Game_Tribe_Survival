@@ -1,6 +1,7 @@
 package entity;
 
 import system.DamageSystem;
+import system.MovementSlideSystem;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -275,12 +276,16 @@ public class FriendlyArcherManager {
         double maxY = Math.max(0.0, worldQuery.getWorldHeight() - archer.getHeight());
         double newX = clamp(targetX, 0.0, maxX);
         double newY = clamp(targetY, 0.0, maxY);
-        if (worldQuery.canOccupy(archer, newX, archer.getY(), archer.getWidth(), archer.getHeight())) {
-            archer.setPosition(newX, archer.getY());
-        }
-        if (worldQuery.canOccupy(archer, archer.getX(), newY, archer.getWidth(), archer.getHeight())) {
-            archer.setPosition(archer.getX(), newY);
-        }
+        MovementSlideSystem.MoveResult result = MovementSlideSystem.move(
+                archer.getX(),
+                archer.getY(),
+                archer.getWidth(),
+                archer.getHeight(),
+                newX - archer.getX(),
+                newY - archer.getY(),
+                (x, y, width, height) -> worldQuery.canOccupy(archer, x, y, width, height)
+        );
+        archer.setPosition(result.x(), result.y());
     }
 
     private Enemy findNearestEnemy(FriendlyArcher archer, List<Enemy> enemies) {
