@@ -178,7 +178,8 @@ public class CollisionManager implements BuildWorldQuery {
             if (entity == null || !entity.isAlive()) {
                 continue;
             }
-            if (intersectsRect(x, y, width, height, entity.getX(), entity.getY(), entity.getWidth(), entity.getHeight())) {
+            if (intersectsRect(x, y, width, height,
+                    entity.getCollisionX(), entity.getCollisionY(), entity.getCollisionWidth(), entity.getCollisionHeight())) {
                 return true;
             }
         }

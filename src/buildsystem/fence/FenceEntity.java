@@ -101,4 +101,14 @@ public class FenceEntity extends BuildObject {
     public double getFootY() {
         return getTileY() * getTileHeight() + getTileHeight();
     }
+
+    @Override
+    public double getCollisionX() {
+        return getTileX() * getTileWidth() + (getTileWidth() - getCollisionWidth()) * 0.5;
+    }
+
+    @Override
+    public double getCollisionY() {
+        return getTileY() * getTileHeight() + getTileHeight() - getCollisionHeight();
+    }
 }

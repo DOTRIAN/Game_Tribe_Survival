@@ -83,6 +83,54 @@ public abstract class Entity {
         return y + height / 2.0;
     }
 
+    protected double collisionInsetLeft(double width, double height) {
+        return 0.0;
+    }
+
+    protected double collisionInsetRight(double width, double height) {
+        return 0.0;
+    }
+
+    protected double collisionInsetTop(double width, double height) {
+        return 0.0;
+    }
+
+    protected double collisionInsetBottom(double width, double height) {
+        return 0.0;
+    }
+
+    public double getCollisionX() {
+        return getCollisionXAt(x, width, height);
+    }
+
+    public double getCollisionY() {
+        return getCollisionYAt(y, width, height);
+    }
+
+    public double getCollisionWidth() {
+        return getCollisionWidthAt(width, height);
+    }
+
+    public double getCollisionHeight() {
+        return getCollisionHeightAt(width, height);
+    }
+
+    public double getCollisionXAt(double x, double width, double height) {
+        return x + collisionInsetLeft(width, height);
+    }
+
+    public double getCollisionYAt(double y, double width, double height) {
+        return y + collisionInsetTop(width, height);
+    }
+
+    public double getCollisionWidthAt(double width, double height) {
+        return Math.max(1.0, width - collisionInsetLeft(width, height) - collisionInsetRight(width, height));
+    }
+
+    public double getCollisionHeightAt(double width, double height) {
+        return Math.max(1.0, height - collisionInsetTop(width, height) - collisionInsetBottom(width, height));
+    }
+
     public void setPosition(double x, double y) {
         this.x = x;
         this.y = y;

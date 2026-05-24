@@ -84,6 +84,26 @@ public abstract class Enemy extends Entity {
         this.lastAttackAtNs = 0L;
     }
 
+    @Override
+    protected double collisionInsetLeft(double width, double height) {
+        return width * 0.18;
+    }
+
+    @Override
+    protected double collisionInsetRight(double width, double height) {
+        return width * 0.18;
+    }
+
+    @Override
+    protected double collisionInsetTop(double width, double height) {
+        return height * 0.42;
+    }
+
+    @Override
+    protected double collisionInsetBottom(double width, double height) {
+        return height * 0.08;
+    }
+
     public void update(long now, Player player, double worldWidth, double worldHeight) {
         if (!isAlive() || player == null) {
             return;

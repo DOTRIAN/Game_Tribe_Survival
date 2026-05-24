@@ -19,8 +19,8 @@ public final class CollisionSystem {
             return false;
         }
         return intersects(
-                left.getX(), left.getY(), left.getWidth(), left.getHeight(),
-                right.getX(), right.getY(), right.getWidth(), right.getHeight()
+                left.getCollisionX(), left.getCollisionY(), left.getCollisionWidth(), left.getCollisionHeight(),
+                right.getCollisionX(), right.getCollisionY(), right.getCollisionWidth(), right.getCollisionHeight()
         );
     }
 
@@ -28,7 +28,7 @@ public final class CollisionSystem {
         if (entity == null) {
             return false;
         }
-        return intersects(entity.getX(), entity.getY(), entity.getWidth(), entity.getHeight(), x, y, width, height);
+        return intersects(entity.getCollisionX(), entity.getCollisionY(), entity.getCollisionWidth(), entity.getCollisionHeight(), x, y, width, height);
     }
 
     public static boolean intersects(double leftX, double leftY, double leftW, double leftH,
