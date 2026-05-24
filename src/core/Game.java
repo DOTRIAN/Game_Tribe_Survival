@@ -47,6 +47,7 @@ import system.CollisionSystem;
 import system.DamageResult;
 import system.DamageSystem;
 import system.MovementSlideSystem;
+import system.level.LevelManager;
 import system.resource.DropResult;
 import system.resource.ResourceContractValidator;
 import system.resource.ResourceHitResult;
@@ -81,6 +82,10 @@ import java.util.Set;
  * - Co save/load session de thoat game vao lai choi tiep.
  */
 public class Game {
+    private record TileCoord(int x, int y) {}
+    private record TileBounds(int minX, int minY, int maxX, int maxY, int tileCount) {}
+    private record FencePerimeter(int left, int top, int right, int bottom, int centerX, int centerY) {}
+
     private enum GameOverReason {
         PLAYER_DIED,
         BASE_CAMP_DESTROYED
@@ -101,7 +106,10 @@ public class Game {
 
     // World save file cho mode sinh ton.
     private static final String SURVIVAL_SAVE_FILE = "data/survival_world.json";
-    private static final int DEFAULT_BASE_CAMP_HP = 500;
+    private static final int DEFAULT_BASE_CAMP_HP = 100;
+    private static final int INITIAL_FENCE_PADDING_X_TILES = 1;
+    private static final int INITIAL_FENCE_PADDING_Y_TILES = 0;
+    private static final int INITIAL_FENCE_GATE_SIZE_TILES = 2;
 
     private final GameLoop gameLoop;
     private final Renderer renderer;
@@ -554,14 +562,8 @@ public class Game {
         if (marker == null) {
             return;
         }
-        int configuredHp = parsePositiveInt(
-                DEFAULT_BASE_CAMP_HP,
-                marker.getProperties().get("baseCampHp"),
-                marker.getProperties().get("maxHp"),
-                marker.getProperties().get("hp"),
-                marker.getProperties().get("Hp_tent")
-        );
-        baseCamp.configure(marker.getX(), marker.getY(), marker.getWidth(), marker.getHeight(), configuredHp);
+        // Base camp HP duoc chot ve 100 de giu can bang on dinh giua cac map/session.
+        baseCamp.configure(marker.getX(), marker.getY(), marker.getWidth(), marker.getHeight(), DEFAULT_BASE_CAMP_HP);
         baseCamp.clampPosition(0, 0, worldWidth, worldHeight);
     }
 
@@ -619,10 +621,7 @@ public class Game {
         TilePropertyCatalog catalog = new TilePropertyCatalog(mapData);
         int tileW = Math.max(1, mapData.getTileWidth());
         int tileH = Math.max(1, mapData.getTileHeight());
-        int minTileX = Integer.MAX_VALUE;
-        int minTileY = Integer.MAX_VALUE;
-        int maxTileX = -1;
-        int maxTileY = -1;
+        Set<TileCoord> baseCampTiles = new LinkedHashSet<>();
 
         for (TileLayerData layer : mapData.getTileLayers()) {
             if (layer == null) {
@@ -637,31 +636,101 @@ public class Game {
                     if (!isBaseCampTile(catalog.getPropertiesForGid(gid))) {
                         continue;
                     }
-                    if (x < minTileX) {
-                        minTileX = x;
-                    }
-                    if (y < minTileY) {
-                        minTileY = y;
-                    }
-                    if (x > maxTileX) {
-                        maxTileX = x;
-                    }
-                    if (y > maxTileY) {
-                        maxTileY = y;
-                    }
+                    baseCampTiles.add(new TileCoord(x, y));
                 }
             }
         }
 
-        if (maxTileX < minTileX || maxTileY < minTileY) {
+        TileBounds bounds = selectBaseCampBounds(baseCampTiles);
+        if (bounds == null) {
             return null;
         }
 
-        double x = minTileX * tileW;
-        double y = minTileY * tileH;
-        double width = (maxTileX - minTileX + 1) * tileW;
-        double height = (maxTileY - minTileY + 1) * tileH;
+        double x = bounds.minX() * tileW;
+        double y = bounds.minY() * tileH;
+        double width = (bounds.maxX() - bounds.minX() + 1) * tileW;
+        double height = (bounds.maxY() - bounds.minY() + 1) * tileH;
         return new MapObjectData(-999, "BaseCamp", "BaseCamp", x, y, width, height, Map.of("Hp_tent", String.valueOf(DEFAULT_BASE_CAMP_HP)));
+    }
+
+    private TileBounds selectBaseCampBounds(Set<TileCoord> baseCampTiles) {
+        if (baseCampTiles == null || baseCampTiles.isEmpty()) {
+            return null;
+        }
+
+        Set<TileCoord> remaining = new LinkedHashSet<>(baseCampTiles);
+        TileBounds bestBounds = null;
+        double mapCenterX = mapData.getWidthInTiles() * 0.5;
+        double mapCenterY = mapData.getHeightInTiles() * 0.5;
+
+        while (!remaining.isEmpty()) {
+            TileCoord start = remaining.iterator().next();
+            TileBounds candidate = extractBaseCampClusterBounds(start, remaining);
+            if (candidate == null) {
+                continue;
+            }
+            if (bestBounds == null || isPreferredBaseCampBounds(candidate, bestBounds, mapCenterX, mapCenterY)) {
+                bestBounds = candidate;
+            }
+        }
+        return bestBounds;
+    }
+
+    private TileBounds extractBaseCampClusterBounds(TileCoord start, Set<TileCoord> remaining) {
+        if (start == null || remaining == null || !remaining.remove(start)) {
+            return null;
+        }
+
+        List<TileCoord> frontier = new ArrayList<>();
+        frontier.add(start);
+        int minX = start.x();
+        int minY = start.y();
+        int maxX = start.x();
+        int maxY = start.y();
+        int count = 0;
+
+        for (int index = 0; index < frontier.size(); index++) {
+            TileCoord current = frontier.get(index);
+            count++;
+            minX = Math.min(minX, current.x());
+            minY = Math.min(minY, current.y());
+            maxX = Math.max(maxX, current.x());
+            maxY = Math.max(maxY, current.y());
+
+            collectAdjacentBaseCampTile(new TileCoord(current.x() + 1, current.y()), remaining, frontier);
+            collectAdjacentBaseCampTile(new TileCoord(current.x() - 1, current.y()), remaining, frontier);
+            collectAdjacentBaseCampTile(new TileCoord(current.x(), current.y() + 1), remaining, frontier);
+            collectAdjacentBaseCampTile(new TileCoord(current.x(), current.y() - 1), remaining, frontier);
+        }
+
+        return new TileBounds(minX, minY, maxX, maxY, count);
+    }
+
+    private void collectAdjacentBaseCampTile(TileCoord candidate, Set<TileCoord> remaining, List<TileCoord> frontier) {
+        if (candidate == null || remaining == null || frontier == null) {
+            return;
+        }
+        if (remaining.remove(candidate)) {
+            frontier.add(candidate);
+        }
+    }
+
+    private boolean isPreferredBaseCampBounds(TileBounds candidate,
+                                              TileBounds currentBest,
+                                              double mapCenterX,
+                                              double mapCenterY) {
+        if (candidate.tileCount() != currentBest.tileCount()) {
+            return candidate.tileCount() > currentBest.tileCount();
+        }
+        return distanceToMapCenter(candidate, mapCenterX, mapCenterY) < distanceToMapCenter(currentBest, mapCenterX, mapCenterY);
+    }
+
+    private double distanceToMapCenter(TileBounds bounds, double mapCenterX, double mapCenterY) {
+        double centerX = (bounds.minX() + bounds.maxX()) * 0.5;
+        double centerY = (bounds.minY() + bounds.maxY()) * 0.5;
+        double dx = centerX - mapCenterX;
+        double dy = centerY - mapCenterY;
+        return Math.sqrt(dx * dx + dy * dy);
     }
 
     private boolean isBaseCampTile(Map<String, String> properties) {
@@ -1117,8 +1186,6 @@ public class Game {
         if (pendingStartFreshWorld) {
             restartSurvival();
             pendingStartFreshWorld = false;
-            hasLoadedSaveSnapshot = true;
-            renderer.setContinueAvailable(true);
             return;
         }
         gameState = GameState.PLAYING;
@@ -1210,6 +1277,8 @@ public class Game {
     }
 
     private void restartSurvival() {
+        clearPersistentProgressForFreshStart();
+
         // Reset world moi: clear enemy/resource procedural va inventory.
         enemies.clear();
         friendlyArcherManager.clear();
@@ -1242,11 +1311,19 @@ public class Game {
         lastUpdateNowNs = -1L;
         selectedHotbarIndex = 0;
         setSelectedHotbarIndex(selectedHotbarIndex);
+        hasLoadedSaveSnapshot = false;
+        renderer.setContinueAvailable(false);
 
         resetWorldPosition();
         loadMapWoodFences();
         spawnAmbientBlackGrouse();
         gameState = GameState.PLAYING;
+    }
+
+    private void clearPersistentProgressForFreshStart() {
+        // New Game/Reset phai xoa save world tren disk va dua level progress ve moc ban dau.
+        worldSaveService.deleteSave();
+        LevelManager.getInstance().resetProgress();
     }
 
     private void updateEnemySpawning(long now) {
@@ -2636,33 +2713,24 @@ public class Game {
         }
         Set<String> fenceTiles = new LinkedHashSet<>();
 
-        int mapWidthTiles = mapData.getWidthInTiles();
-        int mapHeightTiles = mapData.getHeightInTiles();
-        int centerX = mapWidthTiles / 2;
-        int centerY = mapHeightTiles / 2;
-        int fenceWidth = 60;
-        int fenceHeight = 40;
-        int left = centerX - fenceWidth / 2;
-        int top = centerY - fenceHeight / 2;
-        int right = left + fenceWidth - 1;
-        int bottom = top + fenceHeight - 1;
-        int gateSize = 4;
-        int gateStartX = centerX - gateSize / 2;
+        FencePerimeter perimeter = buildInitialFencePerimeterAroundBaseCamp();
+        int gateSize = INITIAL_FENCE_GATE_SIZE_TILES;
+        int gateStartX = perimeter.centerX() - gateSize / 2;
         int gateEndX = gateStartX + gateSize - 1;
-        int gateStartY = centerY - gateSize / 2;
+        int gateStartY = perimeter.centerY() - gateSize / 2;
         int gateEndY = gateStartY + gateSize - 1;
 
-        for (int x = left; x <= right; x++) {
+        for (int x = perimeter.left(); x <= perimeter.right(); x++) {
             if (x < gateStartX || x > gateEndX) {
-                fenceTiles.add(x + ":" + top);
-                fenceTiles.add(x + ":" + bottom);
+                fenceTiles.add(x + ":" + perimeter.top());
+                fenceTiles.add(x + ":" + perimeter.bottom());
             }
         }
 
-        for (int y = top; y <= bottom; y++) {
+        for (int y = perimeter.top(); y <= perimeter.bottom(); y++) {
             if (y < gateStartY || y > gateEndY) {
-                fenceTiles.add(left + ":" + y);
-                fenceTiles.add(right + ":" + y);
+                fenceTiles.add(perimeter.left() + ":" + y);
+                fenceTiles.add(perimeter.right() + ":" + y);
             }
         }
 
@@ -2673,6 +2741,31 @@ public class Game {
             }
             addMapWoodFence(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]));
         }
+    }
+
+    private FencePerimeter buildInitialFencePerimeterAroundBaseCamp() {
+        int tileWidth = Math.max(1, mapData.getTileWidth());
+        int tileHeight = Math.max(1, mapData.getTileHeight());
+
+        // Rao khoi tao bam theo hitbox collision cua tent de pham vi nho hon sprite render.
+        double campCollisionX = baseCamp.getCollisionX();
+        double campCollisionY = baseCamp.getCollisionY();
+        double campCollisionWidth = baseCamp.getCollisionWidth();
+        double campCollisionHeight = baseCamp.getCollisionHeight();
+
+        int campLeft = (int) Math.floor(campCollisionX / tileWidth);
+        int campTop = (int) Math.floor(campCollisionY / tileHeight);
+        int campRight = (int) Math.floor((campCollisionX + campCollisionWidth - 1.0) / tileWidth);
+        int campBottom = (int) Math.floor((campCollisionY + campCollisionHeight - 1.0) / tileHeight);
+
+        int left = campLeft - INITIAL_FENCE_PADDING_X_TILES;
+        int top = campTop - INITIAL_FENCE_PADDING_Y_TILES;
+        int right = campRight + INITIAL_FENCE_PADDING_X_TILES;
+        int bottom = campBottom + INITIAL_FENCE_PADDING_Y_TILES;
+        int centerX = (left + right) / 2;
+        int centerY = (top + bottom) / 2;
+
+        return new FencePerimeter(left, top, right, bottom, centerX, centerY);
     }
 
     private void addMapWoodFence(int gridX, int gridY) {

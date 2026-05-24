@@ -60,6 +60,18 @@ public class WorldSaveService {
         return null;
     }
 
+    // deleteSave:
+    // - Output: true neu file save duoc xoa hoac von khong ton tai.
+    // - Tac dong: xoa snapshot world tren disk de session sau bat dau tu trang thai sach.
+    public boolean deleteSave() {
+        try {
+            return Files.deleteIfExists(savePath);
+        } catch (IOException exception) {
+            System.err.println("[WorldSaveService] Delete failed: " + exception.getMessage());
+            return false;
+        }
+    }
+
     // toNumber:
     // - Input: value bat ky tu map parse.
     // - Output: so double an toan co fallback.
