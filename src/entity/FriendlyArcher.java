@@ -208,6 +208,26 @@ public class FriendlyArcher extends AllyUnit {
         return y + height - renderHeight;
     }
 
+    @Override
+    protected double collisionInsetLeft(double width, double height) {
+        return width * 0.18;
+    }
+
+    @Override
+    protected double collisionInsetRight(double width, double height) {
+        return width * 0.18;
+    }
+
+    @Override
+    protected double collisionInsetTop(double width, double height) {
+        return height * 0.24;
+    }
+
+    @Override
+    protected double collisionInsetBottom(double width, double height) {
+        return height * 0.10;
+    }
+
     public boolean hasFinishedNonLoopingAnimation() {
         return !isLoopingAnimation() && frameIndex >= frameCountForState() - 1;
     }

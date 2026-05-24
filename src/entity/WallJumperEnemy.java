@@ -6,6 +6,7 @@ import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.image.Image;
 import javafx.scene.paint.Color;
 import system.DamageSystem;
+import system.MovementSlideSystem;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -37,6 +38,7 @@ public class WallJumperEnemy extends Enemy {
 
     private final SpriteAnimation walkAnimation;
     private final SpriteAnimation deathAnimation;
+    private final MovementValidator movementValidator;
 
     private State state;
     private long stateStartedAtNs;
@@ -61,6 +63,7 @@ public class WallJumperEnemy extends Enemy {
         );
         this.walkAnimation = animation("D_Walk", WALK_FRAME_NS);
         this.deathAnimation = animation("D_Death", DEATH_FRAME_NS);
+        this.movementValidator = ignored;
         this.state = State.SPAWN;
         this.stateStartedAtNs = 0L;
         this.lastBaseAttackAtNs = -ATTACK_COOLDOWN_NS;
@@ -108,8 +111,24 @@ public class WallJumperEnemy extends Enemy {
         }
         double distance = Math.sqrt(dx * dx + dy * dy);
         if (distance > 0.0001) {
-            x += (dx / distance) * speed;
-            y += (dy / distance) * speed;
+            double moveX = (dx / distance) * speed;
+            double moveY = (dy / distance) * speed;
+            if (movementValidator == null) {
+                x += moveX;
+                y += moveY;
+            } else {
+                MovementSlideSystem.MoveResult result = MovementSlideSystem.steerToward(
+                        x,
+                        y,
+                        width,
+                        height,
+                        moveX,
+                        moveY,
+                        (nextX, nextY, nextWidth, nextHeight) -> movementValidator.canOccupy(this, nextX, nextY, nextWidth, nextHeight)
+                );
+                x = result.x();
+                y = result.y();
+            }
             clampPosition(0, 0, worldWidth, worldHeight);
         }
         walkAnimation.update(nowNs, true);

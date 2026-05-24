@@ -36,6 +36,7 @@ import javafx.scene.text.FontWeight;
 import javafx.scene.text.Text;
 import javafx.stage.Stage;
 import map.MapData;
+import map.MapObjectData;
 import map.MapRenderer;
 import system.level.Level;
 import system.level.LevelResult;
@@ -134,6 +135,7 @@ public class Renderer {
                        String playerNameDraft, int maxNameLength,
                        List<Level> levels, PlayerProgress playerProgress, int selectedLevelIndex,
                        Level currentLevel, String objectiveStatus, LevelResult lastLevelResult,
+                       boolean debugCollisionOverlayEnabled, List<MapObjectData> mapCollisions,
                        List<ResourceNode> allResources, Map<String, Integer> collectedResources,
                        int selectedHotbarIndex, int stoneWallCount,
                        BuildManager buildManager,
@@ -185,7 +187,7 @@ public class Renderer {
 
         if (gameState == GameState.PLAYING || gameState == GameState.PAUSED || gameState == GameState.GAME_OVER || gameState == GameState.LEVEL_COMPLETE) {
             renderGameplay(player, baseCamp, enemies, friendlyArchers, now, cameraX, cameraY, currentLevel, objectiveStatus,
-                    allResources, collectedResources, buildManager, arrowProjectiles, thrownBombs, droppedItems, explosionEffects, fireBombBurnZones, droppedCollectibles, floatingDamageTexts,
+                    debugCollisionOverlayEnabled, mapCollisions, allResources, collectedResources, buildManager, arrowProjectiles, thrownBombs, droppedItems, explosionEffects, fireBombBurnZones, droppedCollectibles, floatingDamageTexts,
                     cameraShakeX, cameraShakeY, screenFlashAlpha,
                     darknessAlpha, isNight, dayNightPhase, worldWidth, worldHeight, viewportWidth, viewportHeight);
             return;
@@ -326,6 +328,8 @@ public class Renderer {
                                 double cameraY,
                                 Level currentLevel,
                                 String objectiveStatus,
+                                boolean debugCollisionOverlayEnabled,
+                                List<MapObjectData> mapCollisions,
                                 List<ResourceNode> allResources,
                                 Map<String, Integer> collectedResources,
                                 BuildManager buildManager,
@@ -387,6 +391,9 @@ public class Renderer {
         if (settings.isDebugGrid()) {
             drawDebugGrid(cameraX, cameraY, viewportWidth / CAMERA_ZOOM, viewportHeight / CAMERA_ZOOM);
         }
+        if (debugCollisionOverlayEnabled) {
+            renderCollisionOverlay(player, baseCamp, enemies, friendlyArchers, mapCollisions, allResources, buildManager, cameraX, cameraY);
+        }
         graphicsContext.restore();
 
         if (screenFlashAlpha > 0.001) {
@@ -418,6 +425,90 @@ public class Renderer {
             graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 12));
             graphicsContext.fillText("FPS " + fpsTracker.getLastFps(), viewportWidth - 92, viewportHeight - 18);
         }
+        if (debugCollisionOverlayEnabled) {
+            graphicsContext.setFill(Color.color(1.0, 0.98, 0.78, 0.95));
+            graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 12));
+            graphicsContext.fillText("Collision Debug [F3]", 16, viewportHeight - 36);
+        }
+    }
+
+    private void renderCollisionOverlay(Player player,
+                                        BaseCamp baseCamp,
+                                        List<Enemy> enemies,
+                                        List<FriendlyArcher> friendlyArchers,
+                                        List<MapObjectData> mapCollisions,
+                                        List<ResourceNode> resources,
+                                        BuildManager buildManager,
+                                        double cameraX,
+                                        double cameraY) {
+        graphicsContext.save();
+        graphicsContext.setLineWidth(1.0);
+
+        if (mapCollisions != null) {
+            graphicsContext.setStroke(Color.color(1.0, 0.2, 0.2, 0.70));
+            for (MapObjectData object : mapCollisions) {
+                if (object == null || !"Collision".equalsIgnoreCase(object.getType())) {
+                    continue;
+                }
+                graphicsContext.strokeRect(object.getX() - cameraX, object.getY() - cameraY, object.getWidth(), object.getHeight());
+            }
+        }
+
+        if (resources != null) {
+            graphicsContext.setStroke(Color.color(1.0, 0.55, 0.1, 0.90));
+            for (ResourceNode node : resources) {
+                if (node == null || !node.isAlive()) {
+                    continue;
+                }
+                strokeWorldRect(node.getCollisionX(), node.getCollisionY(), node.getCollisionWidth(), node.getCollisionHeight(), cameraX, cameraY);
+            }
+        }
+
+        if (buildManager != null) {
+            graphicsContext.setStroke(Color.color(0.25, 1.0, 1.0, 0.90));
+            for (BuildObject object : buildManager.getPlacedObjects()) {
+                if (object == null) {
+                    continue;
+                }
+                strokeWorldRect(object.getCollisionX(), object.getCollisionY(), object.getCollisionWidth(), object.getCollisionHeight(), cameraX, cameraY);
+            }
+        }
+
+        if (baseCamp != null) {
+            graphicsContext.setStroke(Color.color(1.0, 0.25, 0.9, 0.95));
+            strokeWorldRect(baseCamp.getCollisionX(), baseCamp.getCollisionY(), baseCamp.getCollisionWidth(), baseCamp.getCollisionHeight(), cameraX, cameraY);
+        }
+
+        if (player != null) {
+            graphicsContext.setStroke(Color.color(0.2, 1.0, 0.25, 0.95));
+            strokeWorldRect(player.getCollisionX(), player.getCollisionY(), player.getCollisionWidth(), player.getCollisionHeight(), cameraX, cameraY);
+        }
+
+        if (friendlyArchers != null) {
+            graphicsContext.setStroke(Color.color(0.2, 0.85, 1.0, 0.95));
+            for (FriendlyArcher archer : friendlyArchers) {
+                if (archer == null || !archer.isAlive()) {
+                    continue;
+                }
+                strokeWorldRect(archer.getCollisionX(), archer.getCollisionY(), archer.getCollisionWidth(), archer.getCollisionHeight(), cameraX, cameraY);
+            }
+        }
+
+        if (enemies != null) {
+            graphicsContext.setStroke(Color.color(1.0, 0.15, 0.15, 0.95));
+            for (Enemy enemy : enemies) {
+                if (enemy == null || !enemy.isAlive() || enemy.shouldRemoveFromWorld()) {
+                    continue;
+                }
+                strokeWorldRect(enemy.getCollisionX(), enemy.getCollisionY(), enemy.getCollisionWidth(), enemy.getCollisionHeight(), cameraX, cameraY);
+            }
+        }
+
+        graphicsContext.restore();
+    }
+
+    private void strokeWorldRect(double worldX, double worldY, double width, double height, double cameraX, double cameraY) {
+        graphicsContext.strokeRect(worldX - cameraX, worldY - cameraY, width, height);
     }
 
     private List<ArcherTower> renderPlacedBuildObjects(BuildManager buildManager, double cameraX, double cameraY, long nowNs) {

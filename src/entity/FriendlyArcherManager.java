@@ -276,7 +276,7 @@ public class FriendlyArcherManager {
         double maxY = Math.max(0.0, worldQuery.getWorldHeight() - archer.getHeight());
         double newX = clamp(targetX, 0.0, maxX);
         double newY = clamp(targetY, 0.0, maxY);
-        MovementSlideSystem.MoveResult result = MovementSlideSystem.move(
+        MovementSlideSystem.MoveResult result = MovementSlideSystem.steerToward(
                 archer.getX(),
                 archer.getY(),
                 archer.getWidth(),

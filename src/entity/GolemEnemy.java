@@ -6,6 +6,7 @@ import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.image.Image;
 import javafx.scene.paint.Color;
 import system.DamageSystem;
+import system.MovementSlideSystem;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -245,6 +246,26 @@ public class GolemEnemy extends Enemy {
         return AGGRO_RANGE;
     }
 
+    @Override
+    protected double collisionInsetLeft(double width, double height) {
+        return 0.0;
+    }
+
+    @Override
+    protected double collisionInsetRight(double width, double height) {
+        return 0.0;
+    }
+
+    @Override
+    protected double collisionInsetTop(double width, double height) {
+        return 0.0;
+    }
+
+    @Override
+    protected double collisionInsetBottom(double width, double height) {
+        return 0.0;
+    }
+
     private Entity choosePreferredTarget(BaseCamp baseCamp, Player player, Iterable<FriendlyArcher> friendlies) {
         Entity nearestAggroTarget = nearestAggroTarget(player, friendlies);
         if (nearestAggroTarget != null) {
@@ -290,11 +311,21 @@ public class GolemEnemy extends Enemy {
         }
         double moveX = (dx / distance) * speed;
         double moveY = (dy / distance) * speed;
-        double nextX = x + moveX;
-        double nextY = y + moveY;
-        if (movementValidator == null || movementValidator.canOccupy(this, nextX, nextY, width, height)) {
-            x = nextX;
-            y = nextY;
+        if (movementValidator == null) {
+            x += moveX;
+            y += moveY;
+        } else {
+            MovementSlideSystem.MoveResult result = MovementSlideSystem.steerToward(
+                    x,
+                    y,
+                    width,
+                    height,
+                    moveX,
+                    moveY,
+                    (nextX, nextY, nextWidth, nextHeight) -> movementValidator.canOccupy(this, nextX, nextY, nextWidth, nextHeight)
+            );
+            x = result.x();
+            y = result.y();
         }
         clampPosition(0, 0, worldWidth, worldHeight);
     }

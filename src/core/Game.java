@@ -239,6 +239,7 @@ public class Game {
     private double screenShakeY;
     private boolean suppressWorldPrimaryUntilMouseRelease;
     private boolean skipWorldPrimaryClickOnce;
+    private boolean debugCollisionOverlayEnabled;
 
     public Game(Stage stage) {
         // Constructor:
@@ -294,6 +295,7 @@ public class Game {
         this.screenShakeY = 0.0;
         this.suppressWorldPrimaryUntilMouseRelease = false;
         this.skipWorldPrimaryClickOnce = false;
+        this.debugCollisionOverlayEnabled = false;
 
         MapData loadedMap = tryLoadMap();
         this.mapData = loadedMap;
@@ -464,6 +466,8 @@ public class Game {
                 null,
                 objectiveStatus,
                 null,
+                debugCollisionOverlayEnabled,
+                mapCollisions,
                 resourceManager.getAllResources(),
                 inventory.snapshot(),
                 selectedHotbarIndex,
@@ -908,6 +912,10 @@ public class Game {
         // 1) Xu ly input/di chuyen
         // 2) Xu ly combat, resource, AI
         // 3) Xu ly spawn/event/save
+        if (inputHandler.isJustPressed(KeyCode.F3)) {
+            debugCollisionOverlayEnabled = !debugCollisionOverlayEnabled;
+            renderer.showToast(debugCollisionOverlayEnabled ? "Collision debug ON" : "Collision debug OFF");
+        }
         double oldX = player.getX();
         double oldY = player.getY();
 
@@ -1676,7 +1684,7 @@ public class Game {
         if (distance < 1) {
             return;
         }
-        MovementSlideSystem.MoveResult result = MovementSlideSystem.move(
+        MovementSlideSystem.MoveResult result = MovementSlideSystem.steerToward(
                 enemy.getX(),
                 enemy.getY(),
                 enemy.getWidth(),
@@ -2037,10 +2045,10 @@ public class Game {
         if (x < 0 || y < 0 || x + width > worldWidth || y + height > worldHeight) {
             return false;
         }
-        double px = x + width * 0.22;
-        double py = y + height * 0.30;
-        double pw = width * 0.56;
-        double ph = height * 0.62;
+        double px = player.getCollisionXAt(x, width, height);
+        double py = player.getCollisionYAt(y, width, height);
+        double pw = player.getCollisionWidthAt(width, height);
+        double ph = player.getCollisionHeightAt(width, height);
 
         if (intersectsBaseCampCollision(px, py, pw, ph)) {
             return false;
@@ -2068,17 +2076,24 @@ public class Game {
         if (enemy == null) {
             return false;
         }
-        if (x < 0 || y < 0 || x + width > worldWidth || y + height > worldHeight) {
+        double collisionX = enemy.getCollisionXAt(x, width, height);
+        double collisionY = enemy.getCollisionYAt(y, width, height);
+        double collisionWidth = enemy.getCollisionWidthAt(width, height);
+        double collisionHeight = enemy.getCollisionHeightAt(width, height);
+        if (collisionX < 0 || collisionY < 0 || collisionX + collisionWidth > worldWidth || collisionY + collisionHeight > worldHeight) {
             return false;
         }
-        if (buildCollisionManager.intersectsPlacedBuildObject(x, y, width, height, buildManager.getPlacedObjects())) {
+        if (buildCollisionManager.intersectsPlacedBuildObject(collisionX, collisionY, collisionWidth, collisionHeight, buildManager.getPlacedObjects())
+                || buildCollisionManager.isBlockedByTerrain(collisionX, collisionY, collisionWidth, collisionHeight)
+                || buildCollisionManager.isBlockedByWater(collisionX, collisionY, collisionWidth, collisionHeight)) {
             return false;
         }
         for (FriendlyArcher archer : friendlyArcherManager.getArchers()) {
             if (archer == null || !archer.isAlive()) {
                 continue;
             }
-            if (CollisionSystem.intersects(x, y, width, height, archer.getX(), archer.getY(), archer.getWidth(), archer.getHeight())) {
+            if (CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
+                    archer.getCollisionX(), archer.getCollisionY(), archer.getCollisionWidth(), archer.getCollisionHeight())) {
                 return false;
             }
         }
@@ -2101,22 +2116,27 @@ public class Game {
     }
 
     private boolean canFriendlyArcherOccupy(FriendlyArcher archer, double x, double y, double width, double height) {
-        if (intersectsBaseCampCollision(x, y, width, height)) {
+        double collisionX = archer.getCollisionXAt(x, width, height);
+        double collisionY = archer.getCollisionYAt(y, width, height);
+        double collisionWidth = archer.getCollisionWidthAt(width, height);
+        double collisionHeight = archer.getCollisionHeightAt(width, height);
+        if (intersectsBaseCampCollision(collisionX, collisionY, collisionWidth, collisionHeight)) {
             return false;
         }
-        if (buildCollisionManager.isBlockedByStaticObjects(x, y, width, height)
-                || buildCollisionManager.isBlockedByTerrain(x, y, width, height)
-                || buildCollisionManager.isBlockedByWater(x, y, width, height)) {
+        if (buildCollisionManager.isBlockedByStaticObjects(collisionX, collisionY, collisionWidth, collisionHeight)
+                || buildCollisionManager.isBlockedByTerrain(collisionX, collisionY, collisionWidth, collisionHeight)
+                || buildCollisionManager.isBlockedByWater(collisionX, collisionY, collisionWidth, collisionHeight)) {
             return false;
         }
-        if (buildCollisionManager.intersectsPlacedBuildObject(x, y, width, height, buildManager.getPlacedObjects())) {
+        if (buildCollisionManager.intersectsPlacedBuildObject(collisionX, collisionY, collisionWidth, collisionHeight, buildManager.getPlacedObjects())) {
             return false;
         }
         for (Enemy enemy : enemies) {
             if (enemy == null || !enemy.isAlive()) {
                 continue;
             }
-            if (CollisionSystem.intersects(x, y, width, height, enemy.getX(), enemy.getY(), enemy.getWidth(), enemy.getHeight())) {
+            if (CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
+                    enemy.getCollisionX(), enemy.getCollisionY(), enemy.getCollisionWidth(), enemy.getCollisionHeight())) {
                 return false;
             }
         }
@@ -2124,7 +2144,8 @@ public class Game {
             if (other == null || other == archer || !other.isAlive()) {
                 continue;
             }
-            if (CollisionSystem.intersects(x, y, width, height, other.getX(), other.getY(), other.getWidth(), other.getHeight())) {
+            if (CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
+                    other.getCollisionX(), other.getCollisionY(), other.getCollisionWidth(), other.getCollisionHeight())) {
                 return false;
             }
         }
@@ -2146,19 +2167,25 @@ public class Game {
     }
 
     private boolean canWallJumperOccupy(WallJumperEnemy enemy, double x, double y, double width, double height) {
-        if (buildCollisionManager.isBlockedByStaticObjects(x, y, width, height)
-                || buildCollisionManager.isBlockedByTerrain(x, y, width, height)
-                || buildCollisionManager.isBlockedByWater(x, y, width, height)) {
+        double collisionX = enemy.getCollisionXAt(x, width, height);
+        double collisionY = enemy.getCollisionYAt(y, width, height);
+        double collisionWidth = enemy.getCollisionWidthAt(width, height);
+        double collisionHeight = enemy.getCollisionHeightAt(width, height);
+        if (buildCollisionManager.isBlockedByStaticObjects(collisionX, collisionY, collisionWidth, collisionHeight)
+                || buildCollisionManager.isBlockedByTerrain(collisionX, collisionY, collisionWidth, collisionHeight)
+                || buildCollisionManager.isBlockedByWater(collisionX, collisionY, collisionWidth, collisionHeight)) {
             return false;
         }
-        if (CollisionSystem.intersects(x, y, width, height, player.getX(), player.getY(), player.getWidth(), player.getHeight())) {
+        if (CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
+                player.getCollisionX(), player.getCollisionY(), player.getCollisionWidth(), player.getCollisionHeight())) {
             return false;
         }
         for (FriendlyArcher archer : friendlyArcherManager.getArchers()) {
             if (archer == null || !archer.isAlive()) {
                 continue;
             }
-            if (CollisionSystem.intersects(x, y, width, height, archer.getX(), archer.getY(), archer.getWidth(), archer.getHeight())) {
+            if (CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
+                    archer.getCollisionX(), archer.getCollisionY(), archer.getCollisionWidth(), archer.getCollisionHeight())) {
                 return false;
             }
         }
@@ -2166,7 +2193,8 @@ public class Game {
             if (other == null || other == enemy || other.shouldRemoveFromWorld() || !other.isAlive()) {
                 continue;
             }
-            if (CollisionSystem.intersects(x, y, width, height, other.getX(), other.getY(), other.getWidth(), other.getHeight())) {
+            if (CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
+                    other.getCollisionX(), other.getCollisionY(), other.getCollisionWidth(), other.getCollisionHeight())) {
                 return false;
             }
         }
@@ -2177,19 +2205,24 @@ public class Game {
         if (enemy == null) {
             return false;
         }
-        if (x < 0 || y < 0 || x + width > worldWidth || y + height > worldHeight) {
+        double collisionX = enemy.getCollisionXAt(x, width, height);
+        double collisionY = enemy.getCollisionYAt(y, width, height);
+        double collisionWidth = enemy.getCollisionWidthAt(width, height);
+        double collisionHeight = enemy.getCollisionHeightAt(width, height);
+        if (collisionX < 0 || collisionY < 0 || collisionX + collisionWidth > worldWidth || collisionY + collisionHeight > worldHeight) {
             return false;
         }
-        if (buildCollisionManager.isBlockedByTerrain(x, y, width, height)
-                || buildCollisionManager.isBlockedByWater(x, y, width, height)
-                || buildCollisionManager.intersectsPlacedBuildObject(x, y, width, height, buildManager.getPlacedObjects())) {
+        if (buildCollisionManager.isBlockedByTerrain(collisionX, collisionY, collisionWidth, collisionHeight)
+                || buildCollisionManager.isBlockedByWater(collisionX, collisionY, collisionWidth, collisionHeight)
+                || buildCollisionManager.intersectsPlacedBuildObject(collisionX, collisionY, collisionWidth, collisionHeight, buildManager.getPlacedObjects())) {
             return false;
         }
         for (Enemy other : enemies) {
             if (other == null || other == enemy || !other.isAlive() || other.shouldRemoveFromWorld()) {
                 continue;
             }
-            if (CollisionSystem.intersects(x, y, width, height, other.getX(), other.getY(), other.getWidth(), other.getHeight())) {
+            if (CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
+                    other.getCollisionX(), other.getCollisionY(), other.getCollisionWidth(), other.getCollisionHeight())) {
                 return false;
             }
         }

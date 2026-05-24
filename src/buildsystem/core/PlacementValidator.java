@@ -130,10 +130,10 @@ public class PlacementValidator {
         if (player == null) {
             return false;
         }
-        double px = player.getX() + player.getWidth() * 0.22;
-        double py = player.getY() + player.getHeight() * 0.30;
-        double pw = player.getWidth() * 0.56;
-        double ph = player.getHeight() * 0.62;
+        double px = player.getCollisionX();
+        double py = player.getCollisionY();
+        double pw = player.getCollisionWidth();
+        double ph = player.getCollisionHeight();
         return intersectsRect(px, py, pw, ph, x, y, width, height);
     }
 
