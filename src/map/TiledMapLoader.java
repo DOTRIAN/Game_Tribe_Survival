@@ -193,9 +193,7 @@ public class TiledMapLoader {
 
         for (int i = 0; i < objectGroups.getLength(); i++) {
             Element group = (Element) objectGroups.item(i);
-            if (!"Collisions".equals(group.getAttribute("name"))) {
-                continue;
-            }
+            boolean collisionLayer = "Collisions".equalsIgnoreCase(group.getAttribute("name"));
 
             NodeList objectNodes = group.getElementsByTagName("object");
             for (int j = 0; j < objectNodes.getLength(); j++) {
@@ -215,6 +213,10 @@ public class TiledMapLoader {
 
                 Map<String, String> properties = new HashMap<>(templateData.properties);
                 properties.putAll(readProperties(object));
+
+                if (!collisionLayer && !isBaseCampMarker(name, type, properties)) {
+                    continue;
+                }
 
                 collisions.add(new MapObjectData(id, name, type, x, y, width, height, properties));
             }
@@ -299,6 +301,38 @@ public class TiledMapLoader {
             return current;
         }
         return fallback == null ? "" : fallback;
+    }
+
+    private boolean isBaseCampMarker(String name, String type, Map<String, String> properties) {
+        if (hasTruthyProperty(properties, "isBaseCamp", "baseCamp", "BaseCamp")) {
+            return true;
+        }
+        return matchesBaseCampToken(name) || matchesBaseCampToken(type);
+    }
+
+    private boolean matchesBaseCampToken(String value) {
+        if (value == null) {
+            return false;
+        }
+        String normalized = value.trim().toLowerCase();
+        return normalized.equals("basecamp")
+                || normalized.equals("mainhouse")
+                || normalized.equals("main_house")
+                || normalized.equals("main-house");
+    }
+
+    private boolean hasTruthyProperty(Map<String, String> properties, String... keys) {
+        for (String key : keys) {
+            String raw = properties.get(key);
+            if (raw == null) {
+                continue;
+            }
+            String normalized = raw.trim().toLowerCase();
+            if (normalized.equals("true") || normalized.equals("on") || normalized.equals("1") || normalized.equals("yes")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static final class TemplateData {

@@ -39,7 +39,9 @@ import javafx.scene.input.KeyCode;
 import javafx.stage.Stage;
 import map.MapData;
 import map.MapObjectData;
+import map.TileLayerData;
 import map.TileCollisionResolver;
+import map.TilePropertyCatalog;
 import map.TiledMapLoader;
 import system.CollisionSystem;
 import system.DamageResult;
@@ -99,6 +101,7 @@ public class Game {
 
     // World save file cho mode sinh ton.
     private static final String SURVIVAL_SAVE_FILE = "data/survival_world.json";
+    private static final int DEFAULT_BASE_CAMP_HP = 500;
 
     private final GameLoop gameLoop;
     private final Renderer renderer;
@@ -244,7 +247,7 @@ public class Game {
         this.wallAssetManager = new AssetManager();
         CollectibleDrop.preloadAssets();
         this.player = new Player(100, 100, 58, 58, 4, 100);
-        this.baseCamp = new BaseCamp(0, 0, 116, 116, 500);
+        this.baseCamp = new BaseCamp(0, 0, 116, 116, DEFAULT_BASE_CAMP_HP);
         this.gameLoop = new GameLoop(this);
         this.enemies = new ArrayList<>();
         this.resourceManager = new ResourceManager();
@@ -526,17 +529,200 @@ public class Game {
     }
 
     private void resetWorldPosition() {
-        // Dat player va base camp vao trung tam world de luong spawn nhat quan.
-        // Spawn player va base camp vao trung tam world hien tai.
-        // Neu world = map tiled thi day chinh la trung tam map trong assets/Map_Game.
-        double centerX = worldWidth * 0.5;
-        double centerY = worldHeight * 0.5;
-        double[] safeSpawn = findNearestSafeSpawn(centerX - player.getWidth() * 0.5, centerY - player.getHeight() * 0.5);
-        player.reset(safeSpawn[0], safeSpawn[1]);
-        baseCamp.setPosition(safeSpawn[0] - 72, safeSpawn[1] - 72);
-        baseCamp.clampPosition(0, 0, worldWidth, worldHeight);
+        MapObjectData baseCampMarker = resolveBaseCampMarker();
+        if (baseCampMarker != null) {
+            configureBaseCampFromMarker(baseCampMarker);
+            double[] safeSpawn = findPlayerSpawnNearBaseCamp(baseCampMarker);
+            player.reset(safeSpawn[0], safeSpawn[1]);
+        } else {
+            double centerX = worldWidth * 0.5;
+            double centerY = worldHeight * 0.5;
+            double[] safeSpawn = findNearestSafeSpawn(centerX - player.getWidth() * 0.5, centerY - player.getHeight() * 0.5);
+            player.reset(safeSpawn[0], safeSpawn[1]);
+            baseCamp.configure(safeSpawn[0] - 72, safeSpawn[1] - 72, 116, 116, DEFAULT_BASE_CAMP_HP);
+            baseCamp.clampPosition(0, 0, worldWidth, worldHeight);
+        }
         dayNightCycle.reset(System.nanoTime());
         updateCamera();
+    }
+
+    private void configureBaseCampFromMarker(MapObjectData marker) {
+        if (marker == null) {
+            return;
+        }
+        int configuredHp = parsePositiveInt(
+                DEFAULT_BASE_CAMP_HP,
+                marker.getProperties().get("baseCampHp"),
+                marker.getProperties().get("maxHp"),
+                marker.getProperties().get("hp"),
+                marker.getProperties().get("Hp_tent")
+        );
+        baseCamp.configure(marker.getX(), marker.getY(), marker.getWidth(), marker.getHeight(), configuredHp);
+        baseCamp.clampPosition(0, 0, worldWidth, worldHeight);
+    }
+
+    private double[] findPlayerSpawnNearBaseCamp(MapObjectData marker) {
+        double gap = Math.max(buildCollisionManager.getTileWidth(), buildCollisionManager.getTileHeight());
+        double markerCenterX = marker.getX() + marker.getWidth() * 0.5;
+        double markerCenterY = marker.getY() + marker.getHeight() * 0.5;
+        double[][] candidates = {
+                {markerCenterX - player.getWidth() * 0.5, marker.getY() + marker.getHeight() + gap},
+                {markerCenterX - player.getWidth() * 0.5, marker.getY() - player.getHeight() - gap},
+                {marker.getX() - player.getWidth() - gap, markerCenterY - player.getHeight() * 0.5},
+                {marker.getX() + marker.getWidth() + gap, markerCenterY - player.getHeight() * 0.5}
+        };
+        for (double[] candidate : candidates) {
+            double[] safeSpawn = findNearestSafeSpawn(candidate[0], candidate[1]);
+            if (!CollisionSystem.intersects(
+                    marker.getX(),
+                    marker.getY(),
+                    marker.getWidth(),
+                    marker.getHeight(),
+                    safeSpawn[0],
+                    safeSpawn[1],
+                    player.getWidth(),
+                    player.getHeight())) {
+                return safeSpawn;
+            }
+        }
+        return findNearestSafeSpawn(markerCenterX - player.getWidth() * 0.5, marker.getY() + marker.getHeight() + gap);
+    }
+
+    private MapObjectData resolveBaseCampMarker() {
+        MapObjectData objectMarker = findBaseCampObjectMarker();
+        if (objectMarker != null) {
+            return objectMarker;
+        }
+        return detectBaseCampTileBounds();
+    }
+
+    private MapObjectData findBaseCampObjectMarker() {
+        for (MapObjectData object : mapCollisions) {
+            if (object == null) {
+                continue;
+            }
+            if (isBaseCampMarker(object.getName(), object.getType(), object.getProperties())) {
+                return object;
+            }
+        }
+        return null;
+    }
+
+    private MapObjectData detectBaseCampTileBounds() {
+        if (mapData == null) {
+            return null;
+        }
+        TilePropertyCatalog catalog = new TilePropertyCatalog(mapData);
+        int tileW = Math.max(1, mapData.getTileWidth());
+        int tileH = Math.max(1, mapData.getTileHeight());
+        int minTileX = Integer.MAX_VALUE;
+        int minTileY = Integer.MAX_VALUE;
+        int maxTileX = -1;
+        int maxTileY = -1;
+
+        for (TileLayerData layer : mapData.getTileLayers()) {
+            if (layer == null) {
+                continue;
+            }
+            for (int y = 0; y < layer.getHeight(); y++) {
+                for (int x = 0; x < layer.getWidth(); x++) {
+                    int gid = layer.getGidAt(x, y);
+                    if (gid <= 0) {
+                        continue;
+                    }
+                    if (!isBaseCampTile(catalog.getPropertiesForGid(gid))) {
+                        continue;
+                    }
+                    if (x < minTileX) {
+                        minTileX = x;
+                    }
+                    if (y < minTileY) {
+                        minTileY = y;
+                    }
+                    if (x > maxTileX) {
+                        maxTileX = x;
+                    }
+                    if (y > maxTileY) {
+                        maxTileY = y;
+                    }
+                }
+            }
+        }
+
+        if (maxTileX < minTileX || maxTileY < minTileY) {
+            return null;
+        }
+
+        double x = minTileX * tileW;
+        double y = minTileY * tileH;
+        double width = (maxTileX - minTileX + 1) * tileW;
+        double height = (maxTileY - minTileY + 1) * tileH;
+        return new MapObjectData(-999, "BaseCamp", "BaseCamp", x, y, width, height, Map.of("Hp_tent", String.valueOf(DEFAULT_BASE_CAMP_HP)));
+    }
+
+    private boolean isBaseCampTile(Map<String, String> properties) {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        if (hasTruthyProperty(properties, "isBaseCamp", "baseCamp", "BaseCamp")) {
+            return true;
+        }
+        return parsePositiveInt(-1, properties.get("Hp_tent")) > 0;
+    }
+
+    private boolean isBaseCampMarker(String name, String type, Map<String, String> properties) {
+        if (hasTruthyProperty(properties, "isBaseCamp", "baseCamp", "BaseCamp")) {
+            return true;
+        }
+        return isBaseCampToken(name) || isBaseCampToken(type);
+    }
+
+    private boolean isBaseCampToken(String value) {
+        if (value == null) {
+            return false;
+        }
+        String normalized = value.trim().toLowerCase();
+        return normalized.equals("basecamp")
+                || normalized.equals("mainhouse")
+                || normalized.equals("main_house")
+                || normalized.equals("main-house");
+    }
+
+    private boolean hasTruthyProperty(Map<String, String> properties, String... keys) {
+        if (properties == null || keys == null) {
+            return false;
+        }
+        for (String key : keys) {
+            String raw = properties.get(key);
+            if (raw == null) {
+                continue;
+            }
+            String normalized = raw.trim().toLowerCase();
+            if (normalized.equals("true") || normalized.equals("on") || normalized.equals("1") || normalized.equals("yes")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private int parsePositiveInt(int fallback, String... values) {
+        if (values == null) {
+            return fallback;
+        }
+        for (String value : values) {
+            if (value == null || value.isBlank()) {
+                continue;
+            }
+            try {
+                int parsed = Integer.parseInt(value.trim());
+                if (parsed > 0) {
+                    return parsed;
+                }
+            } catch (Exception ignored) {
+                // thử key tiếp theo
+            }
+        }
+        return fallback;
     }
 
     // findNearestSafeSpawn:
@@ -576,6 +762,10 @@ public class Game {
         double py = y + player.getHeight() * 0.30;
         double pw = player.getWidth() * 0.56;
         double ph = player.getHeight() * 0.62;
+
+        if (intersectsBaseCampCollision(px, py, pw, ph)) {
+            return true;
+        }
 
         for (MapObjectData object : mapCollisions) {
             if (!"Collision".equalsIgnoreCase(object.getType())) {
@@ -1502,7 +1692,7 @@ public class Game {
         if (enemy == null || !enemy.isAlive() || !baseCamp.isAlive()) {
             return;
         }
-        if (!CollisionSystem.intersects(enemy, baseCamp)) {
+        if (!intersectsBaseCampCollision(enemy.getX(), enemy.getY(), enemy.getWidth(), enemy.getHeight())) {
             return;
         }
 
@@ -1852,6 +2042,10 @@ public class Game {
         double pw = width * 0.56;
         double ph = height * 0.62;
 
+        if (intersectsBaseCampCollision(px, py, pw, ph)) {
+            return false;
+        }
+
         for (MapObjectData object : mapCollisions) {
             if (!"Collision".equalsIgnoreCase(object.getType())) {
                 continue;
@@ -1907,6 +2101,9 @@ public class Game {
     }
 
     private boolean canFriendlyArcherOccupy(FriendlyArcher archer, double x, double y, double width, double height) {
+        if (intersectsBaseCampCollision(x, y, width, height)) {
+            return false;
+        }
         if (buildCollisionManager.isBlockedByStaticObjects(x, y, width, height)
                 || buildCollisionManager.isBlockedByTerrain(x, y, width, height)
                 || buildCollisionManager.isBlockedByWater(x, y, width, height)) {
@@ -1932,6 +2129,20 @@ public class Game {
             }
         }
         return true;
+    }
+
+    private boolean intersectsBaseCampCollision(double x, double y, double width, double height) {
+        return baseCamp != null
+                && CollisionSystem.intersects(
+                x,
+                y,
+                width,
+                height,
+                baseCamp.getCollisionX(),
+                baseCamp.getCollisionY(),
+                baseCamp.getCollisionWidth(),
+                baseCamp.getCollisionHeight()
+        );
     }
 
     private boolean canWallJumperOccupy(WallJumperEnemy enemy, double x, double y, double width, double height) {

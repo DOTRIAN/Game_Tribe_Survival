@@ -672,7 +672,7 @@ public class Renderer {
         double barWidth = Math.max(48.0, baseCamp.getWidth() * 0.72);
         double barHeight = 7.0;
         double screenX = Math.round(baseCamp.getCenterX() - cameraX - barWidth * 0.5);
-        double screenY = Math.round(baseCamp.getY() - cameraY - 14.0);
+        double screenY = baseCamp.getHpBarScreenY(cameraY);
         double hpRatio = Math.max(0.0, Math.min(1.0, baseCamp.getHp() / (double) baseCamp.getMaxHp()));
 
         graphicsContext.setFill(Color.color(0.08, 0.08, 0.08, 0.88));

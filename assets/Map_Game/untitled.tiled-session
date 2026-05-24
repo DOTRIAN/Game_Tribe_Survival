@@ -1,5 +1,5 @@
 {
-    "activeFile": "nen.tsx",
+    "activeFile": "mapdep.tmx",
     "expandedProjectPaths": [
     ],
     "file.lastUsedOpenFilter": "All Files (*)",
@@ -14,6 +14,9 @@
             "scaleInDock": 1
         },
         "Level_1.tsx": {
+            "scaleInDock": 1
+        },
+        "Rocks_source_no_shadow.tsx": {
             "scaleInDock": 1
         },
         "Stone_03-Sheet.tsx": {
@@ -32,11 +35,69 @@
             "scale": 0.5,
             "selectedLayer": 1,
             "viewCenter": {
-                "x": 1020,
-                "y": 755
+                "x": 2006,
+                "y": 390
             }
         },
         "map.tmx#Walls": {
+            "scaleInDock": 1
+        },
+        "mapdep.tmx": {
+            "scale": 0.5576302083333333,
+            "selectedLayer": 0,
+            "viewCenter": {
+                "x": 959.4171764815766,
+                "y": 640.2092186989213
+            }
+        },
+        "mapdep.tmx#Trees_source": {
+            "scaleInDock": 1
+        },
+        "mapdep.tmx#cay_co": {
+            "scaleInDock": 1
+        },
+        "mapdep.tmx#cot": {
+            "scaleInDock": 1
+        },
+        "mapdep.tmx#da": {
+            "scaleInDock": 1
+        },
+        "mapdep.tmx#dovat": {
+            "scaleInDock": 1
+        },
+        "mapdep.tmx#fence_xoa_bg": {
+            "scaleInDock": 1
+        },
+        "mapdep.tmx#hang": {
+            "scaleInDock": 1
+        },
+        "mapdep.tmx#map_fin": {
+            "scaleInDock": 1
+        },
+        "mapdep.tmx#tent_xoa_bg": {
+            "scaleInDock": 1
+        },
+        "mapfinal.tmx": {
+            "scale": 0.4653515625,
+            "selectedLayer": 0,
+            "viewCenter": {
+                "x": 2058.658608243096,
+                "y": 724.1836649038867
+            }
+        },
+        "mapfinal.tmx#cot": {
+            "scaleInDock": 1
+        },
+        "mapfinal.tmx#da": {
+            "scaleInDock": 1
+        },
+        "mapfinal.tmx#dovat": {
+            "scaleInDock": 1
+        },
+        "mapfinal.tmx#hang": {
+            "scaleInDock": 1
+        },
+        "mapfinal.tmx#map_fin": {
             "scaleInDock": 1
         },
         "nen.tsx": {
@@ -52,13 +113,17 @@
     "map.width": 120,
     "openFiles": [
         "map.tmx",
-        "nen.tsx"
+        "nen.tsx",
+        "mapfinal.tmx",
+        "mapdep.tmx"
     ],
     "project": "untitled.tiled-project",
     "property.type": "string",
     "recentFiles": [
+        "map.tmx",
         "nen.tsx",
-        "map.tmx"
+        "mapfinal.tmx",
+        "mapdep.tmx"
     ],
     "tileset.lastUsedFormat": "tsx",
     "tileset.tileSize": {
