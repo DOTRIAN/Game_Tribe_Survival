@@ -46,6 +46,7 @@ public class WolfEnemy extends Enemy {
     private static final double MAX_CHASE_DISTANCE_DAY = 350.0;
     private static final double WALL_ATTACK_SEARCH_RANGE = 86.0;
     private static final long WALL_STUCK_THRESHOLD_NS = 950_000_000L;
+    private static final double SIDE_FACING_FLIP_THRESHOLD = 6.0;
     private static final int MAX_HP = 30;
     private static final int DAMAGE = 5;
 
@@ -485,7 +486,10 @@ public class WolfEnemy extends Enemy {
 
     private void updateFacing(double dx, double dy) {
         if (Math.abs(dx) > Math.abs(dy)) {
-            facingDirection = dx >= 0 ? Direction.RIGHT : Direction.LEFT;
+            if (Math.abs(dx) >= SIDE_FACING_FLIP_THRESHOLD
+                    || (facingDirection != Direction.LEFT && facingDirection != Direction.RIGHT)) {
+                facingDirection = dx >= 0 ? Direction.RIGHT : Direction.LEFT;
+            }
             return;
         }
         facingDirection = dy >= 0 ? Direction.DOWN : Direction.UP;

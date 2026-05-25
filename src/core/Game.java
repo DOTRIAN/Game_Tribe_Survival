@@ -189,10 +189,12 @@ public class Game {
     private static final String FIRE_BOMB_ITEM_ID = "fire_bomb";
     private static final String BASIC_SWORD_ITEM_ID = "basic_sword";
     private static final String PICKAXE_ITEM_ID = "pickaxe";
+    private static final String AXE_ITEM_ID = "axe";
     private static final String CARROT_ITEM_ID = "carrot";
     private static final String[] HOTBAR_PRIORITY = {
             WOOD_FENCE_ITEM_ID,
             TORCH_ITEM_ID,
+            AXE_ITEM_ID,
             ARCHER_TOWER_ITEM_ID,
             CHEST_ITEM_ID,
             BOMB_TRAP_ITEM_ID,
@@ -232,6 +234,8 @@ public class Game {
     private static final int BOMB_TRAP_PRICE = GameBalance.BOMB_TRAP_PRICE;
     private static final int FIRE_BOMB_PRICE = GameBalance.FIRE_BOMB_PRICE;
     private static final int CHEST_PRICE = GameBalance.CHEST_PRICE;
+    private static final int AXE_WOOD_COST = 5;
+    private static final int AXE_STONE_COST = 2;
     private static final double BOMB_TRAP_THROW_SPEED = 7.6;
     private static final double BOMB_TRAP_THROW_RANGE = 240.0;
     private static final double BOMB_TRAP_RENDER_SIZE = 18.0;
@@ -1005,11 +1009,11 @@ public class Game {
                     refreshBuildInventoryUi();
                 }
             } else {
-                performPlayerAttack(now, Player.AttackAnimationType.HIT);
+                performPlayerAttack(now, player.getAttackAnimationTypeForCurrentMode());
             }
         } else if (!blockingOverlayVisible && inputHandler.isJustPressed(KeyCode.F)) {
             if (player.consumeEnergy(SKILL_F_ENERGY_COST)) {
-                performPlayerAttack(now, Player.AttackAnimationType.SLICE);
+                performPlayerAttack(now, player.getAttackAnimationTypeForCurrentMode());
             }
         }
 
@@ -1173,64 +1177,48 @@ public class Game {
 
         String requestedItemId = itemId.trim().toLowerCase();
         String resolvedItemId = normalizeShopItemId(requestedItemId);
-        int currentCoin = inventory.getAmount(COIN_ITEM_ID);
-        int price = switch (resolvedItemId) {
-            case WOOD_FENCE_ITEM_ID -> WOOD_FENCE_PRICE;
-            case WOOD_WALL_ITEM_ID -> WOOD_WALL_PRICE;
-            case POTION_ITEM_ID -> 12;
-            case TORCH_ITEM_ID -> TORCH_PRICE;
-            case ARCHER_TOWER_ITEM_ID -> ARCHER_TOWER_PRICE;
-            case FRIENDLY_ARCHER_ITEM_ID -> FRIENDLY_ARCHER_PRICE;
-            case CHEST_ITEM_ID -> CHEST_PRICE;
-            case BOMB_TRAP_ITEM_ID -> BOMB_TRAP_PRICE;
-            case FIRE_BOMB_ITEM_ID -> FIRE_BOMB_PRICE;
-            case BASIC_SWORD_ITEM_ID -> 18;
-            case PICKAXE_ITEM_ID -> 14;
-            case CARROT_ITEM_ID -> 3;
-            default -> -1;
-        };
-
-        if (price < 0) {
-            logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, false, "unknown-item");
+        Map<String, Integer> purchaseCosts = resolveShopPurchaseCosts(resolvedItemId);
+        if (purchaseCosts.isEmpty()) {
+            logShopPurchase(requestedItemId, resolvedItemId, purchaseCosts, false, "unknown-item");
             renderer.showToast("Unknown item");
             return;
         }
-        if (currentCoin < price) {
-            logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, false, "not-enough-coin");
-            renderer.showToast("Not enough coins");
+
+        if (!hasEnoughResources(purchaseCosts)) {
+            logShopPurchase(requestedItemId, resolvedItemId, purchaseCosts, false, "not-enough-resources");
+            renderer.showToast("Not enough resources");
             return;
         }
 
-        if (!inventory.consumeItem(COIN_ITEM_ID, price)) {
-            logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, false, "coin-consume-failed");
-            renderer.showToast("Coin sync failed");
+        if (!consumePurchaseCosts(purchaseCosts)) {
+            logShopPurchase(requestedItemId, resolvedItemId, purchaseCosts, false, "consume-failed");
+            renderer.showToast("Resource sync failed");
             return;
         }
 
         if (FRIENDLY_ARCHER_ITEM_ID.equals(resolvedItemId)) {
             boolean spawned = spawnFriendlyArcherNearPlayer();
             if (!spawned) {
-                inventory.addItem(COIN_ITEM_ID, price);
-                logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, false, "spawn-failed");
+                refundPurchaseCosts(purchaseCosts);
+                logShopPurchase(requestedItemId, resolvedItemId, purchaseCosts, false, "spawn-failed");
                 renderer.showToast("No valid tile for Archer");
                 return;
             }
             refreshBuildInventoryUi();
-            logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, true, "spawned");
-            System.out.println("Bought FRIENDLY_ARCHER spawned coin = " + inventory.getAmount(COIN_ITEM_ID));
+            logShopPurchase(requestedItemId, resolvedItemId, purchaseCosts, true, "spawned");
             renderer.showToast("Bought Archer");
             return;
         }
         if (CHEST_ITEM_ID.equals(resolvedItemId)) {
             if (hasAnyAliveChest() || inventory.getAmount(CHEST_ITEM_ID) > 0) {
-                inventory.addItem(COIN_ITEM_ID, price);
-                logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, false, "already-exists");
+                refundPurchaseCosts(purchaseCosts);
+                logShopPurchase(requestedItemId, resolvedItemId, purchaseCosts, false, "already-exists");
                 renderer.showToast("Chest already exists");
                 return;
             }
             inventory.addItem(CHEST_ITEM_ID, 1);
             refreshBuildInventoryUi();
-            logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, true, "success");
+            logShopPurchase(requestedItemId, resolvedItemId, purchaseCosts, true, "success");
             renderer.showToast("Bought Chest");
             return;
         }
@@ -1239,14 +1227,14 @@ public class Game {
         inventory.addItem(resolvedItemId, 1);
         boolean inventoryAddResult = inventory.getAmount(resolvedItemId) == beforeAmount + 1;
         if (!inventoryAddResult) {
-            inventory.addItem(COIN_ITEM_ID, price);
-            logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, false, "inventory-add-failed");
+            refundPurchaseCosts(purchaseCosts);
+            logShopPurchase(requestedItemId, resolvedItemId, purchaseCosts, false, "inventory-add-failed");
             renderer.showToast("Inventory add failed");
             return;
         }
 
         refreshBuildInventoryUi();
-        logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, true, "success");
+        logShopPurchase(requestedItemId, resolvedItemId, purchaseCosts, true, "success");
         if (TORCH_ITEM_ID.equals(resolvedItemId)) {
             System.out.println("Bought TORCH quantity = " + inventory.getAmount(TORCH_ITEM_ID) + " coin = " + inventory.getAmount(COIN_ITEM_ID));
         } else if (ARCHER_TOWER_ITEM_ID.equals(resolvedItemId)) {
@@ -2778,6 +2766,7 @@ public class Game {
             case WOOD_WALL_ITEM_ID -> "Wood Wall";
             case POTION_ITEM_ID -> "Potion";
             case TORCH_ITEM_ID -> "Torch";
+            case AXE_ITEM_ID -> "Axe";
             case ARCHER_TOWER_ITEM_ID -> "Archer Tower";
             case FRIENDLY_ARCHER_ITEM_ID -> "Archer";
             case CHEST_ITEM_ID -> "Chest";
@@ -3099,8 +3088,12 @@ public class Game {
         String selectedItemId = getSelectedHotbarItemId();
         if (selectedItemId == null || selectedItemId.isBlank()) {
             buildManager.cancelBuildMode();
+            player.setEquipmentMode(Player.EquipmentMode.HAND_MODE);
             return;
         }
+        player.setEquipmentMode(AXE_ITEM_ID.equals(selectedItemId)
+                ? Player.EquipmentMode.AXE_MODE
+                : Player.EquipmentMode.HAND_MODE);
         if (isBuildItemId(selectedItemId)) {
             buildController.onSelectBuildItem(selectedItemId);
             return;
@@ -3134,6 +3127,80 @@ public class Game {
             }
         }
         return -1;
+    }
+
+    private Map<String, Integer> resolveShopPurchaseCosts(String resolvedItemId) {
+        return switch (resolvedItemId) {
+            case WOOD_FENCE_ITEM_ID -> Map.of(COIN_ITEM_ID, WOOD_FENCE_PRICE);
+            case WOOD_WALL_ITEM_ID -> Map.of(COIN_ITEM_ID, WOOD_WALL_PRICE);
+            case POTION_ITEM_ID -> Map.of(COIN_ITEM_ID, 12);
+            case TORCH_ITEM_ID -> Map.of(COIN_ITEM_ID, TORCH_PRICE);
+            case AXE_ITEM_ID -> Map.of("wood", AXE_WOOD_COST, "stone", AXE_STONE_COST);
+            case ARCHER_TOWER_ITEM_ID -> Map.of(COIN_ITEM_ID, ARCHER_TOWER_PRICE);
+            case FRIENDLY_ARCHER_ITEM_ID -> Map.of(COIN_ITEM_ID, FRIENDLY_ARCHER_PRICE);
+            case CHEST_ITEM_ID -> Map.of(COIN_ITEM_ID, CHEST_PRICE);
+            case BOMB_TRAP_ITEM_ID -> Map.of(COIN_ITEM_ID, BOMB_TRAP_PRICE);
+            case FIRE_BOMB_ITEM_ID -> Map.of(COIN_ITEM_ID, FIRE_BOMB_PRICE);
+            case BASIC_SWORD_ITEM_ID -> Map.of(COIN_ITEM_ID, 18);
+            case PICKAXE_ITEM_ID -> Map.of(COIN_ITEM_ID, 14);
+            case CARROT_ITEM_ID -> Map.of(COIN_ITEM_ID, 3);
+            default -> Map.of();
+        };
+    }
+
+    private boolean hasEnoughResources(Map<String, Integer> purchaseCosts) {
+        if (purchaseCosts == null || purchaseCosts.isEmpty()) {
+            return false;
+        }
+        for (Map.Entry<String, Integer> entry : purchaseCosts.entrySet()) {
+            if (entry == null || entry.getKey() == null || entry.getKey().isBlank()) {
+                continue;
+            }
+            int required = entry.getValue() == null ? 0 : Math.max(0, entry.getValue());
+            if (inventory.getAmount(entry.getKey()) < required) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean consumePurchaseCosts(Map<String, Integer> purchaseCosts) {
+        if (!hasEnoughResources(purchaseCosts)) {
+            return false;
+        }
+        List<Map.Entry<String, Integer>> consumed = new ArrayList<>();
+        for (Map.Entry<String, Integer> entry : purchaseCosts.entrySet()) {
+            if (entry == null || entry.getKey() == null || entry.getKey().isBlank()) {
+                continue;
+            }
+            int amount = entry.getValue() == null ? 0 : Math.max(0, entry.getValue());
+            if (amount <= 0) {
+                continue;
+            }
+            if (!inventory.consumeItem(entry.getKey(), amount)) {
+                for (Map.Entry<String, Integer> rollback : consumed) {
+                    inventory.addItem(rollback.getKey(), rollback.getValue());
+                }
+                return false;
+            }
+            consumed.add(Map.entry(entry.getKey(), amount));
+        }
+        return true;
+    }
+
+    private void refundPurchaseCosts(Map<String, Integer> purchaseCosts) {
+        if (purchaseCosts == null || purchaseCosts.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<String, Integer> entry : purchaseCosts.entrySet()) {
+            if (entry == null || entry.getKey() == null || entry.getKey().isBlank()) {
+                continue;
+            }
+            int amount = entry.getValue() == null ? 0 : Math.max(0, entry.getValue());
+            if (amount > 0) {
+                inventory.addItem(entry.getKey(), amount);
+            }
+        }
     }
 
     private void onResourceDestroyed(system.resource.ResourceNode resource) {
@@ -3220,6 +3287,7 @@ public class Game {
             return "";
         }
         return switch (itemId.trim().toLowerCase()) {
+            case "axe", "riu", "rìu" -> AXE_ITEM_ID;
             case WALL_ITEM_ALIAS -> WOOD_FENCE_ITEM_ID;
             case "wood_fence", "wood fence" -> WOOD_FENCE_ITEM_ID;
             case "cung", "archer_tower" -> ARCHER_TOWER_ITEM_ID;
@@ -3233,14 +3301,12 @@ public class Game {
 
     private void logShopPurchase(String requestedItemId,
                                  String resolvedItemId,
-                                 int price,
-                                 int currentCoin,
+                                 Map<String, Integer> purchaseCosts,
                                  boolean inventoryAddResult,
                                  String reasonFailed) {
         System.out.println("[ShopDebug] itemId=" + requestedItemId
                 + " resolvedItemId=" + resolvedItemId
-                + " price=" + price
-                + " currentCoin=" + currentCoin
+                + " costs=" + purchaseCosts
                 + " inventoryAddResult=" + inventoryAddResult
                 + " reasonFailed=" + reasonFailed);
     }

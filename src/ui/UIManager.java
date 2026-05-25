@@ -32,6 +32,7 @@ import java.util.function.IntConsumer;
  * - Bao gom menu, nhap ten, HUD, minimap, hotbar, shop, inventory va settings.
  */
 public class UIManager {
+    private static final String AXE_ITEM_ID = "axe";
     private final AssetManager assetManager;
     private final MainMenuScreen mainMenuScreen;
     private final NameInputScreen nameInputScreen;
@@ -61,6 +62,7 @@ public class UIManager {
         this.shopItems = List.of(
                 itemMetaMap.get("wall"),
                 itemMetaMap.get("torch"),
+                itemMetaMap.get(AXE_ITEM_ID),
                 itemMetaMap.get("archer_tower"),
                 itemMetaMap.get("friendly_archer"),
                 itemMetaMap.get("chest"),
@@ -444,11 +446,13 @@ public class UIManager {
         Image woodIcon = InventoryIconLoader.loadMainIcon("assets/Chip/wood");
         Image rockIcon = InventoryIconLoader.loadMainIcon("assets/Chip/rock");
         Image nikuIcon = InventoryIconLoader.loadMainIcon("assets/Chip/niku");
+        Image axeIcon = InventoryIconLoader.loadFileIcon("assets/player/Slice_Base/riu.jpg");
         meta.put("wall", new ItemUiMeta("wall", "Wood Fence", "Buildable wooden fence that auto-connects left and right.", GameBalance.WOOD_FENCE_PRICE, "WF", wallIcon));
         meta.put("wood_fence", new ItemUiMeta("wood_fence", "Wood Fence", "Buildable wooden fence that auto-connects left and right.", GameBalance.WOOD_FENCE_PRICE, "WF", wallIcon));
         meta.put("wood_wall", new ItemUiMeta("wood_wall", "Wood Wall", "Legacy wooden wall kept for existing saves.", GameBalance.WOOD_WALL_PRICE, "WW", wallIcon));
         meta.put("potion", new ItemUiMeta("potion", "Potion", "Emergency heal during survival runs.", 12, "PT", null));
         meta.put("torch", new ItemUiMeta("torch", "Torch", "Animated torch that lights dark areas after placement.", GameBalance.TORCH_PRICE, "TR", torchIcon));
+        meta.put(AXE_ITEM_ID, new ItemUiMeta(AXE_ITEM_ID, "Axe", "Equip to use Slice attacks on trees, rocks, and enemies.", 0, "AX", axeIcon, Map.of("wood", 5, "stone", 2)));
         meta.put("archer_tower", new ItemUiMeta("archer_tower", "Archer Tower", "Auto attacks enemies entering its range.", GameBalance.ARCHER_TOWER_PRICE, "AT", archerTowerIcon));
         meta.put("friendly_archer", new ItemUiMeta("friendly_archer", "Archer", "Friendly ranged unit", GameBalance.FRIENDLY_ARCHER_PRICE, "AR", friendlyArcherIcon));
         meta.put("chest", new ItemUiMeta("chest", "Chest", "Storage chest that can be opened with C when nearby.", 50, "CH", chestIcon));

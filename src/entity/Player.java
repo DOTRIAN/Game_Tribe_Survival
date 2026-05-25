@@ -4,30 +4,47 @@ import animation.SpriteAnimation;
 import animation.SpriteSheetLoader;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.image.Image;
+import javafx.scene.image.PixelReader;
+import javafx.scene.image.PixelWriter;
+import javafx.scene.image.WritableImage;
 import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import javafx.scene.text.Text;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class Player extends Entity {
+    private static final String PLAYER_ASSET_ROOT = "file:assets/player/";
+    private static final long IDLE_FRAME_NS = 140_000_000L;
+    private static final long WALK_FRAME_NS = 100_000_000L;
+    private static final long RUN_FRAME_NS = 80_000_000L;
+    private static final long HIT_FRAME_NS = 85_000_000L;
+    private static final long SLICE_FRAME_NS = 80_000_000L;
+    private static final long DEATH_FRAME_NS = 110_000_000L;
+
     private enum FacingDirection {
         DOWN,
         SIDE,
         UP
     }
+
     public enum AttackAnimationType {
         HIT,
         SLICE
     }
 
-    // Nang luong dung cho movement/skill.
+    public enum EquipmentMode {
+        HAND_MODE,
+        AXE_MODE
+    }
+
     private double energy;
     private double maxEnergy;
-    // Tien trinh phat trien nhan vat.
     private int level;
     private int experience;
     private int experienceToNextLevel;
-    // Hieu ung level-up (popup text + mui ten) de tao feedback manh cho nguoi choi.
     private long levelUpEffectStartedAtNs;
     private long levelUpEffectDurationNs;
     private int lastLeveledUpTo;
@@ -47,18 +64,20 @@ public class Player extends Entity {
     private final SpriteAnimation hitDownAnimation;
     private final SpriteAnimation hitSideAnimation;
     private final SpriteAnimation hitUpAnimation;
+    private final SpriteAnimation deathDownAnimation;
+    private final SpriteAnimation deathSideAnimation;
+    private final SpriteAnimation deathUpAnimation;
 
     private FacingDirection facingDirection;
     private boolean facingRight;
     private Image currentFrame;
-    // Ten hien thi tren dau nhan vat khi render trong world.
     private String playerName;
-    // Trang thai tan cong (slice) de hien animation chem.
     private boolean attacking;
     private long attackStartedAtNs;
     private long attackDurationNs;
     private AttackAnimationType currentAttackType;
     private boolean sprinting;
+    private EquipmentMode equipmentMode;
     private static final double SPRINT_SPEED_MULTIPLIER = 1.8;
 
     public Player(double x, double y, double width, double height, double speed, int maxHp) {
@@ -72,135 +91,60 @@ public class Player extends Entity {
         this.levelUpEffectDurationNs = 2_200_000_000L;
         this.lastLeveledUpTo = 1;
 
-        // Idle: 3360x2880, hang*cot = 4*4 => cols=4, rows=4.
-        this.idleDownAnimation = new SpriteAnimation(
-                SpriteSheetLoader.loadGrid(
-                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Front - Idle.png",
-                        4,
-                        4
-                ),
-                90_000_000L
+        Image[] idleDownFrames = loadStrip("Idle_Base/Idle_Down-Sheet.png", 4);
+        Image[] idleSideFrames = loadStrip("Idle_Base/Idle_Side-Sheet.png", 4);
+        Image[] idleUpFrames = loadStrip("Idle_Base/Idle_Up-Sheet.png", 4);
+        Image[] walkDownFrames = loadStrip("Walk_Base/Walk_Down-Sheet.png", 6);
+        Image[] walkSideFrames = loadStrip("Walk_Base/Walk_Side-Sheet.png", 6);
+        Image[] walkUpFrames = loadStrip("Walk_Base/Walk_Up-Sheet.png", 6);
+        Image[] runDownFrames = loadStrip("Run_Base/Run_Down-Sheet.png", 6);
+        Image[] runSideFrames = loadStrip("Run_Base/Run_Side-Sheet.png", 6);
+        Image[] runUpFrames = loadStrip("Run_Base/Run_Up-Sheet.png", 6);
+        Image[] sliceDownFrames = loadStrip("Slice_Base/Slice_Down-Sheet.png", 8);
+        Image[] sliceSideFrames = loadStrip("Slice_Base/Slice_Side-Sheet.png", 8);
+        Image[] sliceUpFrames = loadStrip("Slice_Base/Slice_Up-Sheet.png", 8);
+        Image[] hitDownFrames = loadStrip("Hit_Base/Hit_Down-Sheet.png", 4);
+        Image[] hitSideFrames = loadStrip("Hit_Base/Hit_Side-Sheet.png", 4);
+        Image[] hitUpFrames = loadStrip("Hit_Base/Hit_Up-Sheet.png", 4);
+        Image[] deathDownFrames = loadStrip("Death_Base/Death_Down-Sheet.png", 8);
+        Image[] deathSideFrames = loadStrip("Death_Base/Death_Side-Sheet.png", 8);
+        Image[] deathUpFrames = loadStrip("Death_Base/Death_Up-Sheet.png", 8);
+
+        int canvasWidth = findMaxFrameWidth(
+                idleDownFrames, idleSideFrames, idleUpFrames,
+                walkDownFrames, walkSideFrames, walkUpFrames,
+                runDownFrames, runSideFrames, runUpFrames,
+                sliceDownFrames, sliceSideFrames, sliceUpFrames,
+                hitDownFrames, hitSideFrames, hitUpFrames,
+                deathDownFrames, deathSideFrames, deathUpFrames
         );
-        this.idleSideAnimation = new SpriteAnimation(
-                SpriteSheetLoader.loadGrid(
-                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Right - Idle.png",
-                        4,
-                        4
-                ),
-                90_000_000L
-        );
-        this.idleUpAnimation = new SpriteAnimation(
-                SpriteSheetLoader.loadGrid(
-                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Back - Idle.png",
-                        4,
-                        4
-                ),
-                90_000_000L
+        int canvasHeight = findMaxFrameHeight(
+                idleDownFrames, idleSideFrames, idleUpFrames,
+                walkDownFrames, walkSideFrames, walkUpFrames,
+                runDownFrames, runSideFrames, runUpFrames,
+                sliceDownFrames, sliceSideFrames, sliceUpFrames,
+                hitDownFrames, hitSideFrames, hitUpFrames,
+                deathDownFrames, deathSideFrames, deathUpFrames
         );
 
-        // Walking: 3360x3600, hang*cot = 5*4 => cols=4, rows=5.
-        this.walkDownAnimation = new SpriteAnimation(
-                SpriteSheetLoader.loadGrid(
-                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Front - Walking.png",
-                        4,
-                        5
-                ),
-                85_000_000L
-        );
-        this.walkSideAnimation = new SpriteAnimation(
-                SpriteSheetLoader.loadGrid(
-                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Right - Walking.png",
-                        4,
-                        5
-                ),
-                85_000_000L
-        );
-        this.walkUpAnimation = new SpriteAnimation(
-                SpriteSheetLoader.loadGrid(
-                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Back - Walking.png",
-                        4,
-                        5
-                ),
-                85_000_000L
-        );
-
-        // Running: 3360x2160, hang*cot = 4*3 => cols=3, rows=4.
-        this.runDownAnimation = new SpriteAnimation(
-                SpriteSheetLoader.loadGrid(
-                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Front - Running.png",
-                        4,
-                        3
-                ),
-                75_000_000L
-        );
-        this.runSideAnimation = new SpriteAnimation(
-                SpriteSheetLoader.loadGrid(
-                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Right - Running.png",
-                        4,
-                        3
-                ),
-                75_000_000L
-        );
-        this.runUpAnimation = new SpriteAnimation(
-                SpriteSheetLoader.loadGrid(
-                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Back - Running.png",
-                        4,
-                        3
-                ),
-                75_000_000L
-        );
-
-        // Attacking: 4200x1440, hang*cot = 2*5 => cols=5, rows=2.
-        this.sliceDownAnimation = new SpriteAnimation(
-                SpriteSheetLoader.loadGrid(
-                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Front - Attacking.png",
-                        5,
-                        2
-                ),
-                70_000_000L
-        );
-        this.sliceSideAnimation = new SpriteAnimation(
-                SpriteSheetLoader.loadGrid(
-                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Right - Attacking.png",
-                        5,
-                        2
-                ),
-                70_000_000L
-        );
-        this.sliceUpAnimation = new SpriteAnimation(
-                SpriteSheetLoader.loadGrid(
-                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Back - Attacking.png",
-                        5,
-                        2
-                ),
-                70_000_000L
-        );
-
-        // Hurt dang cung format voi attacking (4200x1440, 2*5).
-        this.hitDownAnimation = new SpriteAnimation(
-                SpriteSheetLoader.loadGrid(
-                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Front - Hurt.png",
-                        5,
-                        2
-                ),
-                65_000_000L
-        );
-        this.hitSideAnimation = new SpriteAnimation(
-                SpriteSheetLoader.loadGrid(
-                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Right - Hurt.png",
-                        5,
-                        2
-                ),
-                65_000_000L
-        );
-        this.hitUpAnimation = new SpriteAnimation(
-                SpriteSheetLoader.loadGrid(
-                        "file:assets/tilesets/anh-3player-toctruong/Nordic Leader/PNG/Spritesheets/Back - Hurt.png",
-                        5,
-                        2
-                ),
-                65_000_000L
-        );
+        this.idleDownAnimation = new SpriteAnimation(normalizeFrames(idleDownFrames, canvasWidth, canvasHeight), IDLE_FRAME_NS);
+        this.idleSideAnimation = new SpriteAnimation(normalizeFrames(idleSideFrames, canvasWidth, canvasHeight), IDLE_FRAME_NS);
+        this.idleUpAnimation = new SpriteAnimation(normalizeFrames(idleUpFrames, canvasWidth, canvasHeight), IDLE_FRAME_NS);
+        this.walkDownAnimation = new SpriteAnimation(normalizeFrames(walkDownFrames, canvasWidth, canvasHeight), WALK_FRAME_NS);
+        this.walkSideAnimation = new SpriteAnimation(normalizeFrames(walkSideFrames, canvasWidth, canvasHeight), WALK_FRAME_NS);
+        this.walkUpAnimation = new SpriteAnimation(normalizeFrames(walkUpFrames, canvasWidth, canvasHeight), WALK_FRAME_NS);
+        this.runDownAnimation = new SpriteAnimation(normalizeFrames(runDownFrames, canvasWidth, canvasHeight), RUN_FRAME_NS);
+        this.runSideAnimation = new SpriteAnimation(normalizeFrames(runSideFrames, canvasWidth, canvasHeight), RUN_FRAME_NS);
+        this.runUpAnimation = new SpriteAnimation(normalizeFrames(runUpFrames, canvasWidth, canvasHeight), RUN_FRAME_NS);
+        this.sliceDownAnimation = new SpriteAnimation(normalizeFrames(sliceDownFrames, canvasWidth, canvasHeight), SLICE_FRAME_NS);
+        this.sliceSideAnimation = new SpriteAnimation(normalizeFrames(sliceSideFrames, canvasWidth, canvasHeight), SLICE_FRAME_NS);
+        this.sliceUpAnimation = new SpriteAnimation(normalizeFrames(sliceUpFrames, canvasWidth, canvasHeight), SLICE_FRAME_NS);
+        this.hitDownAnimation = new SpriteAnimation(normalizeFrames(hitDownFrames, canvasWidth, canvasHeight), HIT_FRAME_NS);
+        this.hitSideAnimation = new SpriteAnimation(normalizeFrames(hitSideFrames, canvasWidth, canvasHeight), HIT_FRAME_NS);
+        this.hitUpAnimation = new SpriteAnimation(normalizeFrames(hitUpFrames, canvasWidth, canvasHeight), HIT_FRAME_NS);
+        this.deathDownAnimation = new SpriteAnimation(normalizeFrames(deathDownFrames, canvasWidth, canvasHeight), DEATH_FRAME_NS);
+        this.deathSideAnimation = new SpriteAnimation(normalizeFrames(deathSideFrames, canvasWidth, canvasHeight), DEATH_FRAME_NS);
+        this.deathUpAnimation = new SpriteAnimation(normalizeFrames(deathUpFrames, canvasWidth, canvasHeight), DEATH_FRAME_NS);
 
         this.facingDirection = FacingDirection.DOWN;
         this.facingRight = true;
@@ -211,6 +155,7 @@ public class Player extends Entity {
         this.attackDurationNs = 360_000_000L;
         this.currentAttackType = AttackAnimationType.HIT;
         this.sprinting = false;
+        this.equipmentMode = EquipmentMode.HAND_MODE;
     }
 
     public void moveLeft() {
@@ -271,11 +216,12 @@ public class Player extends Entity {
         this.y = startY;
         this.hp = maxHp;
         this.energy = maxEnergy;
+        this.attacking = false;
+        resetAllAttackAnimations();
+        resetDeathAnimations();
+        this.currentFrame = idleDownAnimation.getCurrentFrame();
     }
 
-    // Getter/Setter ten nhan vat:
-    // - Ten duoc validate ben Game (do ngu canh nhap ten o menu nam ben Game).
-    // - Player chi dong vai tro luu du lieu + expose cho render.
     public String getPlayerName() {
         return playerName;
     }
@@ -284,50 +230,11 @@ public class Player extends Entity {
         this.playerName = playerName;
     }
 
-    // setEnergyForLoad:
-    // - Input: energy duoc restore tu file save.
-    // - Tac dong: phuc hoi tai nguyen sinh ton khi vao lai world.
     public void setEnergyForLoad(double restoredEnergy) {
         this.energy = Math.max(0, Math.min(maxEnergy, restoredEnergy));
     }
 
     public void updateAnimation(long now, boolean moving, boolean moveUp, boolean moveDown, boolean moveLeft, boolean moveRight) {
-        // Neu dang tan cong, khoa animation movement va uu tien animation tan cong.
-        if (attacking) {
-            SpriteAnimation attackAnimation;
-            if (currentAttackType == AttackAnimationType.SLICE) {
-                if (facingDirection == FacingDirection.UP) {
-                    attackAnimation = sliceUpAnimation;
-                } else if (facingDirection == FacingDirection.SIDE) {
-                    attackAnimation = sliceSideAnimation;
-                } else {
-                    attackAnimation = sliceDownAnimation;
-                }
-            } else {
-                if (facingDirection == FacingDirection.UP) {
-                    attackAnimation = hitUpAnimation;
-                } else if (facingDirection == FacingDirection.SIDE) {
-                    attackAnimation = hitSideAnimation;
-                } else {
-                    attackAnimation = hitDownAnimation;
-                }
-            }
-
-            attackAnimation.update(now, true);
-            currentFrame = attackAnimation.getCurrentFrame();
-
-            if (now - attackStartedAtNs >= attackDurationNs) {
-                attacking = false;
-                sliceDownAnimation.reset();
-                sliceSideAnimation.reset();
-                sliceUpAnimation.reset();
-                hitDownAnimation.reset();
-                hitSideAnimation.reset();
-                hitUpAnimation.reset();
-            }
-            return;
-        }
-
         if (moveLeft || moveRight) {
             facingDirection = FacingDirection.SIDE;
             if (moveLeft) {
@@ -341,67 +248,67 @@ public class Player extends Entity {
             facingDirection = FacingDirection.DOWN;
         }
 
+        if (!isAlive()) {
+            SpriteAnimation deathAnimation = currentDeathAnimation();
+            deathAnimation.updateOnce(now);
+            currentFrame = deathAnimation.getCurrentFrame();
+            return;
+        }
+
+        if (attacking) {
+            SpriteAnimation attackAnimation = currentAttackAnimation();
+            attackAnimation.update(now, true);
+            currentFrame = attackAnimation.getCurrentFrame();
+
+            if (now - attackStartedAtNs >= attackDurationNs) {
+                attacking = false;
+                resetAllAttackAnimations();
+            }
+            return;
+        }
+
         SpriteAnimation activeAnimation;
         if (moving) {
             if (sprinting) {
-                if (facingDirection == FacingDirection.UP) {
-                    activeAnimation = runUpAnimation;
-                } else if (facingDirection == FacingDirection.SIDE) {
-                    activeAnimation = runSideAnimation;
-                } else {
-                    activeAnimation = runDownAnimation;
-                }
+                activeAnimation = switch (facingDirection) {
+                    case UP -> runUpAnimation;
+                    case SIDE -> runSideAnimation;
+                    case DOWN -> runDownAnimation;
+                };
             } else {
-                if (facingDirection == FacingDirection.UP) {
-                    activeAnimation = walkUpAnimation;
-                } else if (facingDirection == FacingDirection.SIDE) {
-                    activeAnimation = walkSideAnimation;
-                } else {
-                    activeAnimation = walkDownAnimation;
-                }
+                activeAnimation = switch (facingDirection) {
+                    case UP -> walkUpAnimation;
+                    case SIDE -> walkSideAnimation;
+                    case DOWN -> walkDownAnimation;
+                };
             }
         } else {
-            if (facingDirection == FacingDirection.UP) {
-                activeAnimation = idleUpAnimation;
-            } else if (facingDirection == FacingDirection.SIDE) {
-                activeAnimation = idleSideAnimation;
-            } else {
-                activeAnimation = idleDownAnimation;
-            }
+            activeAnimation = switch (facingDirection) {
+                case UP -> idleUpAnimation;
+                case SIDE -> idleSideAnimation;
+                case DOWN -> idleDownAnimation;
+            };
         }
 
         activeAnimation.update(now, true);
         currentFrame = activeAnimation.getCurrentFrame();
     }
 
-    // Bat dau 1 lan tan cong neu player dang ranh.
-    // HIT: danh thuong, SLICE: de danh cho vu khi sau nay.
     public boolean startAttack(long now, AttackAnimationType attackType) {
-        if (attacking) {
+        if (!isAlive() || attacking) {
             return false;
         }
         attacking = true;
         attackStartedAtNs = now;
-        currentAttackType = attackType == null ? AttackAnimationType.HIT : attackType;
-
-        // Reset tat ca animation tan cong de lan moi bat dau tu frame 0.
-        sliceDownAnimation.reset();
-        sliceSideAnimation.reset();
-        sliceUpAnimation.reset();
-        hitDownAnimation.reset();
-        hitSideAnimation.reset();
-        hitUpAnimation.reset();
-
-        if (currentAttackType == AttackAnimationType.SLICE) {
-            attackDurationNs = sliceDownAnimation.getFrameCount() * 80_000_000L;
-        } else {
-            attackDurationNs = hitDownAnimation.getFrameCount() * 90_000_000L;
-        }
+        currentAttackType = attackType == null ? getAttackAnimationTypeForCurrentMode() : attackType;
+        resetAllAttackAnimations();
+        attackDurationNs = currentAttackAnimation().getFrameCount()
+                * (currentAttackType == AttackAnimationType.SLICE ? SLICE_FRAME_NS : HIT_FRAME_NS);
         return true;
     }
 
     public boolean startAttack(long now) {
-        return startAttack(now, AttackAnimationType.HIT);
+        return startAttack(now, getAttackAnimationTypeForCurrentMode());
     }
 
     public boolean isAttacking() {
@@ -414,6 +321,22 @@ public class Player extends Entity {
 
     public double getCurrentMoveSpeed() {
         return sprinting ? speed * SPRINT_SPEED_MULTIPLIER : speed;
+    }
+
+    public EquipmentMode getEquipmentMode() {
+        return equipmentMode;
+    }
+
+    public void setEquipmentMode(EquipmentMode equipmentMode) {
+        this.equipmentMode = equipmentMode == null ? EquipmentMode.HAND_MODE : equipmentMode;
+    }
+
+    public boolean isAxeEquipped() {
+        return equipmentMode == EquipmentMode.AXE_MODE;
+    }
+
+    public AttackAnimationType getAttackAnimationTypeForCurrentMode() {
+        return isAxeEquipped() ? AttackAnimationType.SLICE : AttackAnimationType.HIT;
     }
 
     @Override
@@ -436,7 +359,6 @@ public class Player extends Entity {
         return height * 0.08;
     }
 
-    // Tru nang luong, tra ve false neu khong du de thuc hien hanh dong.
     public boolean consumeEnergy(double amount) {
         if (amount <= 0) {
             return true;
@@ -451,7 +373,6 @@ public class Player extends Entity {
         return true;
     }
 
-    // Hoi nang luong co clamp [0..maxEnergy].
     public void recoverEnergy(double amount) {
         if (amount <= 0) {
             return;
@@ -462,8 +383,6 @@ public class Player extends Entity {
         }
     }
 
-    // Cong kinh nghiem va tu dong level-up khi dat nguong.
-    // Level-up don gian: tang size player de tao feedback ro rang trong MVP.
     public void addExperience(int amount) {
         if (amount <= 0) {
             return;
@@ -477,8 +396,6 @@ public class Player extends Entity {
     }
 
     private void growOnLevelUp() {
-        // Tang nhe kich thuoc moi level de tranh pha collision qua manh.
-        // Dat 10% de nhin ro hon trong gameplay.
         double scale = 1.10;
         double oldCenterX = x + width / 2.0;
         double oldCenterY = y + height / 2.0;
@@ -486,24 +403,19 @@ public class Player extends Entity {
         width *= scale;
         height *= scale;
 
-        // Giu tam nhan vat de khong giat manh vi tri khi level-up.
         x = oldCenterX - width / 2.0;
         y = oldCenterY - height / 2.0;
 
-        // Tang toi da nang luong nhe theo level de tao phan thuong lau dai.
         maxEnergy += 4;
         energy = maxEnergy;
-        // Kick hieu ung popup level-up.
         levelUpEffectStartedAtNs = System.nanoTime();
         lastLeveledUpTo = level;
     }
 
-    // Tra ve hitbox tan cong don gian theo huong dang quay mat.
-    // [0]=x, [1]=y, [2]=w, [3]=h
     public double[] buildAttackHitbox() {
         double hitboxWidth = width * 0.90;
         double hitboxHeight = height * 0.90;
-        double range = 26; // tam danh them ve phia truoc.
+        double range = 26;
 
         double attackX = x + (width - hitboxWidth) / 2;
         double attackY = y + (height - hitboxHeight) / 2;
@@ -541,45 +453,138 @@ public class Player extends Entity {
             graphicsContext.drawImage(currentFrame, screenX, screenY, width, height);
         }
 
-        // Ve ten nhan vat o phia tren dau sprite.
-        // Dat sau khi ve player de chac chan ten nam tren layer entity.
         drawPlayerName(graphicsContext, screenX, screenY);
     }
 
     private void drawPlayerName(GraphicsContext graphicsContext, double screenX, double screenY) {
-        // Neu ten null/blank thi khong ve gi de tranh tao rac UI.
         if (playerName == null || playerName.trim().isEmpty()) {
             return;
         }
 
         String visibleName = playerName.trim();
-
-        // Luu state hien tai de khong lam anh huong font/mau cua cac phan render khac.
         graphicsContext.save();
-        // Giam nhe size ten theo yeu cau de khong che gameplay.
         graphicsContext.setFont(Font.font("Georgia", FontWeight.BOLD, 8));
 
-        // Tinh canh giua ten theo be ngang sprite.
         double nameWidth = measureTextWidth(graphicsContext, visibleName);
         double textX = screenX + (width - nameWidth) / 2;
-        // Day ten len cao hon mot chut de tranh sat dau sprite.
         double textY = screenY - 0.1;
 
-        // Ve stroke den truoc de ten doc ro tren nen sang/toi bat ky.
         graphicsContext.setStroke(Color.color(0, 0, 0, 0.8));
         graphicsContext.strokeText(visibleName, textX, textY);
 
-        // Ve fill sang ben trong.
         graphicsContext.setFill(Color.color(1, 1, 1, 0.95));
         graphicsContext.fillText(visibleName, textX, textY);
 
         graphicsContext.restore();
     }
 
-    // Ham helper do rong text theo font hien tai cua graphics context.
     private double measureTextWidth(GraphicsContext graphicsContext, String text) {
         Text helper = new Text(text);
         helper.setFont(graphicsContext.getFont());
         return helper.getLayoutBounds().getWidth();
+    }
+
+    private Image[] loadStrip(String relativePath, int columns) {
+        return SpriteSheetLoader.loadGrid(PLAYER_ASSET_ROOT + relativePath, columns, 1);
+    }
+
+    private int findMaxFrameWidth(Image[]... frameGroups) {
+        int max = 1;
+        for (Image[] frames : frameGroups) {
+            if (frames == null) {
+                continue;
+            }
+            for (Image frame : frames) {
+                if (frame != null) {
+                    max = Math.max(max, (int) Math.ceil(frame.getWidth()));
+                }
+            }
+        }
+        return max;
+    }
+
+    private int findMaxFrameHeight(Image[]... frameGroups) {
+        int max = 1;
+        for (Image[] frames : frameGroups) {
+            if (frames == null) {
+                continue;
+            }
+            for (Image frame : frames) {
+                if (frame != null) {
+                    max = Math.max(max, (int) Math.ceil(frame.getHeight()));
+                }
+            }
+        }
+        return max;
+    }
+
+    private Image[] normalizeFrames(Image[] frames, int canvasWidth, int canvasHeight) {
+        List<Image> normalized = new ArrayList<>();
+        if (frames == null) {
+            return new Image[0];
+        }
+        for (Image frame : frames) {
+            normalized.add(centerFrame(frame, canvasWidth, canvasHeight));
+        }
+        return normalized.toArray(new Image[0]);
+    }
+
+    private Image centerFrame(Image frame, int canvasWidth, int canvasHeight) {
+        if (frame == null || frame.getPixelReader() == null) {
+            return frame;
+        }
+        int width = Math.max(1, canvasWidth);
+        int height = Math.max(1, canvasHeight);
+        WritableImage canvas = new WritableImage(width, height);
+        PixelWriter writer = canvas.getPixelWriter();
+        PixelReader reader = frame.getPixelReader();
+        int frameWidth = (int) Math.ceil(frame.getWidth());
+        int frameHeight = (int) Math.ceil(frame.getHeight());
+        int drawX = Math.max(0, (width - frameWidth) / 2);
+        int drawY = Math.max(0, height - frameHeight);
+        for (int y = 0; y < frameHeight; y++) {
+            for (int x = 0; x < frameWidth; x++) {
+                writer.setArgb(drawX + x, drawY + y, reader.getArgb(x, y));
+            }
+        }
+        return canvas;
+    }
+
+    private SpriteAnimation currentAttackAnimation() {
+        if (currentAttackType == AttackAnimationType.SLICE) {
+            return switch (facingDirection) {
+                case UP -> sliceUpAnimation;
+                case SIDE -> sliceSideAnimation;
+                case DOWN -> sliceDownAnimation;
+            };
+        }
+        return switch (facingDirection) {
+            case UP -> hitUpAnimation;
+            case SIDE -> hitSideAnimation;
+            case DOWN -> hitDownAnimation;
+        };
+    }
+
+    private SpriteAnimation currentDeathAnimation() {
+        return switch (facingDirection) {
+            case UP -> deathUpAnimation;
+            case SIDE -> deathSideAnimation;
+            case DOWN -> deathDownAnimation;
+        };
+    }
+
+    private void resetAllAttackAnimations() {
+        sliceDownAnimation.reset();
+        sliceSideAnimation.reset();
+        sliceUpAnimation.reset();
+        hitDownAnimation.reset();
+        hitSideAnimation.reset();
+        hitUpAnimation.reset();
+    }
+
+    private void resetDeathAnimations() {
+        deathDownAnimation.reset();
+        deathSideAnimation.reset();
+        deathUpAnimation.reset();
     }
 }

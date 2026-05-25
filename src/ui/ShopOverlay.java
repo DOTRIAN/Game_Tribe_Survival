@@ -23,7 +23,7 @@ import java.util.function.Consumer;
  * - Mua item bang coin va phat callback de Game xu ly inventory that.
  */
 public class ShopOverlay extends StackPane {
-    private final Label coinLabel;
+    private final Label resourceLabel;
     private final Button closeButton;
     private final VBox listBox;
     private Consumer<String> buyListener;
@@ -42,13 +42,13 @@ public class ShopOverlay extends StackPane {
         header.setAlignment(Pos.CENTER_LEFT);
         Label title = new Label("SHOP");
         title.getStyleClass().add("menu-logo");
-        this.coinLabel = new Label("Coins: 0");
-        coinLabel.getStyleClass().add("hud-value");
+        this.resourceLabel = new Label("Coin: 0 | Wood: 0 | Stone: 0");
+        resourceLabel.getStyleClass().add("hud-value");
         HBox spacer = new HBox();
         HBox.setHgrow(spacer, Priority.ALWAYS);
         this.closeButton = new Button("Close");
         closeButton.getStyleClass().add("secondary-button");
-        header.getChildren().addAll(title, spacer, coinLabel, closeButton);
+        header.getChildren().addAll(title, spacer, resourceLabel, closeButton);
 
         this.listBox = new VBox(10);
         this.lastShopFingerprint = "";
@@ -71,7 +71,9 @@ public class ShopOverlay extends StackPane {
 
     public void updateShop(Map<String, Integer> inventorySnapshot, List<ItemUiMeta> shopItems) {
         int coins = inventorySnapshot == null ? 0 : inventorySnapshot.getOrDefault("coin", 0);
-        coinLabel.setText("Coins: " + coins);
+        int wood = inventorySnapshot == null ? 0 : inventorySnapshot.getOrDefault("wood", 0);
+        int stone = inventorySnapshot == null ? 0 : inventorySnapshot.getOrDefault("rock", 0);
+        resourceLabel.setText("Coin: " + coins + " | Wood: " + wood + " | Stone: " + stone);
 
         if (shopItems == null) {
             listBox.getChildren().clear();
@@ -130,7 +132,7 @@ public class ShopOverlay extends StackPane {
         nameLabel.getStyleClass().add("hud-title");
         Label descriptionLabel = new Label(item.getDescription());
         descriptionLabel.getStyleClass().add("shop-description");
-        Label priceLabel = new Label(item.getPrice() + " coin");
+        Label priceLabel = new Label(buildCostText(item));
         priceLabel.getStyleClass().add("resource-amount");
         infoBox.getChildren().addAll(nameLabel, descriptionLabel, priceLabel);
 
@@ -148,5 +150,28 @@ public class ShopOverlay extends StackPane {
 
         card.getChildren().addAll(iconPane, infoBox, buyButton);
         return card;
+    }
+
+    private String buildCostText(ItemUiMeta item) {
+        if (item == null || item.getPurchaseCosts().isEmpty()) {
+            return "No cost";
+        }
+        StringBuilder builder = new StringBuilder();
+        for (Map.Entry<String, Integer> entry : item.getPurchaseCosts().entrySet()) {
+            if (builder.length() > 0) {
+                builder.append(" | ");
+            }
+            builder.append(entry.getValue()).append(' ').append(prettifyCostItem(entry.getKey()));
+        }
+        return builder.toString();
+    }
+
+    private String prettifyCostItem(String itemId) {
+        return switch (itemId == null ? "" : itemId.trim().toLowerCase()) {
+            case "coin" -> "Coin";
+            case "wood" -> "Wood";
+            case "stone", "rock" -> "Stone";
+            default -> itemId;
+        };
     }
 }
