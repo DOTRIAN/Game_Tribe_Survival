@@ -107,9 +107,9 @@ public class Game {
     // World save file cho mode sinh ton.
     private static final String SURVIVAL_SAVE_FILE = "data/survival_world.json";
     private static final int DEFAULT_BASE_CAMP_HP = 100;
-    private static final int INITIAL_FENCE_PADDING_X_TILES = 1;
-    private static final int INITIAL_FENCE_PADDING_Y_TILES = 0;
-    private static final int INITIAL_FENCE_GATE_SIZE_TILES = 2;
+    private static final int INITIAL_FENCE_PADDING_X_TILES = 10;
+    private static final int INITIAL_FENCE_PADDING_Y_TILES = 8;
+    private static final int INITIAL_FENCE_GATE_SIZE_TILES = 3;
 
     private final GameLoop gameLoop;
     private final Renderer renderer;
@@ -2747,16 +2747,17 @@ public class Game {
         int tileWidth = Math.max(1, mapData.getTileWidth());
         int tileHeight = Math.max(1, mapData.getTileHeight());
 
-        // Rao khoi tao bam theo hitbox collision cua tent de pham vi nho hon sprite render.
-        double campCollisionX = baseCamp.getCollisionX();
-        double campCollisionY = baseCamp.getCollisionY();
-        double campCollisionWidth = baseCamp.getCollisionWidth();
-        double campCollisionHeight = baseCamp.getCollisionHeight();
+        // Rao khoi tao dat theo tam cua base camp nhu logic cu, nhung chi rong hon trai mot it
+        // de van nhin thay ro va khong om sat hitbox cua tent.
+        double campX = baseCamp.getX();
+        double campY = baseCamp.getY();
+        double campWidth = baseCamp.getWidth();
+        double campHeight = baseCamp.getHeight();
 
-        int campLeft = (int) Math.floor(campCollisionX / tileWidth);
-        int campTop = (int) Math.floor(campCollisionY / tileHeight);
-        int campRight = (int) Math.floor((campCollisionX + campCollisionWidth - 1.0) / tileWidth);
-        int campBottom = (int) Math.floor((campCollisionY + campCollisionHeight - 1.0) / tileHeight);
+        int campLeft = (int) Math.floor(campX / tileWidth);
+        int campTop = (int) Math.floor(campY / tileHeight);
+        int campRight = (int) Math.floor((campX + campWidth - 1.0) / tileWidth);
+        int campBottom = (int) Math.floor((campY + campHeight - 1.0) / tileHeight);
 
         int left = campLeft - INITIAL_FENCE_PADDING_X_TILES;
         int top = campTop - INITIAL_FENCE_PADDING_Y_TILES;
