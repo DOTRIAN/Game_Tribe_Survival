@@ -423,7 +423,7 @@ public class Renderer {
 
         graphicsContext.setFill(Color.color(1, 1, 1, 0.82));
         graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 12));
-        graphicsContext.fillText("Light: " + dayNightPhase + " alpha=" + String.format("%.2f", darknessAlpha), 16, viewportHeight - 18);
+        graphicsContext.fillText(dayNightPhase, 16, viewportHeight - 18);
 
         TimeUI.render(graphicsContext, viewportWidth, timeIcon, timeTitle, timeClock, timeAnnouncement);
 

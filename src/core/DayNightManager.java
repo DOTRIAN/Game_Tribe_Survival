@@ -10,8 +10,8 @@ public class DayNightManager {
     }
 
     private static final long SECOND_NS = 1_000_000_000L;
-    private static final long DAY_DURATION_NS = 240L * SECOND_NS;
-    private static final long WARNING_DURATION_NS = 30L * SECOND_NS;
+    private static final long DAY_DURATION_NS = 180L * SECOND_NS;
+    private static final long WARNING_DURATION_NS = 60L * SECOND_NS;
     private static final long WAVE_1_DURATION_NS = 45L * SECOND_NS;
     private static final long WAVE_2_DURATION_NS = 45L * SECOND_NS;
     private static final long DAWN_DURATION_NS = 30L * SECOND_NS;
@@ -77,6 +77,14 @@ public class DayNightManager {
         return getPeriodLabel(nowNs) + " " + getDay(nowNs);
     }
 
+    public String getCountdownText(long nowNs) {
+        long remainingNs = getRemainingPhaseDurationNs(nowNs);
+        long totalSeconds = Math.max(0L, (remainingNs + SECOND_NS - 1L) / SECOND_NS);
+        long minutes = totalSeconds / 60L;
+        long seconds = totalSeconds % 60L;
+        return String.format("%02d:%02d left", minutes, seconds);
+    }
+
     public String getTimeIcon(long nowNs) {
         return isNight(nowNs) ? "\uD83C\uDF19" : "\u2600";
     }
@@ -110,6 +118,16 @@ public class DayNightManager {
         return getPhase(nowNs).name();
     }
 
+    public String getScheduleDebugText(long nowNs) {
+        String label = switch (getPhase(nowNs)) {
+            case DAY -> "Day";
+            case WARNING -> "Warning";
+            case NIGHT_WAVE_1, NIGHT_WAVE_2 -> "Night";
+            case DAWN -> "Dawn";
+        };
+        return label + ": " + getCountdownText(nowNs);
+    }
+
     public String getAnnouncement(long nowNs) {
         Phase phase = getPhase(nowNs);
         if (phase == Phase.WARNING) {
@@ -119,6 +137,27 @@ public class DayNightManager {
             return "Trời sắp sáng.\nQuái đang rút khỏi trại.";
         }
         return null;
+    }
+
+    private long getRemainingPhaseDurationNs(long nowNs) {
+        long t = getTimeInCycle(nowNs);
+        if (t < DAY_DURATION_NS) {
+            return DAY_DURATION_NS - t;
+        }
+        long warningEnd = DAY_DURATION_NS + WARNING_DURATION_NS;
+        if (t < warningEnd) {
+            return warningEnd - t;
+        }
+        long wave1End = warningEnd + WAVE_1_DURATION_NS;
+        if (t < wave1End) {
+            return wave1End - t;
+        }
+        long wave2End = wave1End + WAVE_2_DURATION_NS;
+        if (t < wave2End) {
+            return wave2End - t;
+        }
+        long dawnEnd = wave2End + DAWN_DURATION_NS;
+        return Math.max(0L, dawnEnd - t);
     }
 
     private int getGameMinuteOfDay(long nowNs) {
@@ -166,5 +205,18 @@ public class DayNightManager {
         if (cycleStartedAtNs < 0L) {
             cycleStartedAtNs = nowNs;
         }
+    }
+
+    private String formatDuration(long durationNs) {
+        long totalSeconds = Math.max(0L, durationNs / SECOND_NS);
+        long minutes = totalSeconds / 60L;
+        long seconds = totalSeconds % 60L;
+        if (minutes > 0 && seconds > 0) {
+            return minutes + "m" + seconds + "s";
+        }
+        if (minutes > 0) {
+            return minutes + "m";
+        }
+        return seconds + "s";
     }
 }

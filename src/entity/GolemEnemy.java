@@ -91,7 +91,7 @@ public class GolemEnemy extends Enemy {
     private static final double PATH_POINT_REACHED = 8.0;
     private static final int PATH_MAX_EXPANSIONS = 800;
     private static final double MOVE_SPEED = 0.52;
-    private static final int MAX_HP = 80;
+    private static final int MAX_HP = 20;
     private static final int DAMAGE = 5;
     public static final double RENDER_WIDTH = 56.0;
     public static final double RENDER_HEIGHT = 56.0;

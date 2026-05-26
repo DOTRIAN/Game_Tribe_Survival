@@ -1,0 +1,98 @@
+Ngày 1: Dựng trại trước khi trời tối
+1. Buổi sáng ngày 1: Làm quen và thu thập cơ bản
+Khi bắt đầu game, người chơi có:
+Tài nguyên	Số lượng
+Gỗ	0
+Đá	0
+Thức ăn	2
+Máu trại chính	100
+Vũ khí	Không có
+Nhiệm vụ đầu tiên: 
+Nhiệm vụ 1: Thu thập tài nguyên sinh tồn
+Thu thập:
+•	20 gỗ 
+•	10 đá 
+•	5 thức ăn 
+Người chơi cần chặt cây, nhặt đá, hái quả hoặc săn thú nhỏ.
+Ở giai đoạn này nên có hướng dẫn nhẹ:
+•	Click vào cây để chặt. 
+•	Click vào đá để nhặt. 
+•	Click vào bụi quả để lấy thức ăn. 
+-->phần hướng dẫn này sau khi logic hoàn thiện mới làm 
+Nhưng để khó hơn một chút, tài nguyên không nên quá gần trại. Người chơi phải đi ra ngoài một đoạn, bắt đầu có cảm giác nguy hiểm.
+2. Sự kiện nguy hiểm đầu tiên: Quái lẻ ban ngày
+Xuất hiện 3 con Sói Đói ở rìa rừng.
+Thông số:
+Quái	Máu	Sát thương	Hành vi
+Sói Đói	30	5	Tấn công
+Mục đích của con sói này không phải để giết người chơi ngay, mà để cảnh báo:
+Ban ngày cũng không hoàn toàn an toàn.
+Nếu người chơi chưa có vũ khí, đánh tay, nhưng sẽ mất máu. Nếu người chơi nhặt đủ đá và gỗ trước đó, có thể chế giáo thô sơ. 
+	Cái này nếu đủ thì ngày đầu tiên người chơi có thể nâng cấp lên rìu( 1 vật phẩm đã có sẵn trong shop)
+Công thức:
+Vật phẩm	Nguyên liệu
+rìu	5 gỗ + 2 đá
+Giáo giúp đánh xa hơn một chút và giảm nguy cơ bị quái cắn liên tục.
+3. Buổi chiều ngày 1: Xây công trình đầu tiên
+Sau khi thu thập đủ tài nguyên, mở nhiệm vụ mới:
+Nhiệm vụ 2: Dựng trại tạm
+Xây:
+•	1 Lều chính 
+•	4 đoạn hàng rào gỗ 
+•	1 kho nhỏ 
+Công trình:
+Công trình	Nguyên liệu	Chức năng
+Lều chính	15 gỗ + 5 đá	Trung tâm căn cứ
+Hàng rào gỗ	5 gỗ / đoạn	Chặn quái
+Kho nhỏ	10 gỗ	Tăng giới hạn chứa tài nguyên
+Vấn đề khó ở đây là tài nguyên không đủ để xây mọi thứ thoải mái. Người chơi phải lựa chọn:
+•	Xây nhiều rào để phòng thủ tốt hơn. 
+•	Hoặc xây kho để chứa nhiều tài nguyên hơn. 
+•	Hoặc chế giáo để đánh quái dễ hơn. 
+Gợi ý cân bằng:
+Đến cuối ngày 1, nếu người chơi chơi bình thường, họ chỉ đủ xây khoảng:
+•	1 Lều chính 
+•	4–6 đoạn rào 
+•	1 giáo 
+Không nên cho đủ tài nguyên để xây kín căn cứ ngay từ ngày đầu.
+4. Cảnh báo trước đêm
+Hiện thông báo:
+Màn đêm sắp xuống. Quái sẽ tấn công trại. Hãy dựng rào và chuẩn bị vũ khí.
+Lúc này người chơi còn khoảng 30 giây đến 1 phút để hoàn thiện phòng thủ.
+Nếu muốn tạo áp lực tốt, cho dân làng nói:
+“Thủ lĩnh, chúng ta chưa có đủ rào chắn. Nếu đêm nay chúng kéo đến, lều chính sẽ bị phá mất!”
+Đêm 1: Cuộc tấn công đầu tiên
+Đêm đầu không nên quá khó, nhưng phải đủ làm người chơi hiểu rằng phòng thủ là bắt buộc.
+1. Đợt tấn công đêm 1
+Quái xuất hiện thành 2 đợt.
+Đợt 1: 19:00
+Quái	Số lượng	Mục tiêu
+Sói Đói	2 con	Cắn hàng rào
+Chúng sẽ chạy vào đoạn rào gần nhất. Nếu không có rào, chúng lao thẳng vào Lều chính.
+Quái 5 con -> ưu tiên quái tấn công người, xog mới đến rào ( nếu người ờ ngoài rào thì tấn công người trước)
++ Bổ sung 2 con quái chuyên tấn công rào
+Đợt 2: 23:00
+Quái	Số lượng	Mục tiêu
+Sói Đói	5	Tấn công rào
+Quái Nhỏ	7	Tấn công Lều chính
+Quái Nhỏ có thể mạnh hơn sói một chút
+Quái	Máu	Sát thương
+Quái Nhỏ	45	8
+.Nếu người chơi có rào và giáo thì sống được. Nếu không chuẩn bị, Lều chính sẽ mất nhiều máu,
++ 5 quái chuyên tấn công rào
+2. Cơ chế phòng thủ đêm 1
+Người chơi có thể:
+•	Cầm giáo đánh quái. . 
+•	Sửa rào bằng gỗ. 
+•	Rút dân bị thương vào trong trại. 
+Cơ chế sửa rào:
+Hành động	Chi phí
+Sửa 20 máu rào	2 gỗ
+Nhưng ban đêm không được chặt cây xa trại, vì quá nguy hiểm. Người chơi chỉ dùng tài nguyên đã tích từ ban ngày.
+Điều này tạo bài học:
+Ban ngày phải chuẩn bị đủ. Ban đêm chỉ phòng thủ, không được tham.
+3. Kết thúc đêm 1
+Khi trời sáng, quái còn sống sẽ bỏ chạy vào rừng.
+
+
+kịch bản sửa lại, là dìu ko cho mua nữa ,mà phải farm để tăng kinh nghiệm, sau khi đạt level 3 sẽ được tặng rìu
