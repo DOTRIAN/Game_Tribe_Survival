@@ -396,7 +396,7 @@ public class Player extends Entity {
     }
 
     private void growOnLevelUp() {
-        double scale = 1.10;
+        double scale = 1.03;
         double oldCenterX = x + width / 2.0;
         double oldCenterY = y + height / 2.0;
 

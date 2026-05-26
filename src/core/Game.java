@@ -117,6 +117,7 @@ public class Game {
     private static final int INITIAL_FENCE_PADDING_X_TILES = 10;
     private static final int INITIAL_FENCE_PADDING_Y_TILES = 8;
     private static final int INITIAL_FENCE_GATE_SIZE_TILES = 3;
+    private static final int INITIAL_CORNER_FENCE_ARM_TILES = 3;
 
     private final GameLoop gameLoop;
     private final Renderer renderer;
@@ -572,7 +573,7 @@ public class Game {
                 screenFlashUntilNs > now ? Math.min(1.0, (screenFlashUntilNs - now) / 180_000_000.0) : 0.0,
                 dayNightManager.getDarknessAlpha(now),
                 dayNightManager.isNight(now),
-                dayNightManager.getPhaseName(now),
+                dayNightManager.getScheduleDebugText(now),
                 dayNightManager.getTimeIcon(now),
                 dayNightManager.getTimeTitle(now),
                 dayNightManager.getClockText(now),
@@ -3302,25 +3303,10 @@ public class Game {
         Set<String> fenceTiles = new LinkedHashSet<>();
 
         FencePerimeter perimeter = buildInitialFencePerimeterAroundBaseCamp();
-        int gateSize = INITIAL_FENCE_GATE_SIZE_TILES;
-        int gateStartX = perimeter.centerX() - gateSize / 2;
-        int gateEndX = gateStartX + gateSize - 1;
-        int gateStartY = perimeter.centerY() - gateSize / 2;
-        int gateEndY = gateStartY + gateSize - 1;
-
-        for (int x = perimeter.left(); x <= perimeter.right(); x++) {
-            if (x < gateStartX || x > gateEndX) {
-                fenceTiles.add(x + ":" + perimeter.top());
-                fenceTiles.add(x + ":" + perimeter.bottom());
-            }
-        }
-
-        for (int y = perimeter.top(); y <= perimeter.bottom(); y++) {
-            if (y < gateStartY || y > gateEndY) {
-                fenceTiles.add(perimeter.left() + ":" + y);
-                fenceTiles.add(perimeter.right() + ":" + y);
-            }
-        }
+        addCornerFenceMarkers(fenceTiles, perimeter.left(), perimeter.top(), 1, 1);
+        addCornerFenceMarkers(fenceTiles, perimeter.right(), perimeter.top(), -1, 1);
+        addCornerFenceMarkers(fenceTiles, perimeter.left(), perimeter.bottom(), 1, -1);
+        addCornerFenceMarkers(fenceTiles, perimeter.right(), perimeter.bottom(), -1, -1);
 
         for (String key : fenceTiles) {
             String[] parts = key.split(":");
@@ -3328,6 +3314,17 @@ public class Game {
                 continue;
             }
             addMapWoodFence(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]));
+        }
+    }
+
+    private void addCornerFenceMarkers(Set<String> fenceTiles, int cornerX, int cornerY, int stepX, int stepY) {
+        if (fenceTiles == null) {
+            return;
+        }
+        int armLength = Math.max(1, INITIAL_CORNER_FENCE_ARM_TILES);
+        for (int index = 0; index < armLength; index++) {
+            fenceTiles.add((cornerX + stepX * index) + ":" + cornerY);
+            fenceTiles.add(cornerX + ":" + (cornerY + stepY * index));
         }
     }
 
@@ -3580,12 +3577,12 @@ public class Game {
 
     private Map<String, Integer> resolveShopPurchaseCosts(String resolvedItemId) {
         return switch (resolvedItemId) {
-            case WOOD_FENCE_ITEM_ID -> Map.of(COIN_ITEM_ID, WOOD_FENCE_PRICE);
+            case WOOD_FENCE_ITEM_ID -> Map.of("wood", WOOD_FENCE_PRICE);
             case WOOD_WALL_ITEM_ID -> Map.of(COIN_ITEM_ID, WOOD_WALL_PRICE);
             case POTION_ITEM_ID -> Map.of(COIN_ITEM_ID, 12);
             case TORCH_ITEM_ID -> Map.of(COIN_ITEM_ID, TORCH_PRICE);
             case AXE_ITEM_ID -> Map.of("wood", AXE_WOOD_COST, "stone", AXE_STONE_COST);
-            case ARCHER_TOWER_ITEM_ID -> Map.of(COIN_ITEM_ID, ARCHER_TOWER_PRICE);
+            case ARCHER_TOWER_ITEM_ID -> Map.of("wood", ARCHER_TOWER_PRICE);
             case FRIENDLY_ARCHER_ITEM_ID -> Map.of(COIN_ITEM_ID, FRIENDLY_ARCHER_PRICE);
             case CHEST_ITEM_ID -> Map.of(COIN_ITEM_ID, CHEST_PRICE);
             case BOMB_TRAP_ITEM_ID -> Map.of(COIN_ITEM_ID, BOMB_TRAP_PRICE);

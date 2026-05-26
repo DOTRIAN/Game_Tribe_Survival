@@ -84,8 +84,10 @@ public class WolfEnemy extends Enemy {
     private static final int MAX_HP = 30;
     private static final int DAMAGE = 5;
     private static final double DETECTION_RANGE = 220.0;
-    private static final double DISENGAGE_RANGE = 520.0;
+    private static final double DISENGAGE_RANGE = 260.0;
     private static final double HOME_RADIUS = 92.0;
+    private static final double AGGRO_HOME_RADIUS = 180.0;
+    private static final double CHASE_HOME_RADIUS = 240.0;
     private static final double RETURN_TOLERANCE = 10.0;
     private static final double DIRECT_TARGET_RECALC_DISTANCE = 28.0;
     private static final double PATH_POINT_REACHED = 9.0;
@@ -257,10 +259,6 @@ public class WolfEnemy extends Enemy {
         Player playerTarget = resolvePlayerTarget(player, nowNs);
         if (playerTarget != null) {
             activeEntityTarget = playerTarget;
-            if (activeBuildTarget != null && activeBuildTarget.isAlive() && !canMoveDirectlyTo(playerTarget.getCenterX(), playerTarget.getCenterY())) {
-                runTowardBuildTarget(activeBuildTarget, nowNs, worldWidth, worldHeight);
-                return;
-            }
             activeBuildTarget = null;
             if (tryStartAttack(playerTarget, null, nowNs, isNight)) {
                 return;
@@ -367,11 +365,11 @@ public class WolfEnemy extends Enemy {
             aggroPlayer = null;
             return null;
         }
-        if (canDetectPlayer(player)) {
+        if (canDetectPlayer(player) && isPlayerInsideAggroZone(player)) {
             aggroPlayer = player;
             return player;
         }
-        if (aggroPlayer == player && isInsideDisengageRange(player)) {
+        if (aggroPlayer == player && isPlayerStillInsideChaseZone(player) && isInsideDisengageRange(player)) {
             return player;
         }
         if (aggroPlayer == player) {
@@ -382,6 +380,9 @@ public class WolfEnemy extends Enemy {
 
     public void aggroOn(Player player, long nowNs) {
         if (player == null || !player.isAlive() || removeFromWorld || state == BrainState.DEATH) {
+            return;
+        }
+        if (!isPlayerInsideAggroZone(player)) {
             return;
         }
         aggroPlayer = player;
@@ -405,15 +406,7 @@ public class WolfEnemy extends Enemy {
         animationState = AnimationState.RUN;
         currentMoveSpeed = RUN_SPEED;
         Point2D approachPoint = selectAttackApproachPoint(target, ATTACK_TWO);
-        boolean moved = followPathToPoint(approachPoint.getX(), approachPoint.getY(), nowNs, worldWidth, worldHeight, true);
-        if (!moved && aggressive && worldQuery != null) {
-            BuildObject wallTarget = worldQuery.findNearestWallToAttack(this, target.getCenterX(), target.getCenterY(), DETECTION_RANGE);
-            if (wallTarget != null && wallTarget.isAlive()) {
-                activeBuildTarget = wallTarget;
-                runTowardBuildTarget(wallTarget, nowNs, worldWidth, worldHeight);
-                return;
-            }
-        }
+        followPathToPoint(approachPoint.getX(), approachPoint.getY(), nowNs, worldWidth, worldHeight, false);
         faceTarget(target);
     }
 
@@ -967,6 +960,14 @@ public class WolfEnemy extends Enemy {
                 target.getCollisionWidth(),
                 target.getCollisionHeight()
         );
+    }
+
+    private boolean isPlayerInsideAggroZone(Player player) {
+        return player != null && distance(homeX, homeY, player.getCenterX(), player.getCenterY()) <= AGGRO_HOME_RADIUS;
+    }
+
+    private boolean isPlayerStillInsideChaseZone(Player player) {
+        return player != null && distance(homeX, homeY, player.getCenterX(), player.getCenterY()) <= CHASE_HOME_RADIUS;
     }
 
     private boolean intersectsAttackHitbox(Entity target, AttackProfile profile) {
