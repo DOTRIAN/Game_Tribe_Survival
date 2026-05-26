@@ -20,9 +20,11 @@ import javafx.scene.paint.Color;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Predicate;
 
@@ -52,10 +54,12 @@ public class BuildManager {
     private final BuildToolbar toolbar;
     private final Map<String, BuildObject> objectsById;
     private final Map<String, BuildObject> objectsByTile;
+    private final Map<BuildType, Set<BuildObject>> objectsByType;
 
     private BuildDefinition selectedDefinition;
     private BuildMode buildMode;
     private BuildObject lastPlacedObject;
+    private String lastPreviewCacheKey;
 
     public BuildManager(BuildAssetResolver assetResolver, BuildWorldQuery worldQuery) {
         this.assetResolver = assetResolver;
@@ -72,9 +76,11 @@ public class BuildManager {
         this.toolbar = new BuildToolbar();
         this.objectsById = new LinkedHashMap<>();
         this.objectsByTile = new LinkedHashMap<>();
+        this.objectsByType = new LinkedHashMap<>();
         this.selectedDefinition = null;
         this.buildMode = BuildMode.NONE;
         this.lastPlacedObject = null;
+        this.lastPreviewCacheKey = "";
         syncToolbar(Collections.emptyMap());
     }
 
@@ -125,6 +131,7 @@ public class BuildManager {
         buildMode = BuildMode.BUILDING;
         rotationManager.reset();
         preview.setVisible(true);
+        lastPreviewCacheKey = "";
     }
 
     public void rotateSelected() {
@@ -132,6 +139,7 @@ public class BuildManager {
             return;
         }
         rotationManager.rotateClockwise();
+        lastPreviewCacheKey = "";
     }
 
     public void cancelBuildMode() {
@@ -141,6 +149,7 @@ public class BuildManager {
         preview.setVisible(false);
         preview.setValid(false);
         preview.setValidationMessage("cancelled");
+        lastPreviewCacheKey = "";
     }
 
     public void updatePreview(double mouseScreenX,
@@ -170,6 +179,21 @@ public class BuildManager {
         int tileHeight = worldQuery.getTileHeight();
         int tileX = selectedDefinition.getPlacementStrategy().snapX(worldX, tileWidth);
         int tileY = selectedDefinition.getPlacementStrategy().snapY(worldY, tileHeight);
+        String previewCacheKey = selectedDefinition.getItemId()
+                + "|"
+                + tileX
+                + "|"
+                + tileY
+                + "|"
+                + rotationManager.getCurrentRotationDegrees()
+                + "|"
+                + availableCount
+                + "|"
+                + mouseOverUi;
+        if (previewCacheKey.equals(lastPreviewCacheKey)) {
+            return;
+        }
+        lastPreviewCacheKey = previewCacheKey;
 
         PlacementContext context = new PlacementContext(
                 worldX,
@@ -183,8 +207,7 @@ public class BuildManager {
         PlacementResult placementResult = isFenceDefinition(selectedDefinition)
                 ? fencePlacementManager.validate(selectedDefinition, context, placementValidator, placedObjectsForPlacement(selectedDefinition))
                 : placementValidator.validate(selectedDefinition, context, placedObjectsForPlacement(selectedDefinition));
-        if (!isFenceDefinition(selectedDefinition)
-                && placementResult.isValid()
+        if (placementResult.isValid()
                 && isFootprintOccupied(selectedDefinition, tileX, tileY)) {
             placementResult = PlacementResult.invalid("blocked-by-build-object");
         }
@@ -273,8 +296,7 @@ public class BuildManager {
             preview.setValidationMessage("out-of-item");
             return false;
         }
-        if (!isFenceDefinition(selectedDefinition)
-                && isFootprintOccupied(selectedDefinition, preview.getTileX(), preview.getTileY())) {
+        if (isFootprintOccupied(selectedDefinition, preview.getTileX(), preview.getTileY())) {
             preview.setValid(false);
             preview.setValidationMessage("blocked-by-build-object");
             return false;
@@ -315,6 +337,7 @@ public class BuildManager {
                 selectedDefinition.getHealth()
         );
         addPlacedObject(object);
+        lastPreviewCacheKey = "";
         lastPlacedObject = object;
         syncToolbar(inventory.snapshot());
         if (inventory.getAmount(selectedDefinition.getItemId()) < selectedDefinition.getBuildCost()) {
@@ -322,6 +345,7 @@ public class BuildManager {
             selectedDefinition = null;
             preview.setVisible(false);
             preview.setValid(false);
+            lastPreviewCacheKey = "";
         }
         return true;
     }
@@ -331,6 +355,7 @@ public class BuildManager {
             return;
         }
         objectsById.put(object.getId(), object);
+        indexByType(object);
         markOccupiedTiles(object);
         refreshObjectAndNeighbors(object);
     }
@@ -340,7 +365,7 @@ public class BuildManager {
         if (definition == null) {
             return false;
         }
-        if (!isFenceDefinition(definition) && isFootprintOccupied(definition, tileX, tileY)) {
+        if (isFootprintOccupied(definition, tileX, tileY)) {
             return false;
         }
 
@@ -404,7 +429,14 @@ public class BuildManager {
         if (damage <= 0) {
             return null;
         }
-        for (BuildObject object : new ArrayList<>(objectsById.values())) {
+        int tileWidth = Math.max(1, worldQuery.getTileWidth());
+        int tileHeight = Math.max(1, worldQuery.getTileHeight());
+        for (BuildObject object : getPlacedObjectsInWorldRect(
+                x - tileWidth,
+                y - tileHeight,
+                width + tileWidth * 2.0,
+                height + tileHeight * 2.0
+        )) {
             if (object == null || !object.isAlive()) {
                 continue;
             }
@@ -423,31 +455,10 @@ public class BuildManager {
                 continue;
             }
 
-            int applied = Math.min(object.getHealth(), Math.max(0, damage));
-            if (applied <= 0) {
-                continue;
+            BuildDamageResult result = applyDamageToObject(object, damage, nowNs, 130_000_000L, Color.rgb(255, 196, 92));
+            if (result != null) {
+                return result;
             }
-
-            object.setHealth(object.getHealth() - applied);
-            object.triggerHitFlash(nowNs, 130_000_000L, Color.rgb(255, 196, 92));
-
-            boolean destroyed = !object.isAlive();
-            String dropItemId = "";
-            int dropAmount = 0;
-            if (destroyed) {
-                BuildDefinition definition = registry.findByType(object.getType());
-                if (definition != null) {
-                    if (isFenceDefinition(definition)) {
-                        dropItemId = FenceDropSystem.resolveDropItemId(definition);
-                        dropAmount = FenceDropSystem.resolveDropAmount(definition);
-                    } else {
-                        dropItemId = definition.getItemId();
-                        dropAmount = 1;
-                    }
-                }
-                removePlacedObject(object);
-            }
-            return new BuildDamageResult(object, applied, destroyed, dropItemId, dropAmount);
         }
         return null;
     }
@@ -496,6 +507,7 @@ public class BuildManager {
                     health
             );
             objectsById.put(object.getId(), object);
+            indexByType(object);
             markOccupiedTiles(object);
         }
 
@@ -517,6 +529,36 @@ public class BuildManager {
 
     public Collection<BuildObject> getPlacedObjects() {
         return Collections.unmodifiableCollection(objectsById.values());
+    }
+
+    public Collection<BuildObject> getPlacedObjectsByType(BuildType type) {
+        Set<BuildObject> objects = objectsByType.get(type);
+        if (objects == null || objects.isEmpty()) {
+            return List.of();
+        }
+        return Collections.unmodifiableCollection(objects);
+    }
+
+    public Collection<BuildObject> getPlacedObjectsInWorldRect(double x, double y, double width, double height) {
+        if (objectsByTile.isEmpty() || width <= 0.0 || height <= 0.0) {
+            return List.of();
+        }
+        int tileWidth = Math.max(1, worldQuery.getTileWidth());
+        int tileHeight = Math.max(1, worldQuery.getTileHeight());
+        int minTileX = (int) Math.floor(x / tileWidth);
+        int maxTileX = (int) Math.floor((x + width - 0.001) / tileWidth);
+        int minTileY = (int) Math.floor(y / tileHeight);
+        int maxTileY = (int) Math.floor((y + height - 0.001) / tileHeight);
+        Set<BuildObject> visible = new LinkedHashSet<>();
+        for (int ty = minTileY; ty <= maxTileY; ty++) {
+            for (int tx = minTileX; tx <= maxTileX; tx++) {
+                BuildObject object = objectsByTile.get(tileKey(tx, ty));
+                if (object != null) {
+                    visible.add(object);
+                }
+            }
+        }
+        return visible;
     }
 
     public BuildObject getPlacedObjectAt(int tileX, int tileY) {
@@ -541,7 +583,12 @@ public class BuildManager {
             return results;
         }
         double radiusSquared = radius * radius;
-        for (BuildObject object : new ArrayList<>(objectsById.values())) {
+        for (BuildObject object : getPlacedObjectsInWorldRect(
+                centerX - radius,
+                centerY - radius,
+                radius * 2.0,
+                radius * 2.0
+        )) {
             if (object == null || !object.isAlive()) {
                 continue;
             }
@@ -554,32 +601,46 @@ public class BuildManager {
                 continue;
             }
 
-            int applied = Math.min(object.getHealth(), Math.max(0, damage));
-            if (applied <= 0) {
-                continue;
+            BuildDamageResult result = applyDamageToObject(object, damage, nowNs, 120_000_000L, Color.rgb(255, 170, 74));
+            if (result != null) {
+                results.add(result);
             }
-            object.setHealth(object.getHealth() - applied);
-            object.triggerHitFlash(nowNs, 120_000_000L, Color.rgb(255, 170, 74));
-
-            boolean destroyed = !object.isAlive();
-            String dropItemId = "";
-            int dropAmount = 0;
-            if (destroyed) {
-                BuildDefinition definition = registry.findByType(object.getType());
-                if (definition != null) {
-                    if (isFenceDefinition(definition)) {
-                        dropItemId = FenceDropSystem.resolveDropItemId(definition);
-                        dropAmount = FenceDropSystem.resolveDropAmount(definition);
-                    } else {
-                        dropItemId = definition.getItemId();
-                        dropAmount = 1;
-                    }
-                }
-                removePlacedObject(object);
-            }
-            results.add(new BuildDamageResult(object, applied, destroyed, dropItemId, dropAmount));
         }
         return results;
+    }
+
+    private BuildDamageResult applyDamageToObject(BuildObject object,
+                                                  int damage,
+                                                  long nowNs,
+                                                  long flashDurationNs,
+                                                  Color flashColor) {
+        if (object == null || damage <= 0 || !object.isAlive()) {
+            return null;
+        }
+        int applied = Math.min(object.getHealth(), Math.max(0, damage));
+        if (applied <= 0) {
+            return null;
+        }
+        object.setHealth(object.getHealth() - applied);
+        object.triggerHitFlash(nowNs, flashDurationNs, flashColor);
+
+        boolean destroyed = !object.isAlive();
+        String dropItemId = "";
+        int dropAmount = 0;
+        if (destroyed) {
+            BuildDefinition definition = registry.findByType(object.getType());
+            if (definition != null) {
+                if (isFenceDefinition(definition)) {
+                    dropItemId = FenceDropSystem.resolveDropItemId(definition);
+                    dropAmount = FenceDropSystem.resolveDropAmount(definition);
+                } else {
+                    dropItemId = definition.getItemId();
+                    dropAmount = 1;
+                }
+            }
+            removePlacedObject(object);
+        }
+        return new BuildDamageResult(object, applied, destroyed, dropItemId, dropAmount);
     }
 
     public BuildPreview getPreview() {
@@ -613,9 +674,11 @@ public class BuildManager {
     public void clearObjects() {
         objectsById.clear();
         objectsByTile.clear();
+        objectsByType.clear();
         lastPlacedObject = null;
         preview.setVisible(false);
         preview.setValid(false);
+        lastPreviewCacheKey = "";
     }
 
     private void refreshObjectAndNeighbors(BuildObject object) {
@@ -643,8 +706,30 @@ public class BuildManager {
             return;
         }
         objectsById.remove(object.getId());
+        unindexByType(object);
         unmarkOccupiedTiles(object);
         refreshObjectAndNeighbors(object);
+    }
+
+    private void indexByType(BuildObject object) {
+        if (object == null) {
+            return;
+        }
+        objectsByType.computeIfAbsent(object.getType(), ignored -> new LinkedHashSet<>()).add(object);
+    }
+
+    private void unindexByType(BuildObject object) {
+        if (object == null) {
+            return;
+        }
+        Set<BuildObject> objects = objectsByType.get(object.getType());
+        if (objects == null) {
+            return;
+        }
+        objects.remove(object);
+        if (objects.isEmpty()) {
+            objectsByType.remove(object.getType());
+        }
     }
 
     private void refresh(int tileX, int tileY) {
@@ -718,6 +803,9 @@ public class BuildManager {
     }
 
     private Collection<BuildObject> placedObjectsForPlacement(BuildDefinition definition) {
+        if (isFenceDefinition(definition)) {
+            return Collections.emptyList();
+        }
         return objectsById.values();
     }
 

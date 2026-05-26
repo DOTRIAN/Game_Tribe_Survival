@@ -28,6 +28,7 @@ public class HotbarOverlay extends HBox {
     private final List<Label> costLabels;
     private IntConsumer selectionListener;
     private int selectedIndex;
+    private String lastItemsFingerprint;
 
     public HotbarOverlay() {
         this.slotNodes = new ArrayList<>();
@@ -36,6 +37,7 @@ public class HotbarOverlay extends HBox {
         this.keyLabels = new ArrayList<>();
         this.costLabels = new ArrayList<>();
         this.selectedIndex = 0;
+        this.lastItemsFingerprint = "";
 
         getStyleClass().add("hotbar");
         setSpacing(6);
@@ -52,6 +54,11 @@ public class HotbarOverlay extends HBox {
     }
 
     public void update(List<HotbarItemStack> items) {
+        String fingerprint = buildFingerprint(items);
+        if (fingerprint.equals(lastItemsFingerprint)) {
+            return;
+        }
+        lastItemsFingerprint = fingerprint;
         for (int index = 0; index < SLOT_COUNT; index++) {
             StackPane slot = slotNodes.get(index);
             StackPane iconPane = iconContainers.get(index);
@@ -95,6 +102,30 @@ public class HotbarOverlay extends HBox {
                 iconPane.getChildren().add(textIcon);
             }
         }
+    }
+
+    private String buildFingerprint(List<HotbarItemStack> items) {
+        if (items == null || items.isEmpty()) {
+            return "empty";
+        }
+        StringBuilder builder = new StringBuilder();
+        int limit = Math.min(SLOT_COUNT, items.size());
+        for (int index = 0; index < limit; index++) {
+            HotbarItemStack item = items.get(index);
+            if (item == null) {
+                builder.append(index).append(":null;");
+                continue;
+            }
+            builder.append(index)
+                    .append(':')
+                    .append(item.getItemId())
+                    .append('=')
+                    .append(item.getAmount())
+                    .append(':')
+                    .append(item.isBuildItem())
+                    .append(';');
+        }
+        return builder.toString();
     }
 
     public void setSelectionListener(IntConsumer selectionListener) {

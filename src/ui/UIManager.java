@@ -259,8 +259,12 @@ public class UIManager {
         if (settings.isMinimapVisible()) {
             minimapOverlay.render(worldWidth, worldHeight, cameraX, cameraY, cameraZoom, viewportWidth, viewportHeight, player, enemies);
         }
-        shopOverlay.updateShop(inventorySnapshot, shopItems);
-        inventoryOverlay.updateInventory(inventorySnapshot, itemMetaMap);
+        if (shopOverlay.isVisible()) {
+            shopOverlay.updateShop(inventorySnapshot, shopItems);
+        }
+        if (inventoryOverlay.isVisible()) {
+            inventoryOverlay.updateInventory(inventorySnapshot, itemMetaMap);
+        }
     }
 
     public void applyGameState(GameState gameState) {

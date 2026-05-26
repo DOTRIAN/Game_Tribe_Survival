@@ -527,7 +527,15 @@ public class Renderer {
         }
         List<FenceEntity> fences = new ArrayList<>();
         List<ArcherTower> archerTowers = new ArrayList<>();
-        for (BuildObject object : buildManager.getPlacedObjects()) {
+        double margin = 128.0;
+        double worldViewWidth = getViewportWidth() / CAMERA_ZOOM;
+        double worldViewHeight = getViewportHeight() / CAMERA_ZOOM;
+        for (BuildObject object : buildManager.getPlacedObjectsInWorldRect(
+                cameraX - margin,
+                cameraY - margin,
+                worldViewWidth + margin * 2.0,
+                worldViewHeight + margin * 2.0
+        )) {
             if (object == null) {
                 continue;
             }
@@ -974,7 +982,13 @@ public class Renderer {
         drawRadialLight(playerScreenX, playerScreenY, playerLightRadius, Color.color(1.0, 0.98, 0.90, 0.42));
 
         if (buildManager != null) {
-            for (BuildObject object : buildManager.getPlacedObjects()) {
+            double lightMargin = 256.0;
+            for (BuildObject object : buildManager.getPlacedObjectsInWorldRect(
+                    cameraX - lightMargin,
+                    cameraY - lightMargin,
+                    viewportWidth / CAMERA_ZOOM + lightMargin * 2.0,
+                    viewportHeight / CAMERA_ZOOM + lightMargin * 2.0
+            )) {
                 if (object == null) {
                     continue;
                 }

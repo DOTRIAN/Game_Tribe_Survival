@@ -23,6 +23,7 @@ public class ResourcePanel extends VBox {
     private final Label titleLabel;
     private final VBox rowsBox;
     private final Map<String, HBox> rowCache;
+    private String lastFingerprint;
 
     public ResourcePanel() {
         getStyleClass().add("hud-panel");
@@ -37,6 +38,7 @@ public class ResourcePanel extends VBox {
 
         this.rowsBox = new VBox(6);
         this.rowCache = new LinkedHashMap<>();
+        this.lastFingerprint = "";
 
         getChildren().addAll(titleLabel, rowsBox);
     }
@@ -46,6 +48,11 @@ public class ResourcePanel extends VBox {
      * - Refresh panel rows dynamically matching inventory snapshots.
      */
     public void updateResources(Map<String, Integer> inventorySnapshot, Map<String, ItemUiMeta> itemMetaMap) {
+        String fingerprint = buildFingerprint(inventorySnapshot);
+        if (fingerprint.equals(lastFingerprint)) {
+            return;
+        }
+        lastFingerprint = fingerprint;
         rowsBox.getChildren().clear();
         rowCache.clear();
 
@@ -104,5 +111,22 @@ public class ResourcePanel extends VBox {
         row.getChildren().addAll(nameLabel, amountLabel);
         rowCache.put(itemId, row);
         return row;
+    }
+
+    private String buildFingerprint(Map<String, Integer> inventorySnapshot) {
+        if (inventorySnapshot == null || inventorySnapshot.isEmpty()) {
+            return "empty";
+        }
+        StringBuilder builder = new StringBuilder();
+        for (String itemId : PINNED_ORDER) {
+            builder.append(itemId).append('=').append(inventorySnapshot.getOrDefault(itemId, 0)).append(';');
+        }
+        for (Map.Entry<String, Integer> entry : inventorySnapshot.entrySet()) {
+            if (PINNED_ORDER.contains(entry.getKey())) {
+                continue;
+            }
+            builder.append(entry.getKey()).append('=').append(entry.getValue()).append(';');
+        }
+        return builder.toString();
     }
 }

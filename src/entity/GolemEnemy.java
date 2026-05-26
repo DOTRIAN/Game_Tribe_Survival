@@ -75,7 +75,7 @@ public class GolemEnemy extends Enemy {
     private static final long WALK_FRAME_NS = 70_000_000L;
     private static final long ATTACK_COOLDOWN_NS = 1_000_000_000L;
     private static final long HURT_RESTART_GUARD_NS = 180_000_000L;
-    private static final long PATH_RECALC_NS = 650_000_000L;
+    private static final long PATH_RECALC_NS = 1_500_000_000L;
     private static final long STUCK_REPATH_NS = 650_000_000L;
     private static final long STUCK_SAMPLE_NS = 700_000_000L;
     private static final double STUCK_MOVE_EPSILON = 1.8;
@@ -84,7 +84,7 @@ public class GolemEnemy extends Enemy {
     private static final double WALL_SEARCH_RANGE = 190.0;
     private static final double DIRECT_TARGET_RECALC_DISTANCE = 28.0;
     private static final double PATH_POINT_REACHED = 8.0;
-    private static final int PATH_MAX_EXPANSIONS = 2600;
+    private static final int PATH_MAX_EXPANSIONS = 800;
     private static final double MOVE_SPEED = 0.52;
     private static final int MAX_HP = 80;
     private static final int DAMAGE = 5;
@@ -543,6 +543,15 @@ public class GolemEnemy extends Enemy {
     }
 
     private boolean followPathToPoint(double targetX, double targetY, long nowNs, double worldWidth, double worldHeight) {
+        if (canMoveDirectlyTo(targetX, targetY)) {
+            clearPath();
+            boolean movedDirectly = moveToward(targetX, targetY, worldWidth, worldHeight);
+            if (movedDirectly) {
+                blockedSinceNs = 0L;
+                updateStuckSample(nowNs);
+            }
+            return movedDirectly;
+        }
         if (shouldRebuildPath(targetX, targetY, nowNs)) {
             rebuildPath(targetX, targetY);
             lastPathComputeAtNs = nowNs;

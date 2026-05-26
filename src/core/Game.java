@@ -5,6 +5,7 @@ import buildsystem.core.BuildMode;
 import buildsystem.core.BuildController;
 import buildsystem.core.CollisionManager;
 import buildsystem.core.BuildDamageResult;
+import buildsystem.core.BuildType;
 import buildsystem.fence.FenceEntity;
 import buildsystem.object.ArcherTower;
 import buildsystem.object.BombTrap;
@@ -103,6 +104,12 @@ public class Game {
     private static final long AUTOSAVE_INTERVAL_NS = 20_000_000_000L;
     private static final int WALL_JUMPER_MAX_ALIVE = 5;
     private static final int GOLEM_MAX_ALIVE = 2;
+    private static final BuildType[] ATTACKABLE_WALL_TYPES = {
+            BuildType.FENCE,
+            BuildType.WOOD_WALL,
+            BuildType.STONE_WALL,
+            BuildType.DOOR
+    };
 
     // World save file cho mode sinh ton.
     private static final String SURVIVAL_SAVE_FILE = "data/survival_world.json";
@@ -153,6 +160,12 @@ public class Game {
     private long lastAutoSaveAtNs;
     private long lastUpdateNowNs;
     private long victoryAtNs;
+    private long perfLastReportNs;
+    private long perfFrames;
+    private long perfPreviewNs;
+    private long perfCollisionNs;
+    private long perfAiNs;
+    private long perfRenderNs;
     private GameOverReason gameOverReason;
 
     private double cameraX;
@@ -311,6 +324,12 @@ public class Game {
         this.lastAutoSaveAtNs = 0L;
         this.lastUpdateNowNs = -1L;
         this.victoryAtNs = -1L;
+        this.perfLastReportNs = 0L;
+        this.perfFrames = 0L;
+        this.perfPreviewNs = 0L;
+        this.perfCollisionNs = 0L;
+        this.perfAiNs = 0L;
+        this.perfRenderNs = 0L;
         this.gameOverReason = GameOverReason.PLAYER_DIED;
         this.selectedHotbarIndex = 0;
         this.hasLoadedSaveSnapshot = false;
@@ -512,6 +531,7 @@ public class Game {
         // objectiveStatus dung lai slot hien level objective de hien mission sinh ton.
         String objectiveStatus = buildSurvivalObjectiveStatus(now);
 
+        long renderStartNs = System.nanoTime();
         renderer.render(
                 gameState,
                 player,
@@ -554,6 +574,7 @@ public class Game {
                 worldWidth,
                 worldHeight
         );
+        recordPerfRender(System.nanoTime() - renderStartNs, now);
     }
 
     public GameState getGameState() {
@@ -908,7 +929,7 @@ public class Game {
         if (tileCollisionResolver != null && tileCollisionResolver.isBlocked(px, py, pw, ph)) {
             return true;
         }
-        return buildCollisionManager.intersectsPlacedBuildObject(px, py, pw, ph, buildManager.getPlacedObjects());
+        return intersectsPlacedBuildObjectFast(px, py, pw, ph);
     }
 
     private void handleWelcomeState(long now) {
@@ -1028,6 +1049,7 @@ public class Game {
         // - Chuyen mouse screen-space sang world-space qua camera/zoom.
         // - Snap ve grid de preview va wall that nam dung tren tile map.
         // - Chuot de len UI thi an preview de khong dat nham vao hotbar/minimap/HUD.
+        long previewStartNs = System.nanoTime();
         buildController.onCursorMoved(
                 inputHandler.getMouseX(),
                 inputHandler.getMouseY(),
@@ -1038,6 +1060,7 @@ public class Game {
                 player,
                 inventory
         );
+        recordPerfPreview(System.nanoTime() - previewStartNs);
 
         // Update loop chinh:
         // 1) Xu ly input/di chuyen
@@ -1074,7 +1097,9 @@ public class Game {
         if (moveDown) {
             playerDy += playerStep;
         }
+        long collisionStartNs = System.nanoTime();
         movePlayerWithSliding(playerDx, playerDy);
+        recordPerfCollision(System.nanoTime() - collisionStartNs);
 
         if (!suppressWorldPrimaryUntilMouseRelease
                 && !skipWorldPrimaryClickThisFrame
@@ -1090,7 +1115,6 @@ public class Game {
                 // - Dat thanh cong moi tru 1 Wood Fence trong inventory.
                 if (buildController.onPrimaryClickPlace(player, inventory)) {
                     logPlacedBuild(buildManager.getLastPlacedObject());
-                    refreshBuildInventoryUi();
                 }
             } else {
                 performPlayerAttack(now, player.getAttackAnimationTypeForCurrentMode());
@@ -1116,11 +1140,13 @@ public class Game {
         cleanupExpiredDamageTexts(now);
         cleanupExpiredExplosionEffects(now);
         updateScreenImpulse(now);
+        long aiStartNs = System.nanoTime();
         updateEnemySpawning(now);
         updateEnemies(now);
         updateFriendlyArchers(now);
         updateArcherTowers(now);
         updateBombTraps(now);
+        recordPerfAi(System.nanoTime() - aiStartNs);
         updateThrownBombs(now);
         updateFireBombBurnZones(now);
         updateArrowProjectiles(now);
@@ -1182,6 +1208,54 @@ public class Game {
             saveWorldSnapshot();
             victoryAtNs = -1L;
         }
+    }
+
+    private void recordPerfPreview(long elapsedNs) {
+        if (debugCollisionOverlayEnabled) {
+            perfPreviewNs += Math.max(0L, elapsedNs);
+        }
+    }
+
+    private void recordPerfCollision(long elapsedNs) {
+        if (debugCollisionOverlayEnabled) {
+            perfCollisionNs += Math.max(0L, elapsedNs);
+        }
+    }
+
+    private void recordPerfAi(long elapsedNs) {
+        if (debugCollisionOverlayEnabled) {
+            perfAiNs += Math.max(0L, elapsedNs);
+        }
+    }
+
+    private void recordPerfRender(long elapsedNs, long nowNs) {
+        if (!debugCollisionOverlayEnabled) {
+            return;
+        }
+        perfRenderNs += Math.max(0L, elapsedNs);
+        perfFrames++;
+        if (perfLastReportNs == 0L) {
+            perfLastReportNs = nowNs;
+            return;
+        }
+        if (nowNs - perfLastReportNs < 2_000_000_000L) {
+            return;
+        }
+        double frames = Math.max(1.0, perfFrames);
+        System.out.printf(
+                "[Perf] preview=%.3fms collision=%.3fms ai=%.3fms render=%.3fms frames=%d%n",
+                perfPreviewNs / frames / 1_000_000.0,
+                perfCollisionNs / frames / 1_000_000.0,
+                perfAiNs / frames / 1_000_000.0,
+                perfRenderNs / frames / 1_000_000.0,
+                perfFrames
+        );
+        perfPreviewNs = 0L;
+        perfCollisionNs = 0L;
+        perfAiNs = 0L;
+        perfRenderNs = 0L;
+        perfFrames = 0L;
+        perfLastReportNs = nowNs;
     }
 
     private void openNewGameNameScreen() {
@@ -1476,7 +1550,7 @@ public class Game {
     }
 
     private void updateArcherTowers(long now) {
-        for (BuildObject object : buildManager.getPlacedObjects()) {
+        for (BuildObject object : buildManager.getPlacedObjectsByType(BuildType.ARCHER_TOWER)) {
             if (!(object instanceof ArcherTower tower) || !tower.isAlive()) {
                 continue;
             }
@@ -1693,7 +1767,7 @@ public class Game {
 
     private void updateBombTraps(long now) {
         List<BombTrap> bombs = new ArrayList<>();
-        for (BuildObject object : buildManager.getPlacedObjects()) {
+        for (BuildObject object : buildManager.getPlacedObjectsByType(BuildType.BOMB_TRAP)) {
             if (object instanceof BombTrap bombTrap && bombTrap.isAlive()) {
                 bombs.add(bombTrap);
             }
@@ -1861,14 +1935,16 @@ public class Game {
         BuildObject nearest = null;
         double bestScore = Double.POSITIVE_INFINITY;
         double targetAngle = Math.atan2(towardY - enemy.getCenterY(), towardX - enemy.getCenterX());
-        for (BuildObject object : buildManager.getPlacedObjects()) {
+        for (BuildObject object : buildManager.getPlacedObjectsInWorldRect(
+                enemy.getCenterX() - maxDistance,
+                enemy.getCenterY() - maxDistance,
+                maxDistance * 2.0,
+                maxDistance * 2.0
+        )) {
             if (object == null || !object.isAlive()) {
                 continue;
             }
-            if (object.getType() != buildsystem.core.BuildType.FENCE
-                    && object.getType() != buildsystem.core.BuildType.WOOD_WALL
-                    && object.getType() != buildsystem.core.BuildType.STONE_WALL
-                    && object.getType() != buildsystem.core.BuildType.DOOR) {
+            if (!isAttackableWallType(object.getType())) {
                 continue;
             }
             double distance = edgeDistanceBetween(enemy, object);
@@ -1937,14 +2013,16 @@ public class Game {
         BuildObject nearest = null;
         double bestScore = Double.POSITIVE_INFINITY;
         double targetAngle = Math.atan2(towardY - enemy.getCenterY(), towardX - enemy.getCenterX());
-        for (BuildObject object : buildManager.getPlacedObjects()) {
+        for (BuildObject object : buildManager.getPlacedObjectsInWorldRect(
+                enemy.getCenterX() - maxDistance,
+                enemy.getCenterY() - maxDistance,
+                maxDistance * 2.0,
+                maxDistance * 2.0
+        )) {
             if (object == null || !object.isAlive()) {
                 continue;
             }
-            if (object.getType() != buildsystem.core.BuildType.FENCE
-                    && object.getType() != buildsystem.core.BuildType.WOOD_WALL
-                    && object.getType() != buildsystem.core.BuildType.STONE_WALL
-                    && object.getType() != buildsystem.core.BuildType.DOOR) {
+            if (!isAttackableWallType(object.getType())) {
                 continue;
             }
             double distance = edgeDistanceBetween(enemy, object);
@@ -1961,6 +2039,18 @@ public class Game {
             bestScore = score;
         }
         return nearest;
+    }
+
+    private boolean isAttackableWallType(BuildType type) {
+        if (type == null) {
+            return false;
+        }
+        for (BuildType attackableType : ATTACKABLE_WALL_TYPES) {
+            if (type == attackableType) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean damageGolemWall(GolemEnemy enemy, BuildObject wall, long now) {
@@ -2018,7 +2108,7 @@ public class Game {
     private Chest findNearestUsableChest(double centerX, double centerY, double range) {
         Chest nearest = null;
         double nearestDistance = Math.max(0.0, range);
-        for (BuildObject object : buildManager.getPlacedObjects()) {
+        for (BuildObject object : buildManager.getPlacedObjectsByType(BuildType.CHEST)) {
             if (!(object instanceof Chest chest) || !chest.isAlive()) {
                 continue;
             }
@@ -2057,7 +2147,7 @@ public class Game {
     }
 
     private boolean hasAnyAliveChest() {
-        for (BuildObject object : buildManager.getPlacedObjects()) {
+        for (BuildObject object : buildManager.getPlacedObjectsByType(BuildType.CHEST)) {
             if (object instanceof Chest chest && chest.isAlive()) {
                 return true;
             }
@@ -2437,7 +2527,7 @@ public class Game {
         if (tileCollisionResolver != null && tileCollisionResolver.isBlocked(px, py, pw, ph)) {
             return false;
         }
-        return !buildCollisionManager.intersectsPlacedBuildObject(px, py, pw, ph, buildManager.getPlacedObjects());
+        return !intersectsPlacedBuildObjectFast(px, py, pw, ph);
     }
 
     private boolean isEnemyCollidingWithFriendlyArcher(Enemy enemy) {
@@ -2455,7 +2545,7 @@ public class Game {
         if (collisionX < 0 || collisionY < 0 || collisionX + collisionWidth > worldWidth || collisionY + collisionHeight > worldHeight) {
             return false;
         }
-        if (buildCollisionManager.intersectsPlacedBuildObject(collisionX, collisionY, collisionWidth, collisionHeight, buildManager.getPlacedObjects())
+        if (intersectsPlacedBuildObjectFast(collisionX, collisionY, collisionWidth, collisionHeight)
                 || buildCollisionManager.isBlockedByTerrain(collisionX, collisionY, collisionWidth, collisionHeight)
                 || buildCollisionManager.isBlockedByWater(collisionX, collisionY, collisionWidth, collisionHeight)) {
             return false;
@@ -2500,7 +2590,7 @@ public class Game {
                 || buildCollisionManager.isBlockedByWater(collisionX, collisionY, collisionWidth, collisionHeight)) {
             return false;
         }
-        if (buildCollisionManager.intersectsPlacedBuildObject(collisionX, collisionY, collisionWidth, collisionHeight, buildManager.getPlacedObjects())) {
+        if (intersectsPlacedBuildObjectFast(collisionX, collisionY, collisionWidth, collisionHeight)) {
             return false;
         }
         for (Enemy enemy : enemies) {
@@ -2536,6 +2626,43 @@ public class Game {
                 baseCamp.getCollisionWidth(),
                 baseCamp.getCollisionHeight()
         );
+    }
+
+    private boolean intersectsPlacedBuildObjectFast(double x, double y, double width, double height) {
+        if (buildManager == null || width <= 0.0 || height <= 0.0) {
+            return false;
+        }
+        int tileWidth = Math.max(1, buildCollisionManager.getTileWidth());
+        int tileHeight = Math.max(1, buildCollisionManager.getTileHeight());
+        int minTileX = (int) Math.floor(x / tileWidth);
+        int maxTileX = (int) Math.floor((x + width - 0.001) / tileWidth);
+        int minTileY = (int) Math.floor(y / tileHeight);
+        int maxTileY = (int) Math.floor((y + height - 0.001) / tileHeight);
+        BuildObject lastChecked = null;
+        for (int ty = minTileY; ty <= maxTileY; ty++) {
+            for (int tx = minTileX; tx <= maxTileX; tx++) {
+                BuildObject object = buildManager.getPlacedObjectAt(tx, ty);
+                if (object == null || object == lastChecked) {
+                    continue;
+                }
+                lastChecked = object;
+                if (object.getComponent(buildsystem.component.CollisionComponent.class) == null) {
+                    continue;
+                }
+                if (CollisionSystem.intersects(
+                        x,
+                        y,
+                        width,
+                        height,
+                        object.getCollisionX(),
+                        object.getCollisionY(),
+                        object.getCollisionWidth(),
+                        object.getCollisionHeight())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private boolean canWallJumperOccupy(WallJumperEnemy enemy, double x, double y, double width, double height) {
@@ -2592,7 +2719,7 @@ public class Game {
         if (buildCollisionManager.isBlockedByStaticObjects(collisionX, collisionY, collisionWidth, collisionHeight)
                 || buildCollisionManager.isBlockedByTerrain(collisionX, collisionY, collisionWidth, collisionHeight)
                 || buildCollisionManager.isBlockedByWater(collisionX, collisionY, collisionWidth, collisionHeight)
-                || buildCollisionManager.intersectsPlacedBuildObject(collisionX, collisionY, collisionWidth, collisionHeight, buildManager.getPlacedObjects())) {
+                || intersectsPlacedBuildObjectFast(collisionX, collisionY, collisionWidth, collisionHeight)) {
             return false;
         }
         for (Enemy other : enemies) {
@@ -2638,7 +2765,7 @@ public class Game {
         if (buildCollisionManager.isBlockedByStaticObjects(collisionX, collisionY, collisionWidth, collisionHeight)
                 || buildCollisionManager.isBlockedByTerrain(collisionX, collisionY, collisionWidth, collisionHeight)
                 || buildCollisionManager.isBlockedByWater(collisionX, collisionY, collisionWidth, collisionHeight)
-                || buildCollisionManager.intersectsPlacedBuildObject(collisionX, collisionY, collisionWidth, collisionHeight, buildManager.getPlacedObjects())) {
+                || intersectsPlacedBuildObjectFast(collisionX, collisionY, collisionWidth, collisionHeight)) {
             return false;
         }
         for (Enemy other : enemies) {
