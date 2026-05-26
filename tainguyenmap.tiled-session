@@ -2,14 +2,14 @@
     "activeFile": "assets/Map_Game/mapdep.tmx",
     "expandedProjectPaths": [
         "assets/Map_Game",
+        "assets/maps",
         ".",
-        "assets",
-        "assets/maps"
+        "assets"
     ],
     "file.lastUsedOpenFilter": "All Files (*)",
     "fileStates": {
         "": {
-            "scaleInDock": 0.33,
+            "scaleInDock": 0.5,
             "scaleInEditor": 1
         },
         "#cot": {
@@ -92,8 +92,8 @@
             "scale": 0.5,
             "selectedLayer": 1,
             "viewCenter": {
-                "x": 1281,
-                "y": 512
+                "x": 850,
+                "y": 748
             }
         },
         "assets/Map_Game/mapdep.tmx#Rocks_source_no_shadow": {
