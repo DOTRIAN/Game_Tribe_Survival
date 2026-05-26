@@ -2,6 +2,7 @@ package system;
 
 import entity.Entity;
 import entity.Player;
+import entity.WolfEnemy;
 import javafx.scene.paint.Color;
 
 import java.util.concurrent.ThreadLocalRandom;
@@ -34,6 +35,9 @@ public final class DamageSystem {
         if (finalDamage > 0) {
             // Quái/nhân vật bị đánh sẽ nháy đỏ ~120ms.
             target.triggerHitFlash(nowNs, 130_000_000L, Color.rgb(255, 24, 24));
+            if (attacker instanceof Player player && target instanceof WolfEnemy wolfEnemy) {
+                wolfEnemy.aggroOn(player, nowNs);
+            }
         }
         return new DamageResult(finalDamage, critical);
     }

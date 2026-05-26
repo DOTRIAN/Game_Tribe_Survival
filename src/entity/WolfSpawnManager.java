@@ -55,12 +55,14 @@ public class WolfSpawnManager {
                           boolean isNight,
                           Player player,
                           BaseCamp baseCamp,
+                          boolean debugEnabled,
                           double worldWidth,
                           double worldHeight) {
         for (WolfEnemy wolf : wolves) {
             if (wolf == null) {
                 continue;
             }
+            wolf.setDebugEnabled(debugEnabled);
             wolf.updateBehavior(nowNs, isNight, player, baseCamp, worldWidth, worldHeight);
         }
     }
@@ -111,9 +113,10 @@ public class WolfSpawnManager {
 
     private double defaultWolfSize() {
         if (collisionManager == null) {
-            return 120.0;
+            return 76.0;
         }
-        return Math.max(120.0, Math.max(collisionManager.getTileWidth(), collisionManager.getTileHeight()) * 3.4);
+        double tile = Math.max(collisionManager.getTileWidth(), collisionManager.getTileHeight());
+        return Math.max(68.0, tile * 2.15);
     }
 
     private double clamp(double value, double min, double max) {

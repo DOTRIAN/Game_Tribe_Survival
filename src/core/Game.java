@@ -358,13 +358,28 @@ public class Game {
                 this::canWolfOccupy,
                 new WolfEnemy.WorldQuery() {
                     @Override
-                    public BuildObject findNearestWallToAttack(WolfEnemy enemy, double maxDistance) {
-                        return Game.this.findNearestWolfWallToAttack(enemy, maxDistance);
+                    public int getTileWidth() {
+                        return buildCollisionManager.getTileWidth();
+                    }
+
+                    @Override
+                    public int getTileHeight() {
+                        return buildCollisionManager.getTileHeight();
+                    }
+
+                    @Override
+                    public BuildObject findNearestWallToAttack(WolfEnemy enemy, double towardX, double towardY, double maxDistance) {
+                        return Game.this.findNearestWolfWallToAttack(enemy, towardX, towardY, maxDistance);
                     }
 
                     @Override
                     public boolean damageWall(WolfEnemy enemy, BuildObject wall, long nowNs) {
                         return Game.this.damageWolfWall(enemy, wall, nowNs);
+                    }
+
+                    @Override
+                    public boolean damageBase(WolfEnemy enemy, BaseCamp baseCamp, long nowNs) {
+                        return Game.this.damageWolfBase(enemy, baseCamp, nowNs);
                     }
                 },
                 random
@@ -1298,7 +1313,7 @@ public class Game {
     }
 
     private void updateEnemies(long now) {
-        wolfSpawnManager.updateAll(now, dayNightCycle.isNight(now), player, baseCamp, worldWidth, worldHeight);
+        wolfSpawnManager.updateAll(now, dayNightCycle.isNight(now), player, baseCamp, debugCollisionOverlayEnabled, worldWidth, worldHeight);
         List<Enemy> dead = new ArrayList<>();
         for (Enemy enemy : enemies) {
             if (enemy == null) {
@@ -1762,12 +1777,13 @@ public class Game {
         }
     }
 
-    private BuildObject findNearestWolfWallToAttack(WolfEnemy enemy, double maxDistance) {
+    private BuildObject findNearestWolfWallToAttack(WolfEnemy enemy, double towardX, double towardY, double maxDistance) {
         if (enemy == null || maxDistance <= 0.0) {
             return null;
         }
         BuildObject nearest = null;
-        double nearestDistance = maxDistance;
+        double bestScore = Double.POSITIVE_INFINITY;
+        double targetAngle = Math.atan2(towardY - enemy.getCenterY(), towardX - enemy.getCenterX());
         for (BuildObject object : buildManager.getPlacedObjects()) {
             if (object == null || !object.isAlive()) {
                 continue;
@@ -1779,11 +1795,17 @@ public class Game {
                 continue;
             }
             double distance = edgeDistanceBetween(enemy, object);
-            if (distance > nearestDistance) {
+            if (distance > maxDistance) {
+                continue;
+            }
+            double angle = Math.atan2(object.getCenterY() - enemy.getCenterY(), object.getCenterX() - enemy.getCenterX());
+            double anglePenalty = Math.abs(normalizeAngleRadians(angle - targetAngle)) * 18.0;
+            double score = distance + anglePenalty;
+            if (score >= bestScore) {
                 continue;
             }
             nearest = object;
-            nearestDistance = distance;
+            bestScore = score;
         }
         return nearest;
     }
@@ -1814,6 +1836,20 @@ public class Game {
                     hitResult.getObject().getCenterY()
             );
         }
+        return true;
+    }
+
+    private boolean damageWolfBase(WolfEnemy enemy, BaseCamp targetBaseCamp, long now) {
+        if (enemy == null || targetBaseCamp == null || targetBaseCamp.isDead()) {
+            return false;
+        }
+        int beforeHp = targetBaseCamp.getHp();
+        DamageSystem.applyDamage(enemy, targetBaseCamp, enemy.getDamage(), now);
+        int dealt = Math.max(0, beforeHp - targetBaseCamp.getHp());
+        if (dealt <= 0) {
+            return false;
+        }
+        eventBus.publish(new GameEvent(GameEventType.BASE_CAMP_DAMAGED, Map.of("damage", dealt, "hp", targetBaseCamp.getHp())));
         return true;
     }
 
@@ -2413,6 +2449,14 @@ public class Game {
         if (collisionX < 0 || collisionY < 0 || collisionX + collisionWidth > worldWidth || collisionY + collisionHeight > worldHeight) {
             return false;
         }
+        if (intersectsBaseCampCollision(collisionX, collisionY, collisionWidth, collisionHeight)) {
+            return false;
+        }
+        if (player != null && player.isAlive()
+                && CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
+                player.getCollisionX(), player.getCollisionY(), player.getCollisionWidth(), player.getCollisionHeight())) {
+            return false;
+        }
         if (buildCollisionManager.isBlockedByStaticObjects(collisionX, collisionY, collisionWidth, collisionHeight)
                 || buildCollisionManager.isBlockedByTerrain(collisionX, collisionY, collisionWidth, collisionHeight)
                 || buildCollisionManager.isBlockedByWater(collisionX, collisionY, collisionWidth, collisionHeight)
@@ -2843,6 +2887,17 @@ public class Game {
                 object.getCollisionY() + object.getCollisionHeight()
         );
         return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    private double normalizeAngleRadians(double angle) {
+        double twoPi = Math.PI * 2.0;
+        double normalized = angle % twoPi;
+        if (normalized > Math.PI) {
+            normalized -= twoPi;
+        } else if (normalized < -Math.PI) {
+            normalized += twoPi;
+        }
+        return normalized;
     }
 
     private double axisGap(double minA, double maxA, double minB, double maxB) {
