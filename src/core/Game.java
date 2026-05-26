@@ -1853,6 +1853,67 @@ public class Game {
         return true;
     }
 
+    private BuildObject findNearestGolemWallToAttack(GolemEnemy enemy, double towardX, double towardY, double maxDistance) {
+        if (enemy == null || maxDistance <= 0.0) {
+            return null;
+        }
+        BuildObject nearest = null;
+        double bestScore = Double.POSITIVE_INFINITY;
+        double targetAngle = Math.atan2(towardY - enemy.getCenterY(), towardX - enemy.getCenterX());
+        for (BuildObject object : buildManager.getPlacedObjects()) {
+            if (object == null || !object.isAlive()) {
+                continue;
+            }
+            if (object.getType() != buildsystem.core.BuildType.FENCE
+                    && object.getType() != buildsystem.core.BuildType.WOOD_WALL
+                    && object.getType() != buildsystem.core.BuildType.STONE_WALL
+                    && object.getType() != buildsystem.core.BuildType.DOOR) {
+                continue;
+            }
+            double distance = edgeDistanceBetween(enemy, object);
+            if (distance > maxDistance) {
+                continue;
+            }
+            double angle = Math.atan2(object.getCenterY() - enemy.getCenterY(), object.getCenterX() - enemy.getCenterX());
+            double anglePenalty = Math.abs(normalizeAngleRadians(angle - targetAngle)) * 20.0;
+            double score = distance + anglePenalty;
+            if (score >= bestScore) {
+                continue;
+            }
+            nearest = object;
+            bestScore = score;
+        }
+        return nearest;
+    }
+
+    private boolean damageGolemWall(GolemEnemy enemy, BuildObject wall, long now) {
+        if (enemy == null || wall == null || !wall.isAlive()) {
+            return false;
+        }
+        BuildDamageResult hitResult = buildManager.hitFirstDamageableIntersecting(
+                enemy.getAttackHitboxX(),
+                enemy.getAttackHitboxY(),
+                enemy.getAttackHitboxWidth(),
+                enemy.getAttackHitboxHeight(),
+                enemy.getDamage(),
+                now,
+                object -> object == wall
+        );
+        if (hitResult == null) {
+            return false;
+        }
+        spawnBuildDamageText(hitResult, now);
+        if (hitResult.isDestroyed() && hitResult.getDropAmount() > 0 && !hitResult.getDropItemId().isBlank()) {
+            spawnDroppedItem(
+                    hitResult.getDropItemId(),
+                    hitResult.getDropAmount(),
+                    hitResult.getObject().getCenterX(),
+                    hitResult.getObject().getCenterY()
+            );
+        }
+        return true;
+    }
+
     private void toggleCampChestOverlay(long now) {
         if (renderer.isChestVisible()) {
             closeChestOverlay();
@@ -2080,8 +2141,33 @@ public class Game {
 
     private GolemEnemy spawnGolemEnemy() {
         for (int attempt = 0; attempt < 16; attempt++) {
-            double[] spawn = randomEdgeSpawnPoint(112.0, 112.0);
-            GolemEnemy enemy = new GolemEnemy(spawn[0], spawn[1], this::canGolemOccupy);
+            double[] spawn = randomEdgeSpawnPoint(GolemEnemy.RENDER_WIDTH, GolemEnemy.RENDER_HEIGHT);
+            GolemEnemy enemy = new GolemEnemy(
+                    spawn[0],
+                    spawn[1],
+                    this::canGolemOccupy,
+                    new GolemEnemy.WorldQuery() {
+                        @Override
+                        public int getTileWidth() {
+                            return buildCollisionManager.getTileWidth();
+                        }
+
+                        @Override
+                        public int getTileHeight() {
+                            return buildCollisionManager.getTileHeight();
+                        }
+
+                        @Override
+                        public BuildObject findNearestWallToAttack(GolemEnemy enemy, double towardX, double towardY, double maxDistance) {
+                            return Game.this.findNearestGolemWallToAttack(enemy, towardX, towardY, maxDistance);
+                        }
+
+                        @Override
+                        public boolean damageWall(GolemEnemy enemy, BuildObject wall, long nowNs) {
+                            return Game.this.damageGolemWall(enemy, wall, nowNs);
+                        }
+                    }
+            );
             if (canGolemOccupy(enemy, enemy.getX(), enemy.getY(), enemy.getWidth(), enemy.getHeight())) {
                 return enemy;
             }
@@ -2421,7 +2507,13 @@ public class Game {
         if (collisionX < 0 || collisionY < 0 || collisionX + collisionWidth > worldWidth || collisionY + collisionHeight > worldHeight) {
             return false;
         }
-        if (buildCollisionManager.isBlockedByTerrain(collisionX, collisionY, collisionWidth, collisionHeight)
+        if (player != null && player.isAlive()
+                && CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
+                player.getCollisionX(), player.getCollisionY(), player.getCollisionWidth(), player.getCollisionHeight())) {
+            return false;
+        }
+        if (buildCollisionManager.isBlockedByStaticObjects(collisionX, collisionY, collisionWidth, collisionHeight)
+                || buildCollisionManager.isBlockedByTerrain(collisionX, collisionY, collisionWidth, collisionHeight)
                 || buildCollisionManager.isBlockedByWater(collisionX, collisionY, collisionWidth, collisionHeight)
                 || buildCollisionManager.intersectsPlacedBuildObject(collisionX, collisionY, collisionWidth, collisionHeight, buildManager.getPlacedObjects())) {
             return false;
@@ -2432,6 +2524,15 @@ public class Game {
             }
             if (CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
                     other.getCollisionX(), other.getCollisionY(), other.getCollisionWidth(), other.getCollisionHeight())) {
+                return false;
+            }
+        }
+        for (FriendlyArcher archer : friendlyArcherManager.getArchers()) {
+            if (archer == null || !archer.isAlive()) {
+                continue;
+            }
+            if (CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
+                    archer.getCollisionX(), archer.getCollisionY(), archer.getCollisionWidth(), archer.getCollisionHeight())) {
                 return false;
             }
         }

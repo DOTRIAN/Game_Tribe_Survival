@@ -32,27 +32,17 @@ public class WolfEnemy extends Enemy {
     private static final boolean DEBUG = true;
 
     private enum BrainState {
-        IDLE,
         PATROL,
-        CHASE_PLAYER,
-        RETURN_HOME,
-        NIGHT_ASSAULT,
+        CHASE,
         ATTACK,
-        HURT,
-        STUCK_RECOVER,
-        DYING
+        DEATH
     }
 
     private enum AnimationState {
         IDLE,
         WALK,
         RUN,
-        ATTACK_1,
         ATTACK_2,
-        ATTACK_3,
-        RUN_ATTACK,
-        JUMP,
-        HURT,
         DEAD
     }
 
@@ -94,44 +84,24 @@ public class WolfEnemy extends Enemy {
     private static final int MAX_HP = 30;
     private static final int DAMAGE = 5;
     private static final double DETECTION_RANGE = 220.0;
-    private static final double CHASE_RANGE_DAY = 340.0;
-    private static final double NIGHT_PLAYER_PRIORITY_BONUS = 40.0;
+    private static final double DISENGAGE_RANGE = 520.0;
     private static final double HOME_RADIUS = 92.0;
     private static final double RETURN_TOLERANCE = 10.0;
-    private static final double JUMP_TRIGGER_MIN = 72.0;
-    private static final double JUMP_TRIGGER_MAX = 150.0;
-    private static final double RUN_ATTACK_TRIGGER = 58.0;
-    private static final double BASE_APPROACH_PADDING = 14.0;
-    private static final double WALL_SEARCH_RANGE = 110.0;
     private static final double DIRECT_TARGET_RECALC_DISTANCE = 28.0;
     private static final double PATH_POINT_REACHED = 9.0;
     private static final long IDLE_FRAME_NS = 120_000_000L;
     private static final long WALK_FRAME_NS = 95_000_000L;
     private static final long RUN_FRAME_NS = 82_000_000L;
-    private static final long ATTACK_1_FRAME_NS = 90_000_000L;
     private static final long ATTACK_2_FRAME_NS = 90_000_000L;
-    private static final long ATTACK_3_FRAME_NS = 70_000_000L;
-    private static final long RUN_ATTACK_FRAME_NS = 78_000_000L;
-    private static final long JUMP_FRAME_NS = 72_000_000L;
-    private static final long HURT_FRAME_NS = 100_000_000L;
     private static final long DEAD_FRAME_NS = 160_000_000L;
-    private static final long HURT_LOCK_NS = 220_000_000L;
     private static final long PATH_RECALC_NS = 650_000_000L;
     private static final long STUCK_REPATH_NS = 650_000_000L;
-    private static final long STUCK_RECOVER_NS = 200_000_000L;
-    private static final long AGGRO_DURATION_NS = 4_000_000_000L;
-    private static final long JUMP_COOLDOWN_NS = 1_550_000_000L;
-    private static final long LUNGE_COOLDOWN_NS = 1_250_000_000L;
-    private static final int PATH_MAX_EXPANSIONS = 2200;
     private static final double STUCK_MOVE_EPSILON = 2.0;
     private static final long STUCK_SAMPLE_NS = 700_000_000L;
+    private static final int PATH_MAX_EXPANSIONS = 2200;
     private static final double FACE_MOVE_THRESHOLD = 0.10;
 
-    private static final AttackProfile ATTACK_ONE = new AttackProfile(AnimationState.ATTACK_1, 3, 850_000_000L, ATTACK_1_FRAME_NS, 34.0, 30.0, 22.0, 6.0, DAMAGE, false);
-    private static final AttackProfile ATTACK_TWO = new AttackProfile(AnimationState.ATTACK_2, 2, 1_150_000_000L, ATTACK_2_FRAME_NS, 38.0, 34.0, 24.0, 7.0, DAMAGE, false);
-    private static final AttackProfile ATTACK_THREE = new AttackProfile(AnimationState.ATTACK_3, 2, 620_000_000L, ATTACK_3_FRAME_NS, 28.0, 26.0, 20.0, 5.0, DAMAGE, false);
-    private static final AttackProfile RUN_ATTACK = new AttackProfile(AnimationState.RUN_ATTACK, 3, 1_300_000_000L, RUN_ATTACK_FRAME_NS, 42.0, 36.0, 24.0, 8.0, DAMAGE, true);
-    private static final AttackProfile JUMP_ATTACK = new AttackProfile(AnimationState.JUMP, 6, 1_550_000_000L, JUMP_FRAME_NS, 36.0, 0.0, 0.0, 0.0, 0, true);
+    private static final AttackProfile ATTACK_TWO = new AttackProfile(AnimationState.ATTACK_2, 2, 0L, ATTACK_2_FRAME_NS, 0.0, 24.0, 26.0, 0.0, DAMAGE, false);
 
     private final MovementValidator movementValidator;
     private final WorldQuery worldQuery;
@@ -153,13 +123,8 @@ public class WolfEnemy extends Enemy {
     private long lastPathComputeAtNs;
     private long blockedSinceNs;
     private long stuckSampleAtNs;
-    private long stuckRecoverUntilNs;
-    private long aggroUntilNs;
-    private long hurtUntilNs;
     private long attackStartedAtNs;
     private long attackCooldownUntilNs;
-    private long jumpCooldownUntilNs;
-    private long lungeCooldownUntilNs;
     private boolean attackDamageAppliedThisCycle;
     private AttackProfile activeAttackProfile;
     private Entity activeEntityTarget;
@@ -202,14 +167,9 @@ public class WolfEnemy extends Enemy {
         animations.put(AnimationState.IDLE, new SpriteAnimation(SpriteSheetLoader.loadGrid(resolveAsset("Idle"), 8, 1), IDLE_FRAME_NS));
         animations.put(AnimationState.WALK, new SpriteAnimation(SpriteSheetLoader.loadGrid(resolveAsset("Walk"), 11, 1), WALK_FRAME_NS));
         animations.put(AnimationState.RUN, new SpriteAnimation(SpriteSheetLoader.loadGrid(resolveAsset("Run"), 9, 1), RUN_FRAME_NS));
-        animations.put(AnimationState.ATTACK_1, new SpriteAnimation(SpriteSheetLoader.loadGrid(resolveAsset("Attack_1"), 6, 1), ATTACK_1_FRAME_NS));
-        animations.put(AnimationState.ATTACK_2, new SpriteAnimation(SpriteSheetLoader.loadGrid(resolveAsset("Attack_2"), 5, 1), ATTACK_2_FRAME_NS));
-        animations.put(AnimationState.ATTACK_3, new SpriteAnimation(SpriteSheetLoader.loadGrid(resolveAsset("Attack_3"), 5, 1), ATTACK_3_FRAME_NS));
-        animations.put(AnimationState.RUN_ATTACK, new SpriteAnimation(SpriteSheetLoader.loadGrid(resolveAsset("Run+Attack"), 7, 1), RUN_ATTACK_FRAME_NS));
-        animations.put(AnimationState.JUMP, new SpriteAnimation(SpriteSheetLoader.loadGrid(resolveAsset("Jump"), 11, 1), JUMP_FRAME_NS));
-        animations.put(AnimationState.HURT, new SpriteAnimation(SpriteSheetLoader.loadGrid(resolveAsset("Hurt"), 2, 1), HURT_FRAME_NS));
+        animations.put(AnimationState.ATTACK_2, new SpriteAnimation(SpriteSheetLoader.loadHorizontalStrip(resolveAsset("Attack_2"), 4), ATTACK_2_FRAME_NS));
         animations.put(AnimationState.DEAD, new SpriteAnimation(SpriteSheetLoader.loadGrid(resolveAsset("Dead"), 2, 1), DEAD_FRAME_NS));
-        this.state = BrainState.IDLE;
+        this.state = BrainState.PATROL;
         this.animationState = AnimationState.IDLE;
         this.facingDirection = Direction.RIGHT;
         this.homeX = getCenterX();
@@ -224,13 +184,8 @@ public class WolfEnemy extends Enemy {
         this.lastPathComputeAtNs = 0L;
         this.blockedSinceNs = 0L;
         this.stuckSampleAtNs = 0L;
-        this.stuckRecoverUntilNs = 0L;
-        this.aggroUntilNs = 0L;
-        this.hurtUntilNs = -1L;
         this.attackStartedAtNs = -1L;
         this.attackCooldownUntilNs = 0L;
-        this.jumpCooldownUntilNs = 0L;
-        this.lungeCooldownUntilNs = 0L;
         this.attackDamageAppliedThisCycle = false;
         this.activeAttackProfile = null;
         this.activeEntityTarget = null;
@@ -276,7 +231,7 @@ public class WolfEnemy extends Enemy {
         if (removeFromWorld) {
             return;
         }
-        if (state == BrainState.DYING) {
+        if (state == BrainState.DEATH) {
             if (currentAnimation().updateOnce(nowNs)) {
                 removeFromWorld = true;
             }
@@ -287,28 +242,9 @@ public class WolfEnemy extends Enemy {
             return;
         }
 
-        if (state == BrainState.HURT) {
-            animationState = AnimationState.HURT;
-            if (nowNs < hurtUntilNs) {
-                currentAnimation().update(nowNs, true);
-                return;
-            }
-            state = BrainState.IDLE;
-            resetAnimation(AnimationState.HURT);
-        }
-
         if (state == BrainState.ATTACK) {
             updateAttackSequence(nowNs);
             return;
-        }
-
-        if (state == BrainState.STUCK_RECOVER) {
-            animationState = AnimationState.IDLE;
-            currentAnimation().update(nowNs, true);
-            if (nowNs < stuckRecoverUntilNs) {
-                return;
-            }
-            state = BrainState.IDLE;
         }
 
         if (activeBuildTarget != null && !activeBuildTarget.isAlive()) {
@@ -324,40 +260,13 @@ public class WolfEnemy extends Enemy {
             if (tryStartAttack(playerTarget, null, nowNs, isNight)) {
                 return;
             }
-            state = BrainState.CHASE_PLAYER;
+            state = BrainState.CHASE;
             runTowardEntity(playerTarget, nowNs, worldWidth, worldHeight, isNight);
-            return;
-        }
-
-        Entity preferredNightTarget = pickNightPriorityTarget(player, baseCamp);
-        if (isNight && preferredNightTarget != null) {
-            if (tryStartAttack(preferredNightTarget, null, nowNs, isNight)) {
-                return;
-            }
-            if (preferredNightTarget == player) {
-                state = BrainState.CHASE_PLAYER;
-                runTowardEntity(preferredNightTarget, nowNs, worldWidth, worldHeight, true);
-                return;
-            }
-            state = BrainState.NIGHT_ASSAULT;
-            runTowardBaseOrBarrier((BaseCamp) preferredNightTarget, player, nowNs, worldWidth, worldHeight);
             return;
         }
 
         activeEntityTarget = null;
         activeBuildTarget = null;
-        if (distanceToHome() > HOME_RADIUS * 0.50) {
-            state = BrainState.RETURN_HOME;
-            animationState = AnimationState.RUN;
-            currentMoveSpeed = RUN_SPEED;
-            followPathToPoint(homeX, homeY, nowNs, worldWidth, worldHeight, true);
-            if (distanceTo(homeX, homeY) <= RETURN_TOLERANCE) {
-                clearPath();
-                state = BrainState.IDLE;
-            }
-            return;
-        }
-
         state = BrainState.PATROL;
         currentMoveSpeed = WALK_SPEED;
         animationState = distanceTo(patrolTargetX, patrolTargetY) <= RETURN_TOLERANCE ? AnimationState.IDLE : AnimationState.WALK;
@@ -379,21 +288,14 @@ public class WolfEnemy extends Enemy {
 
     @Override
     public void takeDamage(int amount) {
-        if (amount <= 0 || removeFromWorld || state == BrainState.DYING) {
+        if (amount <= 0 || removeFromWorld || state == BrainState.DEATH) {
             return;
         }
         super.takeDamage(amount);
         if (hp <= 0) {
             hp = 0;
             transitionToDeath();
-            return;
         }
-        hurtUntilNs = System.nanoTime() + HURT_LOCK_NS;
-        state = BrainState.HURT;
-        animationState = AnimationState.HURT;
-        resetAnimation(AnimationState.HURT);
-        clearAttackTarget();
-        clearPath();
     }
 
     @Override
@@ -415,6 +317,13 @@ public class WolfEnemy extends Enemy {
             graphicsContext.restore();
         } else {
             graphicsContext.drawImage(frame, screenX, screenY, width, height);
+        }
+        if (isHitFlashActive(nowNs)) {
+            graphicsContext.save();
+            graphicsContext.setGlobalAlpha(0.25);
+            graphicsContext.setFill(getHitFlashColor());
+            graphicsContext.fillRect(screenX, screenY, width, height);
+            graphicsContext.restore();
         }
 
         if (debugEnabled) {
@@ -444,49 +353,8 @@ public class WolfEnemy extends Enemy {
         this.patrolTargetY = homeY;
     }
 
-    private void runTowardBaseOrBarrier(BaseCamp baseCamp,
-                                        Player player,
-                                        long nowNs,
-                                        double worldWidth,
-                                        double worldHeight) {
-        if (baseCamp == null || !baseCamp.isAlive()) {
-            state = BrainState.RETURN_HOME;
-            followPathToPoint(homeX, homeY, nowNs, worldWidth, worldHeight, true);
-            return;
-        }
-        if (tryStartAttack(null, baseCamp, nowNs, true)) {
-            return;
-        }
-        state = BrainState.NIGHT_ASSAULT;
-        animationState = AnimationState.RUN;
-        currentMoveSpeed = RUN_SPEED;
-
-        Point2D approach = selectApproachPointForEntity(baseCamp, ATTACK_ONE.range() + BASE_APPROACH_PADDING);
-        boolean hasPath = followPathToPoint(approach.getX(), approach.getY(), nowNs, worldWidth, worldHeight, true);
-        if (hasPath) {
-            return;
-        }
-        if (worldQuery != null) {
-            BuildObject barrier = worldQuery.findNearestWallToAttack(this, baseCamp.getCenterX(), baseCamp.getCenterY(), WALL_SEARCH_RANGE);
-            if (barrier != null) {
-                activeBuildTarget = barrier;
-                if (tryStartAttack(null, null, nowNs, true)) {
-                    return;
-                }
-                followPathToPoint(barrier.getCenterX(), barrier.getCenterY(), nowNs, worldWidth, worldHeight, true);
-                return;
-            }
-        }
-        if (player != null && player.isAlive() && distanceTo(player.getCenterX(), player.getCenterY()) < DETECTION_RANGE) {
-            state = BrainState.CHASE_PLAYER;
-            runTowardEntity(player, nowNs, worldWidth, worldHeight, true);
-        }
-    }
-
     private boolean canDetectPlayer(Player player) {
-        return player != null
-                && player.isAlive()
-                && distanceTo(player.getCenterX(), player.getCenterY()) <= DETECTION_RANGE;
+        return intersectsDetectionRange(player);
     }
 
     private Player resolvePlayerTarget(Player player, long nowNs) {
@@ -494,15 +362,11 @@ public class WolfEnemy extends Enemy {
             aggroPlayer = null;
             return null;
         }
-        if (isTargetInsideAttackReach(player, Math.max(ATTACK_ONE.range(), ATTACK_TWO.range()))) {
-            aggroPlayer = player;
-            return player;
-        }
         if (canDetectPlayer(player)) {
             aggroPlayer = player;
             return player;
         }
-        if (aggroPlayer == player && nowNs <= aggroUntilNs) {
+        if (aggroPlayer == player && isInsideDisengageRange(player)) {
             return player;
         }
         if (aggroPlayer == player) {
@@ -512,38 +376,14 @@ public class WolfEnemy extends Enemy {
     }
 
     public void aggroOn(Player player, long nowNs) {
-        if (player == null || !player.isAlive() || removeFromWorld || state == BrainState.DYING) {
+        if (player == null || !player.isAlive() || removeFromWorld || state == BrainState.DEATH) {
             return;
         }
         aggroPlayer = player;
         activeEntityTarget = player;
-        aggroUntilNs = nowNs + AGGRO_DURATION_NS;
-        if (state != BrainState.ATTACK && state != BrainState.HURT) {
-            state = BrainState.CHASE_PLAYER;
+        if (state != BrainState.ATTACK && intersectsDetectionRange(player)) {
+            state = BrainState.CHASE;
         }
-    }
-
-    private Entity pickNightPriorityTarget(Player player, BaseCamp baseCamp) {
-        boolean playerAlive = player != null && player.isAlive();
-        boolean baseAlive = baseCamp != null && baseCamp.isAlive();
-        if (!playerAlive && !baseAlive) {
-            return null;
-        }
-        if (!baseAlive) {
-            return player;
-        }
-        if (!playerAlive) {
-            return baseCamp;
-        }
-        double playerDist = distanceTo(player.getCenterX(), player.getCenterY());
-        double baseDist = distanceTo(baseCamp.getCenterX(), baseCamp.getCenterY());
-        if (playerDist <= baseDist - NIGHT_PLAYER_PRIORITY_BONUS) {
-            return player;
-        }
-        if (playerDist <= DETECTION_RANGE && playerDist < baseDist) {
-            return player;
-        }
-        return baseCamp;
     }
 
     private void runTowardEntity(Entity target,
@@ -555,23 +395,13 @@ public class WolfEnemy extends Enemy {
             return;
         }
         activeEntityTarget = target;
-        double dist = distanceTo(target.getCenterX(), target.getCenterY());
-        if (aggressive && target instanceof Player && dist >= JUMP_TRIGGER_MIN && dist <= JUMP_TRIGGER_MAX && nowNs >= jumpCooldownUntilNs) {
-            if (startAttack(JUMP_ATTACK, target, null, nowNs)) {
-                jumpCooldownUntilNs = nowNs + JUMP_COOLDOWN_NS;
-                return;
-            }
-        }
-        if (dist <= RUN_ATTACK_TRIGGER && nowNs >= lungeCooldownUntilNs && aggressive) {
-            if (startAttack(RUN_ATTACK, target, null, nowNs)) {
-                lungeCooldownUntilNs = nowNs + LUNGE_COOLDOWN_NS;
-                return;
-            }
-        }
-        state = BrainState.CHASE_PLAYER;
+        faceTarget(target);
+        state = BrainState.CHASE;
         animationState = AnimationState.RUN;
         currentMoveSpeed = RUN_SPEED;
-        followPathToPoint(target.getCenterX(), target.getCenterY(), nowNs, worldWidth, worldHeight, true);
+        Point2D approachPoint = selectAttackApproachPoint(target, ATTACK_TWO);
+        followPathToPoint(approachPoint.getX(), approachPoint.getY(), nowNs, worldWidth, worldHeight, true);
+        faceTarget(target);
     }
 
     private boolean tryStartAttack(Entity entityTarget, BaseCamp baseTarget, long nowNs, boolean isNight) {
@@ -586,37 +416,28 @@ public class WolfEnemy extends Enemy {
         if (profile == null || nowNs < attackCooldownUntilNs) {
             return false;
         }
-        if (entityTarget != null && !isTargetInsideAttackReach(entityTarget, profile.range())) {
+        if (entityTarget != null) {
+            faceTarget(entityTarget);
+        } else if (baseTarget != null) {
+            faceTarget(baseTarget.getCenterX(), baseTarget.getCenterY());
+        } else if (buildTarget != null) {
+            faceTarget(buildTarget.getCenterX(), buildTarget.getCenterY());
+        }
+        if (entityTarget != null && !intersectsAttackHitbox(entityTarget, profile)) {
             return false;
         }
-        if (baseTarget != null && !isTargetInsideAttackReach(baseTarget, profile.range())) {
+        if (baseTarget != null && !intersectsAttackHitbox(baseTarget, profile)) {
             return false;
         }
-        if (buildTarget != null && !isTargetInsideAttackReach(buildTarget, profile.range())) {
+        if (buildTarget != null && !intersectsAttackHitbox(buildTarget, profile)) {
             return false;
         }
         return startAttack(profile, entityTarget != null ? entityTarget : baseTarget, buildTarget, nowNs);
     }
 
     private AttackProfile chooseAttackProfile(Entity entityTarget, BaseCamp baseTarget, BuildObject buildTarget, boolean isNight) {
-        if (entityTarget instanceof Player player) {
-            double dist = distanceTo(player.getCenterX(), player.getCenterY());
-            if (dist <= 28.0) {
-                return ATTACK_THREE;
-            }
-            if (isNight && random.nextDouble() < 0.50) {
-                return ATTACK_TWO;
-            }
-            if (dist <= RUN_ATTACK_TRIGGER && random.nextDouble() < 0.28) {
-                return RUN_ATTACK;
-            }
-            return ATTACK_ONE;
-        }
-        if (baseTarget != null) {
-            return isNight && random.nextDouble() < 0.58 ? ATTACK_TWO : ATTACK_ONE;
-        }
-        if (buildTarget != null) {
-            return isNight && random.nextDouble() < 0.48 ? ATTACK_TWO : ATTACK_ONE;
+        if (entityTarget instanceof Player) {
+            return ATTACK_TWO;
         }
         return null;
     }
@@ -645,12 +466,12 @@ public class WolfEnemy extends Enemy {
 
     private void updateAttackSequence(long nowNs) {
         if (activeAttackProfile == null) {
-            state = BrainState.IDLE;
+            state = BrainState.PATROL;
             animationState = AnimationState.IDLE;
             return;
         }
         SpriteAnimation animation = currentAnimation();
-        animation.update(nowNs, true);
+        boolean attackFinished = animation.updateOnce(nowNs);
         Entity entityTarget = activeEntityTarget;
         BuildObject buildTarget = activeBuildTarget;
         if (entityTarget != null && entityTarget.isDead()) {
@@ -665,9 +486,6 @@ public class WolfEnemy extends Enemy {
             faceTarget(entityTarget);
         } else if (buildTarget != null) {
             faceTarget(buildTarget.getCenterX(), buildTarget.getCenterY());
-        }
-        if (activeAttackProfile.lungeAttack()) {
-            applyAttackLunge(entityTarget, buildTarget);
         }
         if (canApplyDamageOnCurrentFrame(animation)) {
             if (entityTarget instanceof BaseCamp baseCamp) {
@@ -685,21 +503,39 @@ public class WolfEnemy extends Enemy {
                 }
             }
         }
-
-        long duration = activeAttackProfile.totalDurationNs(animation.getFrameCount());
-        if (nowNs - attackStartedAtNs < duration) {
+        if (!attackFinished) {
             return;
         }
         attackCooldownUntilNs = nowNs + activeAttackProfile.cooldownNs();
         attackStartedAtNs = -1L;
         activeAttackProfile = null;
-        clearAttackTarget();
-        resetAnimation(AnimationState.ATTACK_1);
+        attackDamageAppliedThisCycle = false;
         resetAnimation(AnimationState.ATTACK_2);
-        resetAnimation(AnimationState.ATTACK_3);
-        resetAnimation(AnimationState.RUN_ATTACK);
-        resetAnimation(AnimationState.JUMP);
-        state = BrainState.IDLE;
+        Player chaseTarget = null;
+        if (entityTarget instanceof Player player && player.isAlive()) {
+            chaseTarget = player;
+        } else if (aggroPlayer != null && aggroPlayer.isAlive()) {
+            chaseTarget = aggroPlayer;
+        }
+        if (chaseTarget != null) {
+            faceTarget(chaseTarget);
+        }
+        if (chaseTarget != null && intersectsAttackHitbox(chaseTarget, ATTACK_TWO)) {
+            activeEntityTarget = chaseTarget;
+            startAttack(ATTACK_TWO, chaseTarget, null, nowNs);
+            return;
+        }
+        if (chaseTarget != null && isInsideDisengageRange(chaseTarget)) {
+            activeEntityTarget = chaseTarget;
+            aggroPlayer = chaseTarget;
+            activeBuildTarget = null;
+            state = BrainState.CHASE;
+            animationState = AnimationState.RUN;
+            clearPath();
+            return;
+        }
+        clearAttackTarget();
+        state = BrainState.PATROL;
         animationState = AnimationState.IDLE;
     }
 
@@ -712,32 +548,7 @@ public class WolfEnemy extends Enemy {
     }
 
     private boolean isDamageAnimation(AnimationState state) {
-        return state == AnimationState.ATTACK_1
-                || state == AnimationState.ATTACK_2
-                || state == AnimationState.ATTACK_3
-                || state == AnimationState.RUN_ATTACK;
-    }
-
-    private void applyAttackLunge(Entity entityTarget, BuildObject buildTarget) {
-        double targetX;
-        double targetY;
-        if (entityTarget != null) {
-            targetX = entityTarget.getCenterX();
-            targetY = entityTarget.getCenterY();
-        } else if (buildTarget != null) {
-            targetX = buildTarget.getCenterX();
-            targetY = buildTarget.getCenterY();
-        } else {
-            return;
-        }
-        double dx = targetX - getCenterX();
-        double dy = targetY - getCenterY();
-        double distance = Math.sqrt(dx * dx + dy * dy);
-        if (distance < 1.0) {
-            return;
-        }
-        double moveDistance = animationState == AnimationState.JUMP ? JUMP_SPEED : RUN_SPEED * 0.92;
-        moveWithCollision((dx / distance) * moveDistance, (dy / distance) * moveDistance);
+        return state == AnimationState.ATTACK_2;
     }
 
     private boolean followPathToPoint(double targetX,
@@ -780,21 +591,20 @@ public class WolfEnemy extends Enemy {
         if (blockedSinceNs == 0L) {
             blockedSinceNs = nowNs;
         } else if (nowNs - blockedSinceNs >= STUCK_REPATH_NS) {
-            enterStuckRecover(nowNs, targetX, targetY, allowBarrierFallback);
+            recoverFromBlockedPath(targetX, targetY);
             return false;
         }
-        if (allowBarrierFallback && worldQuery != null) {
-            BuildObject barrier = worldQuery.findNearestWallToAttack(this, targetX, targetY, WALL_SEARCH_RANGE);
-            if (barrier != null) {
-                activeBuildTarget = barrier;
-            }
+        if (state == BrainState.CHASE) {
+            animationState = AnimationState.RUN;
+            currentAnimation().update(System.nanoTime(), true);
+        } else {
+            updateIdleAnimation(System.nanoTime());
         }
-        updateIdleAnimation(System.nanoTime());
         return false;
     }
 
     private void updateStuckSample(long nowNs) {
-        if (state != BrainState.CHASE_PLAYER && state != BrainState.NIGHT_ASSAULT && state != BrainState.RETURN_HOME) {
+        if (state != BrainState.CHASE) {
             stuckSampleAtNs = nowNs;
             stuckSampleX = getCenterX();
             stuckSampleY = getCenterY();
@@ -814,23 +624,15 @@ public class WolfEnemy extends Enemy {
         stuckSampleX = getCenterX();
         stuckSampleY = getCenterY();
         if (moved < STUCK_MOVE_EPSILON) {
-            enterStuckRecover(nowNs, lastPathTargetX, lastPathTargetY, state != BrainState.PATROL);
+            recoverFromBlockedPath(lastPathTargetX, lastPathTargetY);
         }
     }
 
-    private void enterStuckRecover(long nowNs, double targetX, double targetY, boolean allowBarrierFallback) {
-        state = BrainState.STUCK_RECOVER;
-        animationState = AnimationState.IDLE;
-        stuckRecoverUntilNs = nowNs + STUCK_RECOVER_NS;
+    private void recoverFromBlockedPath(double targetX, double targetY) {
+        animationState = state == BrainState.CHASE ? AnimationState.RUN : AnimationState.IDLE;
         blockedSinceNs = 0L;
         clearPath();
         chooseSideStepWaypoint(targetX, targetY);
-        if (allowBarrierFallback && worldQuery != null) {
-            BuildObject barrier = worldQuery.findNearestWallToAttack(this, targetX, targetY, WALL_SEARCH_RANGE);
-            if (barrier != null) {
-                activeBuildTarget = barrier;
-            }
-        }
     }
 
     private void chooseSideStepWaypoint(double targetX, double targetY) {
@@ -1083,50 +885,44 @@ public class WolfEnemy extends Enemy {
         return true;
     }
 
-    private Point2D selectApproachPointForEntity(Entity target, double range) {
-        double targetLeft = target.getCollisionX() - range;
-        double targetRight = target.getCollisionX() + target.getCollisionWidth() + range;
-        double targetTop = target.getCollisionY() - range;
-        double targetBottom = target.getCollisionY() + target.getCollisionHeight() + range;
-        List<Point2D> candidates = List.of(
-                new Point2D(target.getCenterX(), targetTop),
-                new Point2D(target.getCenterX(), targetBottom),
-                new Point2D(targetLeft, target.getCenterY()),
-                new Point2D(targetRight, target.getCenterY())
-        );
-        Point2D best = candidates.getFirst();
-        double bestDistance = Double.POSITIVE_INFINITY;
-        for (Point2D candidate : candidates) {
-            double dist = distanceTo(candidate.getX(), candidate.getY());
-            if (dist < bestDistance) {
-                best = candidate;
-                bestDistance = dist;
-            }
-        }
-        return best;
-    }
-
-    private boolean isTargetInsideAttackReach(Entity target, double range) {
+    private boolean intersectsDetectionRange(Entity target) {
         if (target == null || target.isDead()) {
             return false;
         }
-        return rectDistance(getCollisionX(), getCollisionY(), getCollisionWidth(), getCollisionHeight(),
-                target.getCollisionX(), target.getCollisionY(), target.getCollisionWidth(), target.getCollisionHeight()) <= range;
+        return intersectsCircleAndRect(
+                getCollisionX() + getCollisionWidth() * 0.5,
+                getCollisionY() + getCollisionHeight() * 0.5,
+                DETECTION_RANGE,
+                target.getCollisionX(),
+                target.getCollisionY(),
+                target.getCollisionWidth(),
+                target.getCollisionHeight()
+        );
     }
 
-    private boolean isTargetInsideAttackReach(BuildObject target, double range) {
-        if (target == null || !target.isAlive()) {
+    private boolean isInsideDisengageRange(Entity target) {
+        if (target == null || target.isDead()) {
             return false;
         }
-        return rectDistance(getCollisionX(), getCollisionY(), getCollisionWidth(), getCollisionHeight(),
-                target.getCollisionX(), target.getCollisionY(), target.getCollisionWidth(), target.getCollisionHeight()) <= range;
+        return intersectsCircleAndRect(
+                getCollisionX() + getCollisionWidth() * 0.5,
+                getCollisionY() + getCollisionHeight() * 0.5,
+                DISENGAGE_RANGE,
+                target.getCollisionX(),
+                target.getCollisionY(),
+                target.getCollisionWidth(),
+                target.getCollisionHeight()
+        );
     }
 
     private boolean intersectsAttackHitbox(Entity target, AttackProfile profile) {
-        Rectangle2D hitbox = buildAttackHitbox(profile);
-        return hitbox.getWidth() > 0.0
-                && isTargetInFront(target)
-                && hitbox.intersects(
+        AttackArea attackArea = buildAttackArea(profile);
+        return attackArea.radiusX() > 0.0
+                && intersectsEllipseAndRect(
+                attackArea.centerX(),
+                attackArea.centerY(),
+                attackArea.radiusX(),
+                attackArea.radiusY(),
                 target.getCollisionX(),
                 target.getCollisionY(),
                 target.getCollisionWidth(),
@@ -1135,10 +931,13 @@ public class WolfEnemy extends Enemy {
     }
 
     private boolean intersectsAttackHitbox(BuildObject target, AttackProfile profile) {
-        Rectangle2D hitbox = buildAttackHitbox(profile);
-        return hitbox.getWidth() > 0.0
-                && isTargetInFront(target.getCenterX(), target.getCenterY())
-                && hitbox.intersects(
+        AttackArea attackArea = buildAttackArea(profile);
+        return attackArea.radiusX() > 0.0
+                && intersectsEllipseAndRect(
+                attackArea.centerX(),
+                attackArea.centerY(),
+                attackArea.radiusX(),
+                attackArea.radiusY(),
                 target.getCollisionX(),
                 target.getCollisionY(),
                 target.getCollisionWidth(),
@@ -1146,42 +945,64 @@ public class WolfEnemy extends Enemy {
         );
     }
 
-    private boolean isTargetInFront(Entity target) {
-        return target != null && isTargetInFront(target.getCenterX(), target.getCenterY());
-    }
-
-    private boolean isTargetInFront(double targetX, double targetY) {
-        double dx = targetX - getCenterX();
-        double dy = targetY - getCenterY();
-        return switch (facingDirection) {
-            case LEFT -> dx <= 10.0 && Math.abs(dy) <= 58.0;
-            case RIGHT -> dx >= -10.0 && Math.abs(dy) <= 58.0;
-            case UP -> dy <= 10.0 && Math.abs(dx) <= 58.0;
-            case DOWN -> dy >= -10.0 && Math.abs(dx) <= 58.0;
-        };
-    }
-
-    private Rectangle2D buildAttackHitbox(AttackProfile profile) {
-        if (profile == null || profile.hitboxWidth() <= 0.0 || profile.hitboxHeight() <= 0.0) {
-            return new Rectangle2D(0.0, 0.0, 0.0, 0.0);
+    private Point2D selectAttackApproachPoint(Entity target, AttackProfile profile) {
+        if (target == null || profile == null) {
+            return new Point2D(getCenterX(), getCenterY());
         }
+        Direction approachDirection = horizontalDirectionToward(target.getCenterX());
+        double bodyWidth = getCollisionWidth();
+        double bodyHeight = getCollisionHeight();
         double hitboxWidth = profile.hitboxWidth();
-        double hitboxHeight = profile.hitboxHeight();
-        double centerX = getCenterX();
-        double centerY = getCollisionY() + getCollisionHeight() * 0.45;
-        double offset = profile.forwardOffset();
+        double overlap = 2.0;
+        double targetLeft = target.getCollisionX();
+        double targetRight = target.getCollisionX() + target.getCollisionWidth();
+        double targetCenterY = target.getCollisionY() + target.getCollisionHeight() * 0.5;
+
+        double bodyX;
+        double bodyY;
+        switch (approachDirection) {
+            case RIGHT -> {
+                bodyX = targetLeft - hitboxWidth + overlap - bodyWidth;
+                bodyY = targetCenterY - bodyHeight * 0.5;
+            }
+            case LEFT -> {
+                bodyX = targetRight + hitboxWidth - overlap;
+                bodyY = targetCenterY - bodyHeight * 0.5;
+            }
+            default -> {
+                bodyX = targetLeft - hitboxWidth + overlap - bodyWidth;
+                bodyY = targetCenterY - bodyHeight * 0.5;
+            }
+        }
+        return new Point2D(
+                bodyX - collisionInsetLeft(width, height) + width * 0.5,
+                bodyY - collisionInsetTop(width, height) + height * 0.5
+        );
+    }
+
+    private AttackArea buildAttackArea(AttackProfile profile) {
+        if (profile == null || profile.hitboxWidth() <= 0.0 || profile.hitboxHeight() <= 0.0) {
+            return new AttackArea(0.0, 0.0, 0.0, 0.0);
+        }
+        double radiusX = profile.hitboxWidth() * 0.5;
+        double radiusY = profile.hitboxHeight() * 0.5;
+        double bodyX = getCollisionX();
+        double bodyY = getCollisionY();
+        double bodyWidth = getCollisionWidth();
+        double bodyHeight = getCollisionHeight();
+        double centerX = bodyX + bodyWidth * 0.5;
+        double centerY = bodyY + bodyHeight * 0.5;
         return switch (facingDirection) {
-            case LEFT -> new Rectangle2D(getCollisionX() - offset - hitboxWidth, centerY - hitboxHeight * 0.5, hitboxWidth, hitboxHeight);
-            case RIGHT -> new Rectangle2D(getCollisionX() + getCollisionWidth() + offset, centerY - hitboxHeight * 0.5, hitboxWidth, hitboxHeight);
-            case UP -> new Rectangle2D(centerX - hitboxHeight * 0.5, getCollisionY() - offset - hitboxWidth, hitboxHeight, hitboxWidth);
-            case DOWN -> new Rectangle2D(centerX - hitboxHeight * 0.5, getCollisionY() + getCollisionHeight() + offset, hitboxHeight, hitboxWidth);
+            case LEFT -> new AttackArea(bodyX - radiusX, centerY, radiusX, radiusY);
+            case RIGHT -> new AttackArea(bodyX + bodyWidth + radiusX, centerY, radiusX, radiusY);
+            default -> new AttackArea(bodyX + bodyWidth + radiusX, centerY, radiusX, radiusY);
         };
     }
 
     private void drawDebug(GraphicsContext graphicsContext, double cameraX, double cameraY) {
         graphicsContext.save();
         graphicsContext.setLineWidth(1.2);
-        graphicsContext.setStroke(Color.color(1.0, 1.0, 1.0, 0.95));
+        graphicsContext.setStroke(Color.color(0.15, 0.95, 0.25, 0.95));
         graphicsContext.strokeRect(getCollisionX() - cameraX, getCollisionY() - cameraY, getCollisionWidth(), getCollisionHeight());
 
         graphicsContext.setStroke(Color.color(1.0, 0.8, 0.15, 0.80));
@@ -1202,10 +1023,24 @@ public class WolfEnemy extends Enemy {
             }
         }
 
-        if (state == BrainState.ATTACK && activeAttackProfile != null && isDamageAnimation(activeAttackProfile.animationState())) {
-            Rectangle2D attackHitbox = buildAttackHitbox(activeAttackProfile);
-            graphicsContext.setStroke(Color.color(1.0, 0.05, 0.05, 0.98));
-            graphicsContext.strokeRect(attackHitbox.getMinX() - cameraX, attackHitbox.getMinY() - cameraY, attackHitbox.getWidth(), attackHitbox.getHeight());
+        AttackProfile debugAttackProfile = activeAttackProfile != null ? activeAttackProfile : ATTACK_TWO;
+        AttackArea attackHitbox = buildAttackArea(debugAttackProfile);
+        graphicsContext.setStroke(Color.color(1.0, 0.05, 0.05, 0.98));
+        graphicsContext.strokeOval(
+                attackHitbox.centerX() - attackHitbox.radiusX() - cameraX,
+                attackHitbox.centerY() - attackHitbox.radiusY() - cameraY,
+                attackHitbox.radiusX() * 2.0,
+                attackHitbox.radiusY() * 2.0
+        );
+        Entity debugTarget = activeEntityTarget != null ? activeEntityTarget : aggroPlayer;
+        if (debugTarget != null && !debugTarget.isDead()) {
+            graphicsContext.setStroke(Color.color(1.0, 1.0, 1.0, 0.98));
+            graphicsContext.strokeRect(
+                    debugTarget.getCollisionX() - cameraX,
+                    debugTarget.getCollisionY() - cameraY,
+                    debugTarget.getCollisionWidth(),
+                    debugTarget.getCollisionHeight()
+            );
         }
         graphicsContext.setFill(Color.color(1.0, 1.0, 1.0, 0.98));
         graphicsContext.fillText(debugStateName(), x - cameraX, y - cameraY - 5.0);
@@ -1213,23 +1048,11 @@ public class WolfEnemy extends Enemy {
     }
 
     private String debugStateName() {
-        if (state == BrainState.CHASE_PLAYER) {
-            return "CHASE";
-        }
-        if (state == BrainState.DYING) {
-            return "DEAD";
-        }
-        if (state == BrainState.NIGHT_ASSAULT) {
-            return "CHASE";
-        }
-        if (state == BrainState.STUCK_RECOVER) {
-            return "STUCK";
-        }
         return state.name();
     }
 
     private void transitionToDeath() {
-        state = BrainState.DYING;
+        state = BrainState.DEATH;
         animationState = AnimationState.DEAD;
         clearAttackTarget();
         clearPath();
@@ -1285,19 +1108,17 @@ public class WolfEnemy extends Enemy {
     }
 
     private void faceTarget(double targetX, double targetY) {
-        updateFacing(targetX - getCenterX(), targetY - getCenterY());
+        updateFacing(targetX - getCenterX(), 0.0);
+    }
+
+    private Direction horizontalDirectionToward(double targetX) {
+        return targetX >= getCenterX() ? Direction.RIGHT : Direction.LEFT;
     }
 
     private void updateFacing(double dx, double dy) {
-        if (Math.abs(dx) >= Math.abs(dy)) {
+        if (Math.abs(dx) >= FACE_MOVE_THRESHOLD) {
             facingDirection = dx >= 0 ? Direction.RIGHT : Direction.LEFT;
-        } else {
-            facingDirection = dy >= 0 ? Direction.DOWN : Direction.UP;
         }
-    }
-
-    private double distanceToHome() {
-        return distanceTo(homeX, homeY);
     }
 
     private double distanceTo(double targetX, double targetY) {
@@ -1325,6 +1146,38 @@ public class WolfEnemy extends Enemy {
             return minA - maxB;
         }
         return 0.0;
+    }
+
+    private boolean intersectsCircleAndRect(double circleX,
+                                            double circleY,
+                                            double radius,
+                                            double rectX,
+                                            double rectY,
+                                            double rectWidth,
+                                            double rectHeight) {
+        double nearestX = Math.max(rectX, Math.min(circleX, rectX + rectWidth));
+        double nearestY = Math.max(rectY, Math.min(circleY, rectY + rectHeight));
+        double dx = circleX - nearestX;
+        double dy = circleY - nearestY;
+        return dx * dx + dy * dy <= radius * radius;
+    }
+
+    private boolean intersectsEllipseAndRect(double ellipseX,
+                                             double ellipseY,
+                                             double radiusX,
+                                             double radiusY,
+                                             double rectX,
+                                             double rectY,
+                                             double rectWidth,
+                                             double rectHeight) {
+        if (radiusX <= 0.0 || radiusY <= 0.0) {
+            return false;
+        }
+        double nearestX = Math.max(rectX, Math.min(ellipseX, rectX + rectWidth));
+        double nearestY = Math.max(rectY, Math.min(ellipseY, rectY + rectHeight));
+        double normalizedX = (nearestX - ellipseX) / radiusX;
+        double normalizedY = (nearestY - ellipseY) / radiusY;
+        return normalizedX * normalizedX + normalizedY * normalizedY <= 1.0;
     }
 
     private SpriteAnimation currentAnimation() {
@@ -1360,5 +1213,8 @@ public class WolfEnemy extends Enemy {
     }
 
     private record PathNode(Node node, double score) {
+    }
+
+    private record AttackArea(double centerX, double centerY, double radiusX, double radiusY) {
     }
 }
