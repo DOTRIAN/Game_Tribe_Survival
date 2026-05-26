@@ -135,7 +135,8 @@ public class Game {
     private final List<MapObjectData> mapCollisions;
     private final ResourceManager resourceManager;
     private final TileCollisionResolver tileCollisionResolver;
-    private final DayNightCycle dayNightCycle;
+    private final DayNightManager dayNightManager;
+    private final EnemyWaveManager enemyWaveManager;
     private final List<FloatingDamageText> floatingDamageTexts;
     private final List<DroppedItem> droppedItems;
     private final List<ArrowProjectile> arrowProjectiles;
@@ -212,6 +213,7 @@ public class Game {
     private static final String PICKAXE_ITEM_ID = "pickaxe";
     private static final String AXE_ITEM_ID = "axe";
     private static final String CARROT_ITEM_ID = "carrot";
+    private static final String NIKU_ITEM_ID = "niku";
     private static final String[] HOTBAR_PRIORITY = {
             WOOD_FENCE_ITEM_ID,
             TORCH_ITEM_ID,
@@ -292,7 +294,8 @@ public class Game {
         this.gameLoop = new GameLoop(this);
         this.enemies = new ArrayList<>();
         this.resourceManager = new ResourceManager();
-        this.dayNightCycle = new DayNightCycle();
+        this.dayNightManager = new DayNightManager();
+        this.enemyWaveManager = new EnemyWaveManager();
         this.floatingDamageTexts = new ArrayList<>();
         this.droppedItems = new ArrayList<>();
         this.arrowProjectiles = new ArrayList<>();
@@ -425,7 +428,6 @@ public class Game {
         }
         loadMapWoodFences();
         spawnAmbientBlackGrouse();
-        spawnCornerWolves();
         refreshBuildInventoryUi();
         renderer.setContinueAvailable(hasLoadedSaveSnapshot);
         renderer.setSettingsBackAction(this::closeSettingsFromUi);
@@ -568,9 +570,13 @@ public class Game {
                 screenShakeX,
                 screenShakeY,
                 screenFlashUntilNs > now ? Math.min(1.0, (screenFlashUntilNs - now) / 180_000_000.0) : 0.0,
-                dayNightCycle.getDarknessAlpha(now),
-                dayNightCycle.isNight(now),
-                dayNightCycle.getPhaseName(now),
+                dayNightManager.getDarknessAlpha(now),
+                dayNightManager.isNight(now),
+                dayNightManager.getPhaseName(now),
+                dayNightManager.getTimeIcon(now),
+                dayNightManager.getTimeTitle(now),
+                dayNightManager.getClockText(now),
+                dayNightManager.getAnnouncement(now),
                 worldWidth,
                 worldHeight
         );
@@ -631,7 +637,8 @@ public class Game {
             baseCamp.configure(safeSpawn[0] - 72, safeSpawn[1] - 72, 116, 116, DEFAULT_BASE_CAMP_HP);
             baseCamp.clampPosition(0, 0, worldWidth, worldHeight);
         }
-        dayNightCycle.reset(System.nanoTime());
+        dayNightManager.reset(System.nanoTime());
+        enemyWaveManager.reset();
         updateCamera();
     }
 
@@ -1443,7 +1450,6 @@ public class Game {
         resetWorldPosition();
         loadMapWoodFences();
         spawnAmbientBlackGrouse();
-        spawnCornerWolves();
         gameState = GameState.PLAYING;
     }
 
@@ -1454,17 +1460,52 @@ public class Game {
     }
 
     private void updateEnemySpawning(long now) {
-        updateWallJumperSpawning(now);
-        updateGolemSpawning(now);
-        if (now - lastEnemySpawnAtNs < ENEMY_SPAWN_INTERVAL_NS) {
-            return;
-        }
+        enemyWaveManager.update(now, dayNightManager, new EnemyWaveManager.WaveActions() {
+            @Override
+            public void spawnDayWolves(int count) {
+                Game.this.spawnWaveWolves(count);
+            }
 
-        lastEnemySpawnAtNs = now;
+            @Override
+            public void spawnNightWolves(int count) {
+                Game.this.spawnWaveWolves(count);
+            }
+
+            @Override
+            public void spawnGolems(int count, GolemEnemy.GolemMode mode) {
+                Game.this.spawnGolemWave(count, mode);
+            }
+
+            @Override
+            public void spawnWallJumpers(int count) {
+                Game.this.spawnWallJumperWave(count);
+            }
+
+            @Override
+            public void showWarning() {
+                renderer.showToast("Màn đêm sắp xuống. Hãy dựng rào và chuẩn bị vũ khí.");
+            }
+
+            @Override
+            public void showDawn() {
+                renderer.showToast("Trời sắp sáng. Quái đang rút khỏi trại.");
+            }
+
+            @Override
+            public void startDawnRetreat() {
+                // Spawn da dung o phase DAWN. AI hien tai tiep tuc chay ra/bi despawn khi sang ngay moi.
+            }
+
+            @Override
+            public void finishDawn() {
+                Game.this.despawnHostileEnemiesForMorning();
+                renderer.showToast("Trời đã sáng. Quái rút vào rừng.");
+            }
+        });
     }
 
     private void updateEnemies(long now) {
-        wolfSpawnManager.updateAll(now, dayNightCycle.isNight(now), player, baseCamp, debugCollisionOverlayEnabled, worldWidth, worldHeight);
+        wolfSpawnManager.updateAll(now, dayNightManager.isNight(now), player, baseCamp, debugCollisionOverlayEnabled, worldWidth, worldHeight);
         List<Enemy> dead = new ArrayList<>();
         for (Enemy enemy : enemies) {
             if (enemy == null) {
@@ -2306,7 +2347,38 @@ public class Game {
         }
     }
 
+    private void spawnWaveWolves(int count) {
+        wolfSpawnManager.spawnAtMapEdges(enemies, count, worldWidth, worldHeight);
+    }
+
+    private void spawnGolemWave(int count, GolemEnemy.GolemMode mode) {
+        for (int i = 0; i < count; i++) {
+            GolemEnemy spawned = spawnGolemEnemy(mode);
+            if (spawned != null) {
+                enemies.add(spawned);
+            }
+        }
+    }
+
+    private void spawnWallJumperWave(int count) {
+        for (int i = 0; i < count; i++) {
+            WallJumperEnemy spawned = spawnWallJumperEnemy();
+            if (spawned != null) {
+                enemies.add(spawned);
+            }
+        }
+    }
+
+    private void despawnHostileEnemiesForMorning() {
+        enemies.removeIf(enemy -> enemy != null && enemy.isHostile());
+        wolfSpawnManager.clear();
+    }
+
     private GolemEnemy spawnGolemEnemy() {
+        return spawnGolemEnemy(GolemEnemy.GolemMode.NORMAL);
+    }
+
+    private GolemEnemy spawnGolemEnemy(GolemEnemy.GolemMode mode) {
         for (int attempt = 0; attempt < 16; attempt++) {
             double[] spawn = randomEdgeSpawnPoint(GolemEnemy.RENDER_WIDTH, GolemEnemy.RENDER_HEIGHT);
             GolemEnemy enemy = new GolemEnemy(
@@ -2333,7 +2405,8 @@ public class Game {
                         public boolean damageWall(GolemEnemy enemy, BuildObject wall, long nowNs) {
                             return Game.this.damageGolemWall(enemy, wall, nowNs);
                         }
-                    }
+                    },
+                    mode
             );
             if (canGolemOccupy(enemy, enemy.getX(), enemy.getY(), enemy.getWidth(), enemy.getHeight())) {
                 return enemy;
@@ -2882,10 +2955,6 @@ public class Game {
         blackGrouseSpawnManager.spawnInitialFlock(enemies);
     }
 
-    private void spawnCornerWolves() {
-        wolfSpawnManager.spawnAtMapCorners(enemies, worldWidth, worldHeight);
-    }
-
     private int countAliveEnemyByType(String type) {
         int count = 0;
         for (Enemy enemy : enemies) {
@@ -3220,6 +3289,9 @@ public class Game {
     private void seedStartingBuildItems() {
         if (inventory.getAmount(COIN_ITEM_ID) <= 0) {
             inventory.addItem(COIN_ITEM_ID, GameBalance.STARTING_COIN_AMOUNT);
+        }
+        if (inventory.getAmount(NIKU_ITEM_ID) <= 0) {
+            inventory.addItem(NIKU_ITEM_ID, 2);
         }
     }
 

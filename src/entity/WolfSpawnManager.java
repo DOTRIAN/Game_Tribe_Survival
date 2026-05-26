@@ -51,6 +51,24 @@ public class WolfSpawnManager {
         }
     }
 
+    public void spawnAtMapEdges(List<Enemy> masterEnemies, int count, double worldWidth, double worldHeight) {
+        if (masterEnemies == null || count <= 0) {
+            return;
+        }
+        double renderWidth = defaultWolfSize();
+        double renderHeight = defaultWolfSize();
+        double margin = Math.max(CORNER_MARGIN, Math.max(renderWidth, renderHeight) * 3.0);
+        for (int i = 0; i < count; i++) {
+            double[] point = edgeSpawnPoint(i, renderWidth, renderHeight, margin, worldWidth, worldHeight);
+            WolfEnemy wolf = spawnNearCorner(point[0], point[1], renderWidth, renderHeight, worldWidth, worldHeight);
+            if (wolf == null) {
+                continue;
+            }
+            wolves.add(wolf);
+            masterEnemies.add(wolf);
+        }
+    }
+
     public void updateAll(long nowNs,
                           boolean isNight,
                           Player player,
@@ -117,6 +135,18 @@ public class WolfSpawnManager {
         }
         double tile = Math.max(collisionManager.getTileWidth(), collisionManager.getTileHeight());
         return Math.max(68.0, tile * 2.15);
+    }
+
+    private double[] edgeSpawnPoint(int index, double width, double height, double margin, double worldWidth, double worldHeight) {
+        double maxX = Math.max(0.0, worldWidth - width);
+        double maxY = Math.max(0.0, worldHeight - height);
+        double sideOffset = 0.18 + 0.64 * random.nextDouble();
+        return switch (index % 4) {
+            case 0 -> new double[]{clamp(margin * 0.25, 0.0, maxX), clamp(worldHeight * sideOffset, 0.0, maxY)};
+            case 1 -> new double[]{clamp(worldWidth - width - margin * 0.25, 0.0, maxX), clamp(worldHeight * sideOffset, 0.0, maxY)};
+            case 2 -> new double[]{clamp(worldWidth * sideOffset, 0.0, maxX), clamp(margin * 0.25, 0.0, maxY)};
+            default -> new double[]{clamp(worldWidth * sideOffset, 0.0, maxX), clamp(worldHeight - height - margin * 0.25, 0.0, maxY)};
+        };
     }
 
     private double clamp(double value, double min, double max) {

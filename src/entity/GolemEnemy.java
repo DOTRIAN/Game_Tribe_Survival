@@ -34,6 +34,11 @@ public class GolemEnemy extends Enemy {
         DYING
     }
 
+    public enum GolemMode {
+        NORMAL,
+        WALL_BREAKER
+    }
+
     private enum AttackDirection {
         LEFT,
         RIGHT,
@@ -107,6 +112,7 @@ public class GolemEnemy extends Enemy {
     private final MovementValidator movementValidator;
     private final WorldQuery worldQuery;
     private final List<Point2D> currentPath;
+    private final GolemMode mode;
 
     private State state;
     private State resumeStateAfterHurt;
@@ -128,6 +134,10 @@ public class GolemEnemy extends Enemy {
     private boolean attackDamageAppliedThisCycle;
 
     public GolemEnemy(double x, double y, MovementValidator movementValidator, WorldQuery worldQuery) {
+        this(x, y, movementValidator, worldQuery, GolemMode.NORMAL);
+    }
+
+    public GolemEnemy(double x, double y, MovementValidator movementValidator, WorldQuery worldQuery, GolemMode mode) {
         super(
                 x + HITBOX_OFFSET_X,
                 y + HITBOX_OFFSET_Y,
@@ -154,6 +164,7 @@ public class GolemEnemy extends Enemy {
         this.movementValidator = movementValidator;
         this.worldQuery = worldQuery;
         this.currentPath = new ArrayList<>();
+        this.mode = mode == null ? GolemMode.NORMAL : mode;
         this.state = State.WALKING_TO_BASE;
         this.resumeStateAfterHurt = State.WALKING_TO_BASE;
         this.currentTarget = null;
@@ -209,6 +220,16 @@ public class GolemEnemy extends Enemy {
         if (currentBuildTarget != null) {
             updateBuildTarget(nowNs, preferredTarget, worldWidth, worldHeight);
             return;
+        }
+
+        if (mode == GolemMode.WALL_BREAKER && worldQuery != null) {
+            BuildObject wall = worldQuery.findNearestWallToAttack(this, preferredTarget.getCenterX(), preferredTarget.getCenterY(), WALL_SEARCH_RANGE);
+            if (wall != null) {
+                currentBuildTarget = wall;
+                clearPath();
+                updateBuildTarget(nowNs, preferredTarget, worldWidth, worldHeight);
+                return;
+            }
         }
 
         updateEntityTarget(nowNs, preferredTarget, worldWidth, worldHeight);
@@ -327,6 +348,10 @@ public class GolemEnemy extends Enemy {
 
     public BuildObject getCurrentBuildTarget() {
         return currentBuildTarget;
+    }
+
+    public GolemMode getMode() {
+        return mode;
     }
 
     public double getAggroRange() {
@@ -448,6 +473,9 @@ public class GolemEnemy extends Enemy {
     }
 
     private boolean shouldDropBuildTargetForEntity(Entity target) {
+        if (mode == GolemMode.WALL_BREAKER) {
+            return false;
+        }
         return target != null
                 && target.isAlive()
                 && !(target instanceof BaseCamp)

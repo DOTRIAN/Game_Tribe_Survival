@@ -149,6 +149,7 @@ public class Renderer {
                        double cameraShakeY,
                        double screenFlashAlpha,
                        double darknessAlpha, boolean isNight, String dayNightPhase,
+                       String timeIcon, String timeTitle, String timeClock, String timeAnnouncement,
                        double worldWidth, double worldHeight) {
         double viewportWidth = getViewportWidth();
         double viewportHeight = getViewportHeight();
@@ -189,7 +190,8 @@ public class Renderer {
             renderGameplay(player, baseCamp, enemies, friendlyArchers, now, cameraX, cameraY, currentLevel, objectiveStatus,
                     debugCollisionOverlayEnabled, mapCollisions, allResources, collectedResources, buildManager, arrowProjectiles, thrownBombs, droppedItems, explosionEffects, fireBombBurnZones, floatingDamageTexts,
                     cameraShakeX, cameraShakeY, screenFlashAlpha,
-                    darknessAlpha, isNight, dayNightPhase, worldWidth, worldHeight, viewportWidth, viewportHeight);
+                    darknessAlpha, isNight, dayNightPhase, timeIcon, timeTitle, timeClock, timeAnnouncement,
+                    worldWidth, worldHeight, viewportWidth, viewportHeight);
             return;
         }
 
@@ -357,6 +359,10 @@ public class Renderer {
                                 double darknessAlpha,
                                 boolean isNight,
                                 String dayNightPhase,
+                                String timeIcon,
+                                String timeTitle,
+                                String timeClock,
+                                String timeAnnouncement,
                                 double worldWidth,
                                 double worldHeight,
                                 double viewportWidth,
@@ -418,6 +424,8 @@ public class Renderer {
         graphicsContext.setFill(Color.color(1, 1, 1, 0.82));
         graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 12));
         graphicsContext.fillText("Light: " + dayNightPhase + " alpha=" + String.format("%.2f", darknessAlpha), 16, viewportHeight - 18);
+
+        TimeUI.render(graphicsContext, viewportWidth, timeIcon, timeTitle, timeClock, timeAnnouncement);
 
         if (currentLevel != null && objectiveStatus != null && !objectiveStatus.isBlank()) {
             graphicsContext.setFill(Color.color(0, 0, 0, 0.30));
