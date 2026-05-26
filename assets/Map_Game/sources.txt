@@ -73,7 +73,6 @@ D:\IT\Game_TEST\src\entity\BaseCamp.java
 D:\IT\Game_TEST\src\entity\BlackGrouseEnemy.java
 D:\IT\Game_TEST\src\entity\BlackGrouseSpawnManager.java
 D:\IT\Game_TEST\src\entity\BombDropItem.java
-D:\IT\Game_TEST\src\entity\BossEnemy.java
 D:\IT\Game_TEST\src\entity\CollectibleDrop.java
 D:\IT\Game_TEST\src\entity\Direction.java
 D:\IT\Game_TEST\src\entity\DroppedItem.java
@@ -83,11 +82,11 @@ D:\IT\Game_TEST\src\entity\EnemyState.java
 D:\IT\Game_TEST\src\entity\Entity.java
 D:\IT\Game_TEST\src\entity\FriendlyArcher.java
 D:\IT\Game_TEST\src\entity\FriendlyArcherManager.java
-D:\IT\Game_TEST\src\entity\OrcEnemy.java
 D:\IT\Game_TEST\src\entity\Player.java
-D:\IT\Game_TEST\src\entity\SkeletonEnemy.java
 D:\IT\Game_TEST\src\entity\ThrownBomb.java
 D:\IT\Game_TEST\src\entity\TreeEntity.java
+D:\IT\Game_TEST\src\entity\WolfEnemy.java
+D:\IT\Game_TEST\src\entity\WolfSpawnManager.java
 D:\IT\Game_TEST\src\event\GameEvent.java
 D:\IT\Game_TEST\src\event\GameEventBus.java
 D:\IT\Game_TEST\src\event\GameEventType.java

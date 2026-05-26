@@ -49,6 +49,7 @@ public class AssetManager implements BuildAssetResolver {
     private static final Path FIRE_BOMB_ANIMATION_PATH = Path.of("assets", "firebomb", "animation_fire.png");
     private static final Path FIRE_BOMB_FINAL_1_PATH = Path.of("assets", "firebomb", "animation_final_1.png");
     private static final Path FIRE_BOMB_FINAL_2_PATH = Path.of("assets", "firebomb", "animation_final_2.png");
+    private static final Path CHEST_DIR = Path.of("assets", "chest");
     private static final int ARCHER_SHEET_ROWS = 1;
     private static final int ARCHER_IDLE_FRAME_COUNT = 4;
     private static final int FRIENDLY_ARCHER_IDLE_COLS = 7;
@@ -74,6 +75,7 @@ public class AssetManager implements BuildAssetResolver {
         loadFriendlyArcherSprites();
         loadBombTrapSprites();
         loadThrowableFireBombSprites();
+        loadChestSprites();
     }
 
     /**
@@ -277,6 +279,51 @@ public class AssetManager implements BuildAssetResolver {
         if (emberFrames.length > 0) {
             animationCache.put("fire_bomb_ember", emberFrames);
             spriteCache.put("fire_bomb_ember", emberFrames[0]);
+        }
+    }
+
+    private void loadChestSprites() {
+        Path closedPath = findChestImagePath("closed");
+        Path ajarPath = findChestImagePath("ajar");
+        Path openPath = findChestImagePath("open");
+        if (closedPath == null) {
+            return;
+        }
+
+        Image closed = cleanBombFrameBackground(new Image(closedPath.toUri().toString()));
+        if (closed == null || closed.isError()) {
+            return;
+        }
+        Image ajar = ajarPath == null ? closed : cleanBombFrameBackground(new Image(ajarPath.toUri().toString()));
+        Image open = openPath == null ? closed : cleanBombFrameBackground(new Image(openPath.toUri().toString()));
+
+        Image[] frames = new Image[] {
+                closed,
+                ajar == null || ajar.isError() ? closed : ajar,
+                open == null || open.isError() ? closed : open
+        };
+        animationCache.put("chest", frames);
+        spriteCache.put("chest_closed", frames[0]);
+        spriteCache.put("chest_ajar", frames[1]);
+        spriteCache.put("chest_open", frames[2]);
+        spriteCache.put("chest_icon", frames[2]);
+    }
+
+    private Path findChestImagePath(String keyword) {
+        if (keyword == null || keyword.isBlank() || !Files.isDirectory(CHEST_DIR)) {
+            return null;
+        }
+        try (var stream = Files.list(CHEST_DIR)) {
+            return stream
+                    .filter(Files::isRegularFile)
+                    .filter(path -> {
+                        String name = path.getFileName().toString().toLowerCase();
+                        return name.contains(keyword.toLowerCase()) && name.endsWith(".png");
+                    })
+                    .findFirst()
+                    .orElse(null);
+        } catch (Exception ignored) {
+            return null;
         }
     }
 

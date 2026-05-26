@@ -48,8 +48,8 @@ public class ResourceManager {
      * - Team co the doi so choi o 1 cho duy nhat nay.
      */
     private void registerDefaultDefinitions() {
-        registerDefinition(new ResourceDefinition("tree_oak", ResourceType.TREE, 5, "wood", 1, 3, -1));
-        registerDefinition(new ResourceDefinition("rock_small", ResourceType.ROCK, GameBalance.ROCK_HITS_TO_BREAK, "stone", 1, 2, -1));
+        registerDefinition(new ResourceDefinition("tree_oak", ResourceType.TREE, 5, "wood", 2, 2, -1));
+        registerDefinition(new ResourceDefinition("rock_small", ResourceType.ROCK, GameBalance.ROCK_HITS_TO_BREAK, "rock", 2, 2, -1));
         registerDefinition(new ResourceDefinition("grass", ResourceType.GRASS, 1, "fiber", 1, 2, 30));
         registerDefinition(new ResourceDefinition("vegetable_carrot", ResourceType.VEGETABLE, 1, "carrot", 1, 1, 60));
     }

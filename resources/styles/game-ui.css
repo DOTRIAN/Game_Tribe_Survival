@@ -289,6 +289,11 @@
     -fx-border-color: rgba(223, 183, 108, 0.2);
 }
 
+.chest-panel {
+    -fx-background-color: linear-gradient(to bottom right, rgba(36, 29, 22, 0.93), rgba(18, 15, 12, 0.96));
+    -fx-border-color: rgba(189, 152, 94, 0.5);
+}
+
 .shop-item-icon,
 .inventory-slot {
     -fx-background-color: rgba(10, 12, 14, 0.5);

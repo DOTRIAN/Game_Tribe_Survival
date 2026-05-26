@@ -4,6 +4,7 @@ import buildsystem.core.BuildManager;
 import buildsystem.sprite.AssetManager;
 import core.GameBalance;
 import core.GameState;
+import drop.InventoryIconLoader;
 import entity.Enemy;
 import entity.Player;
 import javafx.geometry.Pos;
@@ -31,6 +32,7 @@ import java.util.function.IntConsumer;
  * - Bao gom menu, nhap ten, HUD, minimap, hotbar, shop, inventory va settings.
  */
 public class UIManager {
+    private static final String AXE_ITEM_ID = "axe";
     private final AssetManager assetManager;
     private final MainMenuScreen mainMenuScreen;
     private final NameInputScreen nameInputScreen;
@@ -42,6 +44,7 @@ public class UIManager {
     private final HBox hotbarContainer;
     private final ShopOverlay shopOverlay;
     private final InventoryOverlay inventoryOverlay;
+    private final ChestOverlay chestOverlay;
     private final StackPane guideOverlay;
     private final StackPane pauseOverlay;
     private final StackPane gameOverOverlay;
@@ -59,8 +62,10 @@ public class UIManager {
         this.shopItems = List.of(
                 itemMetaMap.get("wall"),
                 itemMetaMap.get("torch"),
+                itemMetaMap.get(AXE_ITEM_ID),
                 itemMetaMap.get("archer_tower"),
                 itemMetaMap.get("friendly_archer"),
+                itemMetaMap.get("chest"),
                 itemMetaMap.get("bomb_trap"),
                 itemMetaMap.get("fire_bomb"),
                 itemMetaMap.get("potion"),
@@ -79,7 +84,8 @@ public class UIManager {
         this.hotbarContainer = new HBox(hotbarOverlay);
         this.shopOverlay = new ShopOverlay();
         this.inventoryOverlay = new InventoryOverlay();
-        this.guideOverlay = buildSimpleOverlay("Guide", "WASD move\nSPACE run\nB shop\nI inventory\nM minimap\nSelect bomb and press Q to throw\nESC close overlay");
+        this.chestOverlay = new ChestOverlay();
+        this.guideOverlay = buildSimpleOverlay("Guide", "WASD move\nSPACE run\nB shop\nI inventory\nC open chest nearby\nM minimap\nSelect bomb and press Q to throw\nESC close overlay");
         this.pauseOverlay = buildSimpleOverlay("Paused", "Press P to resume\nESC returns to menu");
         this.gameOverOverlay = buildSimpleOverlay("Game Over", "Press R to restart");
         this.victoryOverlay = buildSimpleOverlay("Victory", "ENTER start new world\nESC save and back to menu");
@@ -102,6 +108,7 @@ public class UIManager {
                 hotbarContainer,
                 shopOverlay,
                 inventoryOverlay,
+                chestOverlay,
                 guideOverlay,
                 pauseOverlay,
                 gameOverOverlay,
@@ -117,6 +124,7 @@ public class UIManager {
         hotbarContainer.setVisible(false);
         shopOverlay.setVisible(false);
         inventoryOverlay.setVisible(false);
+        chestOverlay.setVisible(false);
         guideOverlay.setVisible(false);
         pauseOverlay.setVisible(false);
         gameOverOverlay.setVisible(false);
@@ -140,6 +148,7 @@ public class UIManager {
         bindOverlayToRoot(root, settingsScreen);
         bindOverlayToRoot(root, shopOverlay);
         bindOverlayToRoot(root, inventoryOverlay);
+        bindOverlayToRoot(root, chestOverlay);
         bindOverlayToRoot(root, guideOverlay);
         bindOverlayToRoot(root, pauseOverlay);
         bindOverlayToRoot(root, gameOverOverlay);
@@ -197,6 +206,10 @@ public class UIManager {
 
     public void configureInventoryClose(Runnable onClose) {
         inventoryOverlay.getCloseButton().setOnAction(event -> onClose.run());
+    }
+
+    public void configureChestClose(Runnable onClose) {
+        chestOverlay.getCloseButton().setOnAction(event -> onClose.run());
     }
 
     public void setContinueEnabled(boolean enabled) {
@@ -261,6 +274,7 @@ public class UIManager {
         if (!gameplayHudVisible) {
             shopOverlay.setVisible(false);
             inventoryOverlay.setVisible(false);
+            chestOverlay.setVisible(false);
         }
 
         switch (gameState) {
@@ -299,6 +313,14 @@ public class UIManager {
         return inventoryOverlay.isVisible();
     }
 
+    public void setChestVisible(boolean visible) {
+        chestOverlay.setVisible(visible);
+    }
+
+    public boolean isChestVisible() {
+        return chestOverlay.isVisible();
+    }
+
     public void toggleMinimap() {
         settings.setMinimapVisible(!settings.isMinimapVisible());
         minimapOverlay.setVisible(settings.isMinimapVisible());
@@ -318,6 +340,10 @@ public class UIManager {
             inventoryOverlay.setVisible(false);
             return true;
         }
+        if (chestOverlay.isVisible()) {
+            chestOverlay.setVisible(false);
+            return true;
+        }
         if (guideOverlay.isVisible()) {
             guideOverlay.setVisible(false);
             return true;
@@ -326,7 +352,7 @@ public class UIManager {
     }
 
     public boolean isBlockingOverlayVisible() {
-        return settingsScreen.isVisible() || shopOverlay.isVisible() || inventoryOverlay.isVisible();
+        return settingsScreen.isVisible() || shopOverlay.isVisible() || inventoryOverlay.isVisible() || chestOverlay.isVisible();
     }
 
     public boolean isMouseOverUi(double sceneX, double sceneY) {
@@ -416,20 +442,29 @@ public class UIManager {
         Image friendlyArcherIcon = assetManager.getSprite("friendly_archer_icon");
         Image bombIcon = assetManager.getSprite("bomb_trap_icon");
         Image fireBombIcon = assetManager.getSprite("fire_bomb_shop_icon");
+        Image chestIcon = assetManager.getSprite("chest_icon");
+        Image woodIcon = InventoryIconLoader.loadMainIcon("assets/Chip/wood");
+        Image rockIcon = InventoryIconLoader.loadMainIcon("assets/Chip/rock");
+        Image nikuIcon = InventoryIconLoader.loadMainIcon("assets/Chip/niku");
+        Image axeIcon = InventoryIconLoader.loadFileIcon("assets/player/Slice_Base/riu.jpg");
         meta.put("wall", new ItemUiMeta("wall", "Wood Fence", "Buildable wooden fence that auto-connects left and right.", GameBalance.WOOD_FENCE_PRICE, "WF", wallIcon));
         meta.put("wood_fence", new ItemUiMeta("wood_fence", "Wood Fence", "Buildable wooden fence that auto-connects left and right.", GameBalance.WOOD_FENCE_PRICE, "WF", wallIcon));
         meta.put("wood_wall", new ItemUiMeta("wood_wall", "Wood Wall", "Legacy wooden wall kept for existing saves.", GameBalance.WOOD_WALL_PRICE, "WW", wallIcon));
         meta.put("potion", new ItemUiMeta("potion", "Potion", "Emergency heal during survival runs.", 12, "PT", null));
         meta.put("torch", new ItemUiMeta("torch", "Torch", "Animated torch that lights dark areas after placement.", GameBalance.TORCH_PRICE, "TR", torchIcon));
+        meta.put(AXE_ITEM_ID, new ItemUiMeta(AXE_ITEM_ID, "Axe", "Equip to use Slice attacks on trees, rocks, and enemies.", 0, "AX", axeIcon, Map.of("wood", 5, "stone", 2)));
         meta.put("archer_tower", new ItemUiMeta("archer_tower", "Archer Tower", "Auto attacks enemies entering its range.", GameBalance.ARCHER_TOWER_PRICE, "AT", archerTowerIcon));
         meta.put("friendly_archer", new ItemUiMeta("friendly_archer", "Archer", "Friendly ranged unit", GameBalance.FRIENDLY_ARCHER_PRICE, "AR", friendlyArcherIcon));
+        meta.put("chest", new ItemUiMeta("chest", "Chest", "Storage chest that can be opened with C when nearby.", 50, "CH", chestIcon));
         meta.put("bomb_trap", new ItemUiMeta("bomb_trap", "Bomb Trap", "Throw with Q and explode in an area, damaging units, fences, and resources.", GameBalance.BOMB_TRAP_PRICE, "BT", bombIcon));
         meta.put("fire_bomb", new ItemUiMeta("fire_bomb", "Fire Bomb", "Throw toward cursor and explode in an area.", GameBalance.FIRE_BOMB_PRICE, "FB", fireBombIcon));
         meta.put("basic_sword", new ItemUiMeta("basic_sword", "Basic Sword", "Starter melee weapon.", 18, "SD", null));
         meta.put("pickaxe", new ItemUiMeta("pickaxe", "Pickaxe", "Useful for mining and gathering.", 14, "PX", null));
         meta.put("coin", new ItemUiMeta("coin", "Coin", "Common shop currency.", 0, "CN", null));
-        meta.put("wood", new ItemUiMeta("wood", "Wood", "Core building resource.", 0, "WD", null));
+        meta.put("wood", new ItemUiMeta("wood", "Wood", "Core building resource.", 0, "WD", woodIcon));
+        meta.put("rock", new ItemUiMeta("rock", "Rock", "Mining resource from stone nodes.", 0, "RK", rockIcon));
         meta.put("stone", new ItemUiMeta("stone", "Stone", "Solid building material.", 0, "ST", null));
+        meta.put("niku", new ItemUiMeta("niku", "Niku", "Meat dropped from animals.", 0, "NK", nikuIcon));
         meta.put("fiber", new ItemUiMeta("fiber", "Fiber", "Soft crafting material.", 0, "FB", null));
         meta.put("carrot", new ItemUiMeta("carrot", "Carrot", "Simple food item.", 3, "CR", null));
         return meta;

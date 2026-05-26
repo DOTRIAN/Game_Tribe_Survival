@@ -24,11 +24,12 @@ import java.util.Map;
  *   4) Render animation run/idle + lat trai/phai
  *
  * Muc tieu OOP:
- * - Class con (OrcEnemy, SkeletonEnemy,...) chi can truyen asset + stat rieng.
+ * - Class con chi can truyen asset + stat rieng.
  * - Gameplay core trong Game xu ly bang da hinh (List<Enemy>).
  */
 public abstract class Enemy extends Entity {
     protected int damage;
+    private boolean deathDropSpawned;
 
     private final SpriteAnimation runAnimation;
     private final SpriteAnimation idleAnimation;
@@ -82,6 +83,7 @@ public abstract class Enemy extends Entity {
         this.facingRight = true;
         this.huggingTarget = false;
         this.lastAttackAtNs = 0L;
+        this.deathDropSpawned = false;
     }
 
     @Override
@@ -180,6 +182,18 @@ public abstract class Enemy extends Entity {
         lastAttackAtNs = now;
     }
 
+    public boolean canAttackNow(long now) {
+        return now - lastAttackAtNs >= attackCooldownNs;
+    }
+
+    public void markAttackNow(long now) {
+        lastAttackAtNs = now;
+    }
+
+    public int getDamage() {
+        return damage;
+    }
+
     public void draw(GraphicsContext graphicsContext, double cameraX, double cameraY, long nowNs) {
         if (!isAlive()) {
             return;
@@ -233,6 +247,14 @@ public abstract class Enemy extends Entity {
 
     public boolean shouldRemoveFromWorld() {
         return !isAlive();
+    }
+
+    public boolean hasSpawnedDeathDrop() {
+        return deathDropSpawned;
+    }
+
+    public void markDeathDropSpawned() {
+        this.deathDropSpawned = true;
     }
 
     // Dung cho spawn manager phan loai loai quai.

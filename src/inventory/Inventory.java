@@ -95,6 +95,13 @@ public class Inventory implements BuildInventory {
     }
 
     private String normalizeItemId(String itemId) {
-        return itemId == null ? "" : itemId.trim().toLowerCase();
+        if (itemId == null) {
+            return "";
+        }
+        String normalized = itemId.trim().toLowerCase();
+        if ("stone".equals(normalized)) {
+            return "rock";
+        }
+        return normalized;
     }
 }

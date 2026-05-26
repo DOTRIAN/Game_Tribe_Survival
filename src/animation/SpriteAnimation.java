@@ -18,6 +18,14 @@ public class SpriteAnimation {
     public void update(long now, boolean moving) {
         if (!moving) {
             currentFrameIndex = 0;
+            lastFrameTime = 0;
+            return;
+        }
+        if (frames.length == 0) {
+            return;
+        }
+        if (lastFrameTime == 0L) {
+            lastFrameTime = now;
             return;
         }
 
@@ -39,6 +47,10 @@ public class SpriteAnimation {
         if (frames.length <= 1) {
             currentFrameIndex = 0;
             return true;
+        }
+        if (lastFrameTime == 0L) {
+            lastFrameTime = now;
+            return false;
         }
         if (currentFrameIndex >= frames.length - 1) {
             return true;

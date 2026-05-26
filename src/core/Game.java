@@ -9,25 +9,27 @@ import buildsystem.fence.FenceEntity;
 import buildsystem.object.ArcherTower;
 import buildsystem.object.BombTrap;
 import buildsystem.object.BuildObject;
+import buildsystem.object.Chest;
 import buildsystem.sprite.AssetManager;
+import drop.AnimatedDropItem;
+import drop.BombDropItem;
+import drop.DropItemType;
+import drop.DropManager;
+import drop.DropSpec;
+import drop.DroppedItem;
 import entity.BaseCamp;
-import entity.BombDropItem;
-import entity.CollectibleDrop;
-import entity.DropType;
-import entity.DroppedItem;
 import entity.ArrowProjectile;
 import entity.BlackGrouseSpawnManager;
-import entity.BossEnemy;
 import entity.Enemy;
 import entity.Entity;
 import entity.FriendlyArcher;
 import entity.FriendlyArcherManager;
 import entity.GolemEnemy;
-import entity.OrcEnemy;
 import entity.Player;
-import entity.SkeletonEnemy;
 import entity.ThrownBomb;
 import entity.WallJumperEnemy;
+import entity.WolfEnemy;
+import entity.WolfSpawnManager;
 import event.GameEvent;
 import event.GameEventBus;
 import event.GameEventType;
@@ -77,7 +79,6 @@ import java.util.Set;
  * Game:
  * - Core game loop state cho mode sinh ton vo han.
  * - Khong con choi theo man; nguoi choi sinh ton trong 1 world lien tuc.
- * - Dieu kien thang: giet boss.
  * - Dieu kien thua: player chet hoac base camp bi pha.
  * - Co save/load session de thoat game vao lai choi tiep.
  */
@@ -100,7 +101,6 @@ public class Game {
     private static final long GOLEM_SPAWN_MIN_INTERVAL_NS = 7_500_000_000L;
     private static final long GOLEM_SPAWN_MAX_INTERVAL_NS = 11_500_000_000L;
     private static final long AUTOSAVE_INTERVAL_NS = 20_000_000_000L;
-    private static final int BOSS_SPAWN_DAY = 6;
     private static final int WALL_JUMPER_MAX_ALIVE = 5;
     private static final int GOLEM_MAX_ALIVE = 2;
 
@@ -119,11 +119,11 @@ public class Game {
     private final BuildController buildController;
     private final CollisionManager buildCollisionManager;
     private final BlackGrouseSpawnManager blackGrouseSpawnManager;
+    private final WolfSpawnManager wolfSpawnManager;
     private final Player player;
     private final BaseCamp baseCamp;
     private final List<Enemy> enemies;
     private final FriendlyArcherManager friendlyArcherManager;
-    private BossEnemy bossEnemy;
 
     private final List<MapObjectData> mapCollisions;
     private final ResourceManager resourceManager;
@@ -133,7 +133,6 @@ public class Game {
     private final List<DroppedItem> droppedItems;
     private final List<ArrowProjectile> arrowProjectiles;
     private final List<ThrownBomb> thrownBombs;
-    private final List<CollectibleDrop> droppedCollectibles;
     private final List<ExplosionEffect> explosionEffects;
     private final List<FireBombBurnZone> fireBombBurnZones;
     private final BombSystem bombSystem;
@@ -194,14 +193,18 @@ public class Game {
     private static final String ARCHER_TOWER_ITEM_ID = "archer_tower";
     private static final String FRIENDLY_ARCHER_ITEM_ID = "friendly_archer";
     private static final String BOMB_TRAP_ITEM_ID = "bomb_trap";
+    private static final String CHEST_ITEM_ID = "chest";
     private static final String FIRE_BOMB_ITEM_ID = "fire_bomb";
     private static final String BASIC_SWORD_ITEM_ID = "basic_sword";
     private static final String PICKAXE_ITEM_ID = "pickaxe";
+    private static final String AXE_ITEM_ID = "axe";
     private static final String CARROT_ITEM_ID = "carrot";
     private static final String[] HOTBAR_PRIORITY = {
             WOOD_FENCE_ITEM_ID,
             TORCH_ITEM_ID,
+            AXE_ITEM_ID,
             ARCHER_TOWER_ITEM_ID,
+            CHEST_ITEM_ID,
             BOMB_TRAP_ITEM_ID,
             FIRE_BOMB_ITEM_ID,
             BASIC_SWORD_ITEM_ID,
@@ -210,16 +213,27 @@ public class Game {
             CARROT_ITEM_ID,
             WOOD_WALL_ITEM_ID
     };
-    private static final int DROP_STACK_MIN = 1;
-    private static final int DROP_STACK_MAX = 5;
-    private static final int COIN_VALUE_PER_ITEM = 5;
-    private static final int XP_VALUE_PER_ITEM = 2;
-    private static final double COLLECTIBLE_SIZE = 18.0;
     private static final double DROP_MIN_RADIUS = 20.0;
     private static final double DROP_MAX_RADIUS = 60.0;
     private static final double DROP_MIN_DISTANCE = 16.0;
     private static final int DROP_POSITION_MAX_ATTEMPTS = 24;
     private static final boolean DEBUG_DROP_LOGS = false;
+    private static final List<DropSpec> TREE_DROP_TABLE = List.of(
+            new DropSpec(DropItemType.WOOD, 2),
+            new DropSpec(DropItemType.XP, 2)
+    );
+    private static final List<DropSpec> ROCK_DROP_TABLE = List.of(
+            new DropSpec(DropItemType.ROCK, 2),
+            new DropSpec(DropItemType.XP, 2)
+    );
+    private static final List<DropSpec> ENEMY_DROP_TABLE = List.of(
+            new DropSpec(DropItemType.GOLD, 2),
+            new DropSpec(DropItemType.XP, 2)
+    );
+    private static final List<DropSpec> ANIMAL_DROP_TABLE = List.of(
+            new DropSpec(DropItemType.NIKU, 2),
+            new DropSpec(DropItemType.XP, 2)
+    );
     private static final int WOOD_FENCE_PRICE = GameBalance.WOOD_FENCE_PRICE;
     private static final int WOOD_WALL_PRICE = GameBalance.WOOD_WALL_PRICE;
     private static final int TORCH_PRICE = GameBalance.TORCH_PRICE;
@@ -227,6 +241,9 @@ public class Game {
     private static final int FRIENDLY_ARCHER_PRICE = GameBalance.FRIENDLY_ARCHER_PRICE;
     private static final int BOMB_TRAP_PRICE = GameBalance.BOMB_TRAP_PRICE;
     private static final int FIRE_BOMB_PRICE = GameBalance.FIRE_BOMB_PRICE;
+    private static final int CHEST_PRICE = GameBalance.CHEST_PRICE;
+    private static final int AXE_WOOD_COST = 5;
+    private static final int AXE_STONE_COST = 2;
     private static final double BOMB_TRAP_THROW_SPEED = 7.6;
     private static final double BOMB_TRAP_THROW_RANGE = 240.0;
     private static final double BOMB_TRAP_RENDER_SIZE = 18.0;
@@ -234,6 +251,7 @@ public class Game {
     private static final double FIRE_BOMB_THROW_RANGE = 260.0;
     private static final long FIRE_BOMB_FUSE_NS = 900_000_000L;
     private static final double FIRE_BOMB_RENDER_SIZE = 18.0;
+    private static final double CHEST_INTERACT_RANGE = 78.0;
 
     // selectedHotbarIndex:
     // - Luu slot nguoi choi dang chon tren thanh hotbar.
@@ -248,13 +266,14 @@ public class Game {
     private boolean suppressWorldPrimaryUntilMouseRelease;
     private boolean skipWorldPrimaryClickOnce;
     private boolean debugCollisionOverlayEnabled;
+    private Chest openedChest;
 
     public Game(Stage stage) {
         // Constructor:
         // - Khoi tao tat ca subsystem runtime cho 1 session sinh ton.
         this.inputHandler = new InputHandler();
         this.wallAssetManager = new AssetManager();
-        CollectibleDrop.preloadAssets();
+        DropManager.preloadAll();
         this.player = new Player(100, 100, 58, 58, 4, 100);
         this.baseCamp = new BaseCamp(0, 0, 116, 116, DEFAULT_BASE_CAMP_HP);
         this.gameLoop = new GameLoop(this);
@@ -265,7 +284,6 @@ public class Game {
         this.droppedItems = new ArrayList<>();
         this.arrowProjectiles = new ArrayList<>();
         this.thrownBombs = new ArrayList<>();
-        this.droppedCollectibles = new ArrayList<>();
         this.explosionEffects = new ArrayList<>();
         this.fireBombBurnZones = new ArrayList<>();
         this.bombSystem = new BombSystem();
@@ -304,6 +322,7 @@ public class Game {
         this.suppressWorldPrimaryUntilMouseRelease = false;
         this.skipWorldPrimaryClickOnce = false;
         this.debugCollisionOverlayEnabled = false;
+        this.openedChest = null;
 
         MapData loadedMap = tryLoadMap();
         this.mapData = loadedMap;
@@ -342,6 +361,37 @@ public class Game {
                 player,
                 random
         );
+        this.wolfSpawnManager = new WolfSpawnManager(
+                buildCollisionManager,
+                this::canWolfOccupy,
+                new WolfEnemy.WorldQuery() {
+                    @Override
+                    public int getTileWidth() {
+                        return buildCollisionManager.getTileWidth();
+                    }
+
+                    @Override
+                    public int getTileHeight() {
+                        return buildCollisionManager.getTileHeight();
+                    }
+
+                    @Override
+                    public BuildObject findNearestWallToAttack(WolfEnemy enemy, double towardX, double towardY, double maxDistance) {
+                        return Game.this.findNearestWolfWallToAttack(enemy, towardX, towardY, maxDistance);
+                    }
+
+                    @Override
+                    public boolean damageWall(WolfEnemy enemy, BuildObject wall, long nowNs) {
+                        return Game.this.damageWolfWall(enemy, wall, nowNs);
+                    }
+
+                    @Override
+                    public boolean damageBase(WolfEnemy enemy, BaseCamp baseCamp, long nowNs) {
+                        return Game.this.damageWolfBase(enemy, baseCamp, nowNs);
+                    }
+                },
+                random
+        );
         this.buildController = new BuildController(buildManager);
         this.renderer = new Renderer(stage, inputHandler, wallAssetManager);
         this.renderer.setMapData(loadedMap);
@@ -356,13 +406,14 @@ public class Game {
         }
         loadMapWoodFences();
         spawnAmbientBlackGrouse();
+        spawnCornerWolves();
         refreshBuildInventoryUi();
         renderer.setContinueAvailable(hasLoadedSaveSnapshot);
         renderer.setSettingsBackAction(this::closeSettingsFromUi);
 
         // Event system: hien tai chi log cac event quan trong de debug gameplay.
         eventBus.subscribe(event -> {
-            if (event.getType() == GameEventType.WORLD_SAVED || event.getType() == GameEventType.BOSS_KILLED) {
+            if (event.getType() == GameEventType.WORLD_SAVED) {
                 System.out.println("[Event] " + event.getType() + " " + event.getPayload());
             }
         });
@@ -412,6 +463,12 @@ public class Game {
             suppressWorldPrimaryUntilMouseRelease = true;
             skipWorldPrimaryClickOnce = true;
             renderer.setInventoryVisible(false);
+        });
+        renderer.setChestCloseAction(() -> {
+            inputHandler.consumeMouseLeftClick();
+            suppressWorldPrimaryUntilMouseRelease = true;
+            skipWorldPrimaryClickOnce = true;
+            closeChestOverlay();
         });
     }
 
@@ -487,7 +544,6 @@ public class Game {
                 droppedItems,
                 explosionEffects,
                 fireBombBurnZones,
-                droppedCollectibles,
                 floatingDamageTexts,
                 screenShakeX,
                 screenShakeY,
@@ -920,6 +976,9 @@ public class Game {
         if (inputHandler.isJustPressed(KeyCode.I)) {
             renderer.toggleInventory();
         }
+        if (inputHandler.isJustPressed(KeyCode.C)) {
+            toggleCampChestOverlay(now);
+        }
 
         if (inputHandler.isJustPressed(KeyCode.ESCAPE) && renderer.closeTopOverlay()) {
             renderer.hideToast();
@@ -962,6 +1021,9 @@ public class Game {
         }
         boolean mouseOverUi = renderer.isMouseOverUi(inputHandler.getMouseX(), inputHandler.getMouseY());
         boolean blockingOverlayVisible = renderer.isBlockingOverlayVisible();
+        if (renderer.isChestVisible() && findNearestUsableChest(player.getCenterX(), player.getCenterY(), CHEST_INTERACT_RANGE) == null) {
+            closeChestOverlay();
+        }
         // Build preview:
         // - Chuyen mouse screen-space sang world-space qua camera/zoom.
         // - Snap ve grid de preview va wall that nam dung tren tile map.
@@ -1031,11 +1093,11 @@ public class Game {
                     refreshBuildInventoryUi();
                 }
             } else {
-                performPlayerAttack(now, Player.AttackAnimationType.HIT);
+                performPlayerAttack(now, player.getAttackAnimationTypeForCurrentMode());
             }
         } else if (!blockingOverlayVisible && inputHandler.isJustPressed(KeyCode.F)) {
             if (player.consumeEnergy(SKILL_F_ENERGY_COST)) {
-                performPlayerAttack(now, Player.AttackAnimationType.SLICE);
+                performPlayerAttack(now, player.getAttackAnimationTypeForCurrentMode());
             }
         }
 
@@ -1051,7 +1113,6 @@ public class Game {
 
         resourceManager.update(now);
         updateDroppedItemPickup();
-        checkCollectDroppedItems();
         cleanupExpiredDamageTexts(now);
         cleanupExpiredExplosionEffects(now);
         updateScreenImpulse(now);
@@ -1063,12 +1124,6 @@ public class Game {
         updateThrownBombs(now);
         updateFireBombBurnZones(now);
         updateArrowProjectiles(now);
-
-        if (bossEnemy != null && !bossEnemy.isAlive()) {
-            victoryAtNs = now;
-            gameState = GameState.LEVEL_COMPLETE;
-            eventBus.publish(new GameEvent(GameEventType.BOSS_KILLED, Map.of("day", getCurrentSurvivalDay(now))));
-        }
 
         if (!player.isAlive() || !baseCamp.isAlive()) {
             // Luu ly do thua de UI hien dung thong diep thay vi mac dinh "player chet".
@@ -1113,7 +1168,7 @@ public class Game {
         if (inputHandler.isJustPressed(KeyCode.F11)) {
             renderer.toggleFullscreen();
         }
-        // Sau khi thang boss: Enter de tao world moi, ESC de quay menu.
+        // Neu co trigger chien thang khac trong tuong lai: Enter tao world moi, ESC quay menu.
         if (inputHandler.isJustPressed(KeyCode.ENTER)) {
             restartSurvival();
         }
@@ -1204,51 +1259,49 @@ public class Game {
 
         String requestedItemId = itemId.trim().toLowerCase();
         String resolvedItemId = normalizeShopItemId(requestedItemId);
-        int currentCoin = inventory.getAmount(COIN_ITEM_ID);
-        int price = switch (resolvedItemId) {
-            case WOOD_FENCE_ITEM_ID -> WOOD_FENCE_PRICE;
-            case WOOD_WALL_ITEM_ID -> WOOD_WALL_PRICE;
-            case POTION_ITEM_ID -> 12;
-            case TORCH_ITEM_ID -> TORCH_PRICE;
-            case ARCHER_TOWER_ITEM_ID -> ARCHER_TOWER_PRICE;
-            case FRIENDLY_ARCHER_ITEM_ID -> FRIENDLY_ARCHER_PRICE;
-            case BOMB_TRAP_ITEM_ID -> BOMB_TRAP_PRICE;
-            case FIRE_BOMB_ITEM_ID -> FIRE_BOMB_PRICE;
-            case BASIC_SWORD_ITEM_ID -> 18;
-            case PICKAXE_ITEM_ID -> 14;
-            case CARROT_ITEM_ID -> 3;
-            default -> -1;
-        };
-
-        if (price < 0) {
-            logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, false, "unknown-item");
+        Map<String, Integer> purchaseCosts = resolveShopPurchaseCosts(resolvedItemId);
+        if (purchaseCosts.isEmpty()) {
+            logShopPurchase(requestedItemId, resolvedItemId, purchaseCosts, false, "unknown-item");
             renderer.showToast("Unknown item");
             return;
         }
-        if (currentCoin < price) {
-            logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, false, "not-enough-coin");
-            renderer.showToast("Not enough coins");
+
+        if (!hasEnoughResources(purchaseCosts)) {
+            logShopPurchase(requestedItemId, resolvedItemId, purchaseCosts, false, "not-enough-resources");
+            renderer.showToast("Not enough resources");
             return;
         }
 
-        if (!inventory.consumeItem(COIN_ITEM_ID, price)) {
-            logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, false, "coin-consume-failed");
-            renderer.showToast("Coin sync failed");
+        if (!consumePurchaseCosts(purchaseCosts)) {
+            logShopPurchase(requestedItemId, resolvedItemId, purchaseCosts, false, "consume-failed");
+            renderer.showToast("Resource sync failed");
             return;
         }
 
         if (FRIENDLY_ARCHER_ITEM_ID.equals(resolvedItemId)) {
             boolean spawned = spawnFriendlyArcherNearPlayer();
             if (!spawned) {
-                inventory.addItem(COIN_ITEM_ID, price);
-                logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, false, "spawn-failed");
+                refundPurchaseCosts(purchaseCosts);
+                logShopPurchase(requestedItemId, resolvedItemId, purchaseCosts, false, "spawn-failed");
                 renderer.showToast("No valid tile for Archer");
                 return;
             }
             refreshBuildInventoryUi();
-            logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, true, "spawned");
-            System.out.println("Bought FRIENDLY_ARCHER spawned coin = " + inventory.getAmount(COIN_ITEM_ID));
+            logShopPurchase(requestedItemId, resolvedItemId, purchaseCosts, true, "spawned");
             renderer.showToast("Bought Archer");
+            return;
+        }
+        if (CHEST_ITEM_ID.equals(resolvedItemId)) {
+            if (hasAnyAliveChest() || inventory.getAmount(CHEST_ITEM_ID) > 0) {
+                refundPurchaseCosts(purchaseCosts);
+                logShopPurchase(requestedItemId, resolvedItemId, purchaseCosts, false, "already-exists");
+                renderer.showToast("Chest already exists");
+                return;
+            }
+            inventory.addItem(CHEST_ITEM_ID, 1);
+            refreshBuildInventoryUi();
+            logShopPurchase(requestedItemId, resolvedItemId, purchaseCosts, true, "success");
+            renderer.showToast("Bought Chest");
             return;
         }
 
@@ -1256,14 +1309,14 @@ public class Game {
         inventory.addItem(resolvedItemId, 1);
         boolean inventoryAddResult = inventory.getAmount(resolvedItemId) == beforeAmount + 1;
         if (!inventoryAddResult) {
-            inventory.addItem(COIN_ITEM_ID, price);
-            logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, false, "inventory-add-failed");
+            refundPurchaseCosts(purchaseCosts);
+            logShopPurchase(requestedItemId, resolvedItemId, purchaseCosts, false, "inventory-add-failed");
             renderer.showToast("Inventory add failed");
             return;
         }
 
         refreshBuildInventoryUi();
-        logShopPurchase(requestedItemId, resolvedItemId, price, currentCoin, true, "success");
+        logShopPurchase(requestedItemId, resolvedItemId, purchaseCosts, true, "success");
         if (TORCH_ITEM_ID.equals(resolvedItemId)) {
             System.out.println("Bought TORCH quantity = " + inventory.getAmount(TORCH_ITEM_ID) + " coin = " + inventory.getAmount(COIN_ITEM_ID));
         } else if (ARCHER_TOWER_ITEM_ID.equals(resolvedItemId)) {
@@ -1281,8 +1334,8 @@ public class Game {
 
         // Reset world moi: clear enemy/resource procedural va inventory.
         enemies.clear();
+        wolfSpawnManager.clear();
         friendlyArcherManager.clear();
-        bossEnemy = null;
         buildManager.clearObjects();
         inventory.restore(Map.of());
         seedStartingBuildItems();
@@ -1292,7 +1345,6 @@ public class Game {
         droppedItems.clear();
         arrowProjectiles.clear();
         thrownBombs.clear();
-        droppedCollectibles.clear();
         explosionEffects.clear();
         fireBombBurnZones.clear();
         cameraShakeUntilNs = 0L;
@@ -1317,6 +1369,7 @@ public class Game {
         resetWorldPosition();
         loadMapWoodFences();
         spawnAmbientBlackGrouse();
+        spawnCornerWolves();
         gameState = GameState.PLAYING;
     }
 
@@ -1333,40 +1386,18 @@ public class Game {
             return;
         }
 
-        boolean isNight = dayNightCycle.isNight(now);
-        int targetOrc = isNight ? 8 : 2;
-        int targetSkeleton = isNight ? 8 : 0;
-
-        int aliveOrc = countAliveEnemyByType("ORC");
-        int aliveSkeleton = countAliveEnemyByType("SKELETON");
-
-        if (aliveOrc < targetOrc) {
-            double[] spawn = randomEdgeSpawnPoint();
-            enemies.add(new OrcEnemy(spawn[0], spawn[1]));
-        }
-        if (aliveSkeleton < targetSkeleton) {
-            double[] spawn = randomEdgeSpawnPoint();
-            enemies.add(new SkeletonEnemy(spawn[0], spawn[1]));
-        }
-
-        // Spawn boss 1 lan khi dat moc ngay.
-        if (bossEnemy == null && getCurrentSurvivalDay(now) >= BOSS_SPAWN_DAY) {
-            double[] spawn = randomEdgeSpawnPoint();
-            bossEnemy = new BossEnemy(spawn[0], spawn[1]);
-            enemies.add(bossEnemy);
-            eventBus.publish(new GameEvent(GameEventType.BOSS_SPAWNED, Map.of("x", spawn[0], "y", spawn[1])));
-        }
-
         lastEnemySpawnAtNs = now;
     }
 
     private void updateEnemies(long now) {
+        wolfSpawnManager.updateAll(now, dayNightCycle.isNight(now), player, baseCamp, debugCollisionOverlayEnabled, worldWidth, worldHeight);
         List<Enemy> dead = new ArrayList<>();
         for (Enemy enemy : enemies) {
             if (enemy == null) {
                 continue;
             }
             if (enemy.shouldRemoveFromWorld()) {
+                handleEnemyDeathDrops(enemy);
                 dead.add(enemy);
                 continue;
             }
@@ -1400,7 +1431,15 @@ public class Game {
                 }
                 continue;
             }
+            if (enemy instanceof WolfEnemy) {
+                if (enemy.shouldRemoveFromWorld()) {
+                    handleEnemyDeathDrops(enemy);
+                    dead.add(enemy);
+                }
+                continue;
+            }
             if (!enemy.isAlive()) {
+                handleEnemyDeathDrops(enemy);
                 enemy.update(now, player, worldWidth, worldHeight);
                 continue;
             }
@@ -1427,11 +1466,13 @@ public class Game {
             if (ally != null) {
                 enemy.tryAttackEntity(ally, now);
             }
+            tryAttackCampChest(enemy, now);
         }
 
         if (!dead.isEmpty()) {
             enemies.removeAll(dead);
         }
+        wolfSpawnManager.cleanupRemoved();
     }
 
     private void updateArcherTowers(long now) {
@@ -1781,10 +1822,247 @@ public class Game {
             return;
         }
 
-        // Damage base camp theo loai quai de tao khac biet threat.
-        int damage = "BOSS".equalsIgnoreCase(enemy.getEnemyType()) ? 6 : 1;
+        int damage = 1;
         DamageSystem.applyDamage(enemy, baseCamp, damage);
         eventBus.publish(new GameEvent(GameEventType.BASE_CAMP_DAMAGED, Map.of("damage", damage, "hp", baseCamp.getHp())));
+    }
+
+    private void tryAttackCampChest(Enemy enemy, long now) {
+        if (enemy == null || !enemy.isAlive() || !enemy.canAttackNow(now)) {
+            return;
+        }
+        BuildDamageResult hitResult = buildManager.hitFirstDamageableIntersecting(
+                enemy.getCollisionX(),
+                enemy.getCollisionY(),
+                enemy.getCollisionWidth(),
+                enemy.getCollisionHeight(),
+                enemy.getDamage(),
+                now,
+                object -> object != null && object.getType() == buildsystem.core.BuildType.CHEST
+        );
+        if (hitResult == null) {
+            return;
+        }
+        enemy.markAttackNow(now);
+        spawnBuildDamageText(hitResult, now);
+        if (hitResult.isDestroyed()) {
+            if (openedChest == hitResult.getObject()) {
+                openedChest = null;
+            }
+            renderer.setChestVisible(false);
+            renderer.showToast("Chest destroyed");
+        }
+    }
+
+    private BuildObject findNearestWolfWallToAttack(WolfEnemy enemy, double towardX, double towardY, double maxDistance) {
+        if (enemy == null || maxDistance <= 0.0) {
+            return null;
+        }
+        BuildObject nearest = null;
+        double bestScore = Double.POSITIVE_INFINITY;
+        double targetAngle = Math.atan2(towardY - enemy.getCenterY(), towardX - enemy.getCenterX());
+        for (BuildObject object : buildManager.getPlacedObjects()) {
+            if (object == null || !object.isAlive()) {
+                continue;
+            }
+            if (object.getType() != buildsystem.core.BuildType.FENCE
+                    && object.getType() != buildsystem.core.BuildType.WOOD_WALL
+                    && object.getType() != buildsystem.core.BuildType.STONE_WALL
+                    && object.getType() != buildsystem.core.BuildType.DOOR) {
+                continue;
+            }
+            double distance = edgeDistanceBetween(enemy, object);
+            if (distance > maxDistance) {
+                continue;
+            }
+            double angle = Math.atan2(object.getCenterY() - enemy.getCenterY(), object.getCenterX() - enemy.getCenterX());
+            double anglePenalty = Math.abs(normalizeAngleRadians(angle - targetAngle)) * 18.0;
+            double score = distance + anglePenalty;
+            if (score >= bestScore) {
+                continue;
+            }
+            nearest = object;
+            bestScore = score;
+        }
+        return nearest;
+    }
+
+    private boolean damageWolfWall(WolfEnemy enemy, BuildObject wall, long now) {
+        if (enemy == null || wall == null || !wall.isAlive()) {
+            return false;
+        }
+        double attackPadding = 18.0;
+        BuildDamageResult hitResult = buildManager.hitFirstDamageableIntersecting(
+                enemy.getCollisionX() - attackPadding,
+                enemy.getCollisionY() - attackPadding,
+                enemy.getCollisionWidth() + attackPadding * 2.0,
+                enemy.getCollisionHeight() + attackPadding * 2.0,
+                enemy.getDamage(),
+                now,
+                object -> object == wall
+        );
+        if (hitResult == null) {
+            return false;
+        }
+        spawnBuildDamageText(hitResult, now);
+        if (hitResult.isDestroyed() && hitResult.getDropAmount() > 0 && !hitResult.getDropItemId().isBlank()) {
+            spawnDroppedItem(
+                    hitResult.getDropItemId(),
+                    hitResult.getDropAmount(),
+                    hitResult.getObject().getCenterX(),
+                    hitResult.getObject().getCenterY()
+            );
+        }
+        return true;
+    }
+
+    private boolean damageWolfBase(WolfEnemy enemy, BaseCamp targetBaseCamp, long now) {
+        if (enemy == null || targetBaseCamp == null || targetBaseCamp.isDead()) {
+            return false;
+        }
+        int beforeHp = targetBaseCamp.getHp();
+        DamageSystem.applyDamage(enemy, targetBaseCamp, enemy.getDamage(), now);
+        int dealt = Math.max(0, beforeHp - targetBaseCamp.getHp());
+        if (dealt <= 0) {
+            return false;
+        }
+        eventBus.publish(new GameEvent(GameEventType.BASE_CAMP_DAMAGED, Map.of("damage", dealt, "hp", targetBaseCamp.getHp())));
+        return true;
+    }
+
+    private BuildObject findNearestGolemWallToAttack(GolemEnemy enemy, double towardX, double towardY, double maxDistance) {
+        if (enemy == null || maxDistance <= 0.0) {
+            return null;
+        }
+        BuildObject nearest = null;
+        double bestScore = Double.POSITIVE_INFINITY;
+        double targetAngle = Math.atan2(towardY - enemy.getCenterY(), towardX - enemy.getCenterX());
+        for (BuildObject object : buildManager.getPlacedObjects()) {
+            if (object == null || !object.isAlive()) {
+                continue;
+            }
+            if (object.getType() != buildsystem.core.BuildType.FENCE
+                    && object.getType() != buildsystem.core.BuildType.WOOD_WALL
+                    && object.getType() != buildsystem.core.BuildType.STONE_WALL
+                    && object.getType() != buildsystem.core.BuildType.DOOR) {
+                continue;
+            }
+            double distance = edgeDistanceBetween(enemy, object);
+            if (distance > maxDistance) {
+                continue;
+            }
+            double angle = Math.atan2(object.getCenterY() - enemy.getCenterY(), object.getCenterX() - enemy.getCenterX());
+            double anglePenalty = Math.abs(normalizeAngleRadians(angle - targetAngle)) * 20.0;
+            double score = distance + anglePenalty;
+            if (score >= bestScore) {
+                continue;
+            }
+            nearest = object;
+            bestScore = score;
+        }
+        return nearest;
+    }
+
+    private boolean damageGolemWall(GolemEnemy enemy, BuildObject wall, long now) {
+        if (enemy == null || wall == null || !wall.isAlive()) {
+            return false;
+        }
+        BuildDamageResult hitResult = buildManager.hitFirstDamageableIntersecting(
+                enemy.getAttackHitboxX(),
+                enemy.getAttackHitboxY(),
+                enemy.getAttackHitboxWidth(),
+                enemy.getAttackHitboxHeight(),
+                enemy.getDamage(),
+                now,
+                object -> object == wall
+        );
+        if (hitResult == null) {
+            return false;
+        }
+        spawnBuildDamageText(hitResult, now);
+        if (hitResult.isDestroyed() && hitResult.getDropAmount() > 0 && !hitResult.getDropItemId().isBlank()) {
+            spawnDroppedItem(
+                    hitResult.getDropItemId(),
+                    hitResult.getDropAmount(),
+                    hitResult.getObject().getCenterX(),
+                    hitResult.getObject().getCenterY()
+            );
+        }
+        return true;
+    }
+
+    private void toggleCampChestOverlay(long now) {
+        if (renderer.isChestVisible()) {
+            closeChestOverlay();
+            return;
+        }
+        Chest chest = findNearestUsableChest(player.getCenterX(), player.getCenterY(), CHEST_INTERACT_RANGE);
+        if (chest == null) {
+            renderer.showToast("No chest nearby");
+            closeChestOverlay();
+            return;
+        }
+        chest.openTemporarily(now);
+        openedChest = chest;
+        renderer.setChestVisible(true);
+    }
+
+    private void closeChestOverlay() {
+        if (openedChest != null) {
+            openedChest.close();
+            openedChest = null;
+        }
+        renderer.setChestVisible(false);
+    }
+
+    private Chest findNearestUsableChest(double centerX, double centerY, double range) {
+        Chest nearest = null;
+        double nearestDistance = Math.max(0.0, range);
+        for (BuildObject object : buildManager.getPlacedObjects()) {
+            if (!(object instanceof Chest chest) || !chest.isAlive()) {
+                continue;
+            }
+            double dist = distance(centerX, centerY, chest.getCenterX(), chest.getCenterY());
+            if (dist > nearestDistance) {
+                continue;
+            }
+            nearest = chest;
+            nearestDistance = dist;
+        }
+        return nearest;
+    }
+
+    private void ensureCampChestExists() {
+        if (hasAnyAliveChest()) {
+            return;
+        }
+        int tileWidth = Math.max(1, buildCollisionManager.getTileWidth());
+        int tileHeight = Math.max(1, buildCollisionManager.getTileHeight());
+        int baseTileX = (int) Math.floor(baseCamp.getCenterX() / tileWidth);
+        int baseTileY = (int) Math.floor(baseCamp.getCenterY() / tileHeight);
+        int[][] offsets = {
+                {2, 0}, {-2, 0}, {0, 2}, {0, -2}, {3, 1}, {-3, 1}, {1, 3}, {-1, -3}
+        };
+        for (int[] offset : offsets) {
+            int tileX = baseTileX + offset[0];
+            int tileY = baseTileY + offset[1];
+            if (buildManager.spawnWorldObject(CHEST_ITEM_ID, tileX, tileY, player)) {
+                BuildObject placed = buildManager.getPlacedObjectAt(tileX, tileY);
+                if (placed != null) {
+                    placed.setHealth(GameBalance.CHEST_HITS_TO_BREAK);
+                }
+                return;
+            }
+        }
+    }
+
+    private boolean hasAnyAliveChest() {
+        for (BuildObject object : buildManager.getPlacedObjects()) {
+            if (object instanceof Chest chest && chest.isAlive()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void performPlayerAttack(long now, Player.AttackAnimationType attackType) {
@@ -1940,8 +2218,33 @@ public class Game {
 
     private GolemEnemy spawnGolemEnemy() {
         for (int attempt = 0; attempt < 16; attempt++) {
-            double[] spawn = randomEdgeSpawnPoint(112.0, 112.0);
-            GolemEnemy enemy = new GolemEnemy(spawn[0], spawn[1], this::canGolemOccupy);
+            double[] spawn = randomEdgeSpawnPoint(GolemEnemy.RENDER_WIDTH, GolemEnemy.RENDER_HEIGHT);
+            GolemEnemy enemy = new GolemEnemy(
+                    spawn[0],
+                    spawn[1],
+                    this::canGolemOccupy,
+                    new GolemEnemy.WorldQuery() {
+                        @Override
+                        public int getTileWidth() {
+                            return buildCollisionManager.getTileWidth();
+                        }
+
+                        @Override
+                        public int getTileHeight() {
+                            return buildCollisionManager.getTileHeight();
+                        }
+
+                        @Override
+                        public BuildObject findNearestWallToAttack(GolemEnemy enemy, double towardX, double towardY, double maxDistance) {
+                            return Game.this.findNearestGolemWallToAttack(enemy, towardX, towardY, maxDistance);
+                        }
+
+                        @Override
+                        public boolean damageWall(GolemEnemy enemy, BuildObject wall, long nowNs) {
+                            return Game.this.damageGolemWall(enemy, wall, nowNs);
+                        }
+                    }
+            );
             if (canGolemOccupy(enemy, enemy.getX(), enemy.getY(), enemy.getWidth(), enemy.getHeight())) {
                 return enemy;
             }
@@ -2052,13 +2355,6 @@ public class Game {
         long elapsedNs = WorldSaveService.toLong(save.get("elapsedNs"), 0L);
         worldStartedAtNs = System.nanoTime() - Math.max(0L, elapsedNs);
 
-        boolean bossDefeated = WorldSaveService.toInt(save.get("bossDefeated"), 0) == 1;
-        if (!bossDefeated && getCurrentSurvivalDay(System.nanoTime()) >= BOSS_SPAWN_DAY) {
-            double[] spawn = randomEdgeSpawnPoint();
-            bossEnemy = new BossEnemy(spawn[0], spawn[1]);
-            enemies.add(bossEnemy);
-        }
-
         eventBus.publish(new GameEvent(GameEventType.WORLD_LOADED, Map.of("file", SURVIVAL_SAVE_FILE)));
         return true;
     }
@@ -2071,7 +2367,6 @@ public class Game {
         snapshot.put("playerEnergy", player.getEnergy());
         snapshot.put("baseCampHp", baseCamp.getHp());
         snapshot.put("elapsedNs", Math.max(0L, System.nanoTime() - worldStartedAtNs));
-        snapshot.put("bossDefeated", (bossEnemy != null && !bossEnemy.isAlive()) ? 1 : 0);
         snapshot.put("inventory", WorldSaveService.buildInventorySnapshot(inventory));
         snapshot.put("buildObjects", buildManager.exportSaveData());
         snapshot.put("droppedItems", exportDroppedItems());
@@ -2289,7 +2584,13 @@ public class Game {
         if (collisionX < 0 || collisionY < 0 || collisionX + collisionWidth > worldWidth || collisionY + collisionHeight > worldHeight) {
             return false;
         }
-        if (buildCollisionManager.isBlockedByTerrain(collisionX, collisionY, collisionWidth, collisionHeight)
+        if (player != null && player.isAlive()
+                && CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
+                player.getCollisionX(), player.getCollisionY(), player.getCollisionWidth(), player.getCollisionHeight())) {
+            return false;
+        }
+        if (buildCollisionManager.isBlockedByStaticObjects(collisionX, collisionY, collisionWidth, collisionHeight)
+                || buildCollisionManager.isBlockedByTerrain(collisionX, collisionY, collisionWidth, collisionHeight)
                 || buildCollisionManager.isBlockedByWater(collisionX, collisionY, collisionWidth, collisionHeight)
                 || buildCollisionManager.intersectsPlacedBuildObject(collisionX, collisionY, collisionWidth, collisionHeight, buildManager.getPlacedObjects())) {
             return false;
@@ -2300,6 +2601,61 @@ public class Game {
             }
             if (CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
                     other.getCollisionX(), other.getCollisionY(), other.getCollisionWidth(), other.getCollisionHeight())) {
+                return false;
+            }
+        }
+        for (FriendlyArcher archer : friendlyArcherManager.getArchers()) {
+            if (archer == null || !archer.isAlive()) {
+                continue;
+            }
+            if (CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
+                    archer.getCollisionX(), archer.getCollisionY(), archer.getCollisionWidth(), archer.getCollisionHeight())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean canWolfOccupy(WolfEnemy enemy, double x, double y, double width, double height) {
+        if (enemy == null) {
+            return false;
+        }
+        double collisionX = enemy.getCollisionXAt(x, width, height);
+        double collisionY = enemy.getCollisionYAt(y, width, height);
+        double collisionWidth = enemy.getCollisionWidthAt(width, height);
+        double collisionHeight = enemy.getCollisionHeightAt(width, height);
+        if (collisionX < 0 || collisionY < 0 || collisionX + collisionWidth > worldWidth || collisionY + collisionHeight > worldHeight) {
+            return false;
+        }
+        if (intersectsBaseCampCollision(collisionX, collisionY, collisionWidth, collisionHeight)) {
+            return false;
+        }
+        if (player != null && player.isAlive()
+                && CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
+                player.getCollisionX(), player.getCollisionY(), player.getCollisionWidth(), player.getCollisionHeight())) {
+            return false;
+        }
+        if (buildCollisionManager.isBlockedByStaticObjects(collisionX, collisionY, collisionWidth, collisionHeight)
+                || buildCollisionManager.isBlockedByTerrain(collisionX, collisionY, collisionWidth, collisionHeight)
+                || buildCollisionManager.isBlockedByWater(collisionX, collisionY, collisionWidth, collisionHeight)
+                || buildCollisionManager.intersectsPlacedBuildObject(collisionX, collisionY, collisionWidth, collisionHeight, buildManager.getPlacedObjects())) {
+            return false;
+        }
+        for (Enemy other : enemies) {
+            if (other == null || other == enemy || !other.isAlive() || other.shouldRemoveFromWorld()) {
+                continue;
+            }
+            if (CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
+                    other.getCollisionX(), other.getCollisionY(), other.getCollisionWidth(), other.getCollisionHeight())) {
+                return false;
+            }
+        }
+        for (FriendlyArcher archer : friendlyArcherManager.getArchers()) {
+            if (archer == null || !archer.isAlive()) {
+                continue;
+            }
+            if (CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
+                    archer.getCollisionX(), archer.getCollisionY(), archer.getCollisionWidth(), archer.getCollisionHeight())) {
                 return false;
             }
         }
@@ -2399,6 +2755,10 @@ public class Game {
         blackGrouseSpawnManager.spawnInitialFlock(enemies);
     }
 
+    private void spawnCornerWolves() {
+        wolfSpawnManager.spawnAtMapCorners(enemies, worldWidth, worldHeight);
+    }
+
     private int countAliveEnemyByType(String type) {
         int count = 0;
         for (Enemy enemy : enemies) {
@@ -2439,15 +2799,8 @@ public class Game {
 
     private String buildSurvivalObjectiveStatus(long now) {
         int day = getCurrentSurvivalDay(now);
-        String bossStatus;
-        if (bossEnemy == null) {
-            bossStatus = day >= BOSS_SPAWN_DAY ? "Boss: spawning" : "Boss unlock day " + BOSS_SPAWN_DAY;
-        } else {
-            bossStatus = bossEnemy.isAlive() ? "Boss HP: " + bossEnemy.getHp() : "Boss defeated";
-        }
         return "Day " + day
-                + " | Base HP " + baseCamp.getHp() + "/" + baseCamp.getMaxHp()
-                + " | " + bossStatus;
+                + " | Base HP " + baseCamp.getHp() + "/" + baseCamp.getMaxHp();
     }
 
     // getGameOverMessage:
@@ -2623,6 +2976,7 @@ public class Game {
     private boolean isFoodItem(String itemId) {
         String normalized = itemId == null ? "" : itemId.trim().toLowerCase();
         return normalized.contains("meat")
+                || normalized.contains("niku")
                 || normalized.contains("carrot")
                 || normalized.contains("vegetable")
                 || normalized.contains("food");
@@ -2634,69 +2988,104 @@ public class Game {
             case WOOD_WALL_ITEM_ID -> "Wood Wall";
             case POTION_ITEM_ID -> "Potion";
             case TORCH_ITEM_ID -> "Torch";
+            case AXE_ITEM_ID -> "Axe";
             case ARCHER_TOWER_ITEM_ID -> "Archer Tower";
             case FRIENDLY_ARCHER_ITEM_ID -> "Archer";
+            case CHEST_ITEM_ID -> "Chest";
             case BOMB_TRAP_ITEM_ID -> "Bomb Trap";
             case FIRE_BOMB_ITEM_ID -> "Fire Bomb";
             case BASIC_SWORD_ITEM_ID -> "Basic Sword";
             case PICKAXE_ITEM_ID -> "Pickaxe";
             case COIN_ITEM_ID -> "Coin";
+            case "rock" -> "Rock";
+            case "niku" -> "Niku";
             case CARROT_ITEM_ID -> "Carrot";
             default -> itemId;
         };
     }
 
     private void spawnDroppedItem(String itemId, int amount, double centerX, double centerY) {
-        if (itemId == null || itemId.isBlank() || amount <= 0) {
+        spawnDroppedItem(DropItemType.fromId(itemId), amount, centerX, centerY);
+    }
+
+    private void spawnDroppedItem(DropItemType type, int amount, double centerX, double centerY) {
+        if (type == null || type == DropItemType.UNKNOWN || amount <= 0) {
             return;
         }
-        if (BOMB_TRAP_ITEM_ID.equals(itemId)) {
+        if (type == DropItemType.BOMB_TRAP) {
             droppedItems.add(new BombDropItem(amount, centerX, centerY));
             return;
         }
-        String spriteKey = resolveDroppedSpriteKey(itemId);
-        double[] size = resolveDroppedItemSize(itemId);
+        double[] size = resolveDroppedItemSize(type);
         double x = centerX - size[0] / 2.0;
         double y = centerY - size[1] / 2.0;
-        droppedItems.add(new DroppedItem(itemId, spriteKey, amount, x, y, size[0], size[1]));
+        droppedItems.add(new AnimatedDropItem(type, amount, x, y, size[0], size[1]));
     }
 
-    private String resolveDroppedSpriteKey(String itemId) {
-        if (TORCH_ITEM_ID.equals(itemId)) {
-            return "torch_icon";
+    private double[] resolveDroppedItemSize(DropItemType type) {
+        if (type == null || type == DropItemType.UNKNOWN) {
+            return new double[]{GameBalance.DROPPED_ITEM_SIZE, GameBalance.DROPPED_ITEM_SIZE};
         }
-        if (ARCHER_TOWER_ITEM_ID.equals(itemId)) {
-            return "archer_tower_icon";
-        }
-        if (BOMB_TRAP_ITEM_ID.equals(itemId)) {
-            return "bomb_trap_icon";
-        }
-        if ("stone".equalsIgnoreCase(itemId)) {
-            return "";
-        }
-        return "wall_icon";
-    }
-
-    private double[] resolveDroppedItemSize(String itemId) {
+        String itemId = type.getInventoryItemId();
         if (TORCH_ITEM_ID.equals(itemId)) {
             return new double[]{GameBalance.DROPPED_TORCH_WIDTH, GameBalance.DROPPED_TORCH_HEIGHT};
         }
         if (ARCHER_TOWER_ITEM_ID.equals(itemId)) {
             return new double[]{GameBalance.DROPPED_ARCHER_TOWER_WIDTH, GameBalance.DROPPED_ARCHER_TOWER_HEIGHT};
         }
-        if (BOMB_TRAP_ITEM_ID.equals(itemId)) {
+        if (type == DropItemType.BOMB_TRAP) {
             return new double[]{GameBalance.DROPPED_BOMB_TRAP_SIZE, GameBalance.DROPPED_BOMB_TRAP_SIZE};
         }
-        if ("stone".equalsIgnoreCase(itemId)) {
+        if (type == DropItemType.ROCK) {
             return new double[]{GameBalance.DROPPED_STONE_WIDTH, GameBalance.DROPPED_STONE_HEIGHT};
         }
-        return new double[]{GameBalance.DROPPED_ITEM_SIZE, GameBalance.DROPPED_ITEM_SIZE};
+        return new double[]{type.getRenderWidth(), type.getRenderHeight()};
     }
 
     private double distance(double ax, double ay, double bx, double by) {
         double dx = bx - ax;
         double dy = by - ay;
         return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    private double edgeDistanceBetween(Entity entity, BuildObject object) {
+        if (entity == null || object == null) {
+            return Double.POSITIVE_INFINITY;
+        }
+        double dx = axisGap(
+                entity.getCollisionX(),
+                entity.getCollisionX() + entity.getCollisionWidth(),
+                object.getCollisionX(),
+                object.getCollisionX() + object.getCollisionWidth()
+        );
+        double dy = axisGap(
+                entity.getCollisionY(),
+                entity.getCollisionY() + entity.getCollisionHeight(),
+                object.getCollisionY(),
+                object.getCollisionY() + object.getCollisionHeight()
+        );
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    private double normalizeAngleRadians(double angle) {
+        double twoPi = Math.PI * 2.0;
+        double normalized = angle % twoPi;
+        if (normalized > Math.PI) {
+            normalized -= twoPi;
+        } else if (normalized < -Math.PI) {
+            normalized += twoPi;
+        }
+        return normalized;
+    }
+
+    private double axisGap(double minA, double maxA, double minB, double maxB) {
+        if (maxA < minB) {
+            return minB - maxA;
+        }
+        if (maxB < minA) {
+            return minA - maxB;
+        }
+        return 0.0;
     }
 
     // seedStartingBuildItems:
@@ -2864,7 +3253,7 @@ public class Game {
         if (droppedItems.isEmpty()) {
             return;
         }
-        boolean pickedAny = false;
+        boolean pickedInventoryItem = false;
         double px = player.getX() + player.getWidth() * 0.22;
         double py = player.getY() + player.getHeight() * 0.30;
         double pw = player.getWidth() * 0.56;
@@ -2875,17 +3264,36 @@ public class Game {
                 continue;
             }
             if (CollisionSystem.intersects(px, py, pw, ph, droppedItem.getX(), droppedItem.getY(), droppedItem.getWidth(), droppedItem.getHeight())) {
-                inventory.addItem(droppedItem.getItemId(), droppedItem.getAmount());
+                pickedInventoryItem |= applyDroppedItemPickup(droppedItem);
                 picked.add(droppedItem);
-                pickedAny = true;
             }
         }
         if (!picked.isEmpty()) {
             droppedItems.removeAll(picked);
         }
-        if (pickedAny) {
+        if (pickedInventoryItem) {
             refreshBuildInventoryUi();
         }
+    }
+
+    private boolean applyDroppedItemPickup(DroppedItem droppedItem) {
+        if (droppedItem == null || droppedItem.getAmount() <= 0) {
+            return false;
+        }
+        DropItemType type = droppedItem.getType();
+        if (type == null || type == DropItemType.UNKNOWN) {
+            return false;
+        }
+        if (type.isExperienceDrop()) {
+            player.addExperience(droppedItem.getAmount());
+            return false;
+        }
+        String inventoryItemId = type.getInventoryItemId();
+        if (inventoryItemId == null || inventoryItemId.isBlank()) {
+            return false;
+        }
+        inventory.addItem(inventoryItemId, droppedItem.getAmount());
+        return true;
     }
 
     private void refreshBuildInventoryUi() {
@@ -2930,8 +3338,12 @@ public class Game {
         String selectedItemId = getSelectedHotbarItemId();
         if (selectedItemId == null || selectedItemId.isBlank()) {
             buildManager.cancelBuildMode();
+            player.setEquipmentMode(Player.EquipmentMode.HAND_MODE);
             return;
         }
+        player.setEquipmentMode(AXE_ITEM_ID.equals(selectedItemId)
+                ? Player.EquipmentMode.AXE_MODE
+                : Player.EquipmentMode.HAND_MODE);
         if (isBuildItemId(selectedItemId)) {
             buildController.onSelectBuildItem(selectedItemId);
             return;
@@ -2967,48 +3379,124 @@ public class Game {
         return -1;
     }
 
-    private void onResourceDestroyed(system.resource.ResourceNode resource) {
-        if (resource == null) {
+    private Map<String, Integer> resolveShopPurchaseCosts(String resolvedItemId) {
+        return switch (resolvedItemId) {
+            case WOOD_FENCE_ITEM_ID -> Map.of(COIN_ITEM_ID, WOOD_FENCE_PRICE);
+            case WOOD_WALL_ITEM_ID -> Map.of(COIN_ITEM_ID, WOOD_WALL_PRICE);
+            case POTION_ITEM_ID -> Map.of(COIN_ITEM_ID, 12);
+            case TORCH_ITEM_ID -> Map.of(COIN_ITEM_ID, TORCH_PRICE);
+            case AXE_ITEM_ID -> Map.of("wood", AXE_WOOD_COST, "stone", AXE_STONE_COST);
+            case ARCHER_TOWER_ITEM_ID -> Map.of(COIN_ITEM_ID, ARCHER_TOWER_PRICE);
+            case FRIENDLY_ARCHER_ITEM_ID -> Map.of(COIN_ITEM_ID, FRIENDLY_ARCHER_PRICE);
+            case CHEST_ITEM_ID -> Map.of(COIN_ITEM_ID, CHEST_PRICE);
+            case BOMB_TRAP_ITEM_ID -> Map.of(COIN_ITEM_ID, BOMB_TRAP_PRICE);
+            case FIRE_BOMB_ITEM_ID -> Map.of(COIN_ITEM_ID, FIRE_BOMB_PRICE);
+            case BASIC_SWORD_ITEM_ID -> Map.of(COIN_ITEM_ID, 18);
+            case PICKAXE_ITEM_ID -> Map.of(COIN_ITEM_ID, 14);
+            case CARROT_ITEM_ID -> Map.of(COIN_ITEM_ID, 3);
+            default -> Map.of();
+        };
+    }
+
+    private boolean hasEnoughResources(Map<String, Integer> purchaseCosts) {
+        if (purchaseCosts == null || purchaseCosts.isEmpty()) {
+            return false;
+        }
+        for (Map.Entry<String, Integer> entry : purchaseCosts.entrySet()) {
+            if (entry == null || entry.getKey() == null || entry.getKey().isBlank()) {
+                continue;
+            }
+            int required = entry.getValue() == null ? 0 : Math.max(0, entry.getValue());
+            if (inventory.getAmount(entry.getKey()) < required) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean consumePurchaseCosts(Map<String, Integer> purchaseCosts) {
+        if (!hasEnoughResources(purchaseCosts)) {
+            return false;
+        }
+        List<Map.Entry<String, Integer>> consumed = new ArrayList<>();
+        for (Map.Entry<String, Integer> entry : purchaseCosts.entrySet()) {
+            if (entry == null || entry.getKey() == null || entry.getKey().isBlank()) {
+                continue;
+            }
+            int amount = entry.getValue() == null ? 0 : Math.max(0, entry.getValue());
+            if (amount <= 0) {
+                continue;
+            }
+            if (!inventory.consumeItem(entry.getKey(), amount)) {
+                for (Map.Entry<String, Integer> rollback : consumed) {
+                    inventory.addItem(rollback.getKey(), rollback.getValue());
+                }
+                return false;
+            }
+            consumed.add(Map.entry(entry.getKey(), amount));
+        }
+        return true;
+    }
+
+    private void refundPurchaseCosts(Map<String, Integer> purchaseCosts) {
+        if (purchaseCosts == null || purchaseCosts.isEmpty()) {
             return;
         }
-        if (resource.getResourceType() != ResourceType.TREE && resource.getResourceType() != ResourceType.ROCK) {
+        for (Map.Entry<String, Integer> entry : purchaseCosts.entrySet()) {
+            if (entry == null || entry.getKey() == null || entry.getKey().isBlank()) {
+                continue;
+            }
+            int amount = entry.getValue() == null ? 0 : Math.max(0, entry.getValue());
+            if (amount > 0) {
+                inventory.addItem(entry.getKey(), amount);
+            }
+        }
+    }
+
+    private void onResourceDestroyed(system.resource.ResourceNode resource) {
+        if (resource == null) {
             return;
         }
         if (DEBUG_DROP_LOGS) {
             System.out.println("Resource destroyed at: " + resource.getCenterX() + ", " + resource.getCenterY());
         }
-        spawnDrops(resource.getCenterX(), resource.getCenterY());
+        List<DropSpec> dropTable = switch (resource.getResourceType()) {
+            case TREE -> TREE_DROP_TABLE;
+            case ROCK -> ROCK_DROP_TABLE;
+            default -> List.of();
+        };
+        spawnDropTable(resource.getCenterX(), resource.getCenterY(), dropTable);
     }
 
-    private void spawnDrops(double x, double y) {
-        int goldCount = DROP_STACK_MIN + random.nextInt(DROP_STACK_MAX - DROP_STACK_MIN + 1);
-        int xpCount = DROP_STACK_MIN + random.nextInt(DROP_STACK_MAX - DROP_STACK_MIN + 1);
+    private void spawnDropTable(double x, double y, List<DropSpec> dropTable) {
+        if (dropTable == null || dropTable.isEmpty()) {
+            return;
+        }
         List<Point2D> usedPositions = new ArrayList<>();
 
-        for (int i = 0; i < goldCount; i++) {
-            Point2D pos = getNonOverlappingDropPosition(x, y, usedPositions);
-            spawnDropItem(DropType.COIN, pos.getX(), pos.getY());
-            usedPositions.add(pos);
-        }
-        for (int i = 0; i < xpCount; i++) {
-            Point2D pos = getNonOverlappingDropPosition(x, y, usedPositions);
-            spawnDropItem(DropType.XP, pos.getX(), pos.getY());
-            usedPositions.add(pos);
-        }
-    }
-
-    private void spawnDropItem(DropType type, double x, double y) {
-        int value = type == DropType.COIN ? COIN_VALUE_PER_ITEM : XP_VALUE_PER_ITEM;
-        droppedCollectibles.add(new CollectibleDrop(type, x, y, value, COLLECTIBLE_SIZE));
-        if (DEBUG_DROP_LOGS) {
-            System.out.println("Spawn drop: " + type + " at " + x + ", " + y);
+        for (DropSpec spec : dropTable) {
+            if (spec == null || spec.getType() == DropItemType.UNKNOWN || spec.getQuantity() <= 0) {
+                continue;
+            }
+            for (int index = 0; index < spec.getQuantity(); index++) {
+                Point2D pos = getNonOverlappingDropPosition(x, y, spec.getType(), usedPositions);
+                spawnDroppedItem(
+                        spec.getType(),
+                        1,
+                        pos.getX() + spec.getType().getRenderWidth() * 0.5,
+                        pos.getY() + spec.getType().getRenderHeight() * 0.5
+                );
+                usedPositions.add(pos);
+            }
         }
     }
 
-    private Point2D getNonOverlappingDropPosition(double centerX, double centerY, List<Point2D> usedPositions) {
+    private Point2D getNonOverlappingDropPosition(double centerX, double centerY, DropItemType type, List<Point2D> usedPositions) {
+        double width = type == null ? GameBalance.DROPPED_ITEM_SIZE : type.getRenderWidth();
+        double height = type == null ? GameBalance.DROPPED_ITEM_SIZE : type.getRenderHeight();
         Point2D fallback = new Point2D(
-                centerX - COLLECTIBLE_SIZE * 0.5,
-                centerY - COLLECTIBLE_SIZE * 0.5
+                centerX - width * 0.5,
+                centerY - height * 0.5
         );
         if (usedPositions == null) {
             return fallback;
@@ -3017,8 +3505,8 @@ public class Game {
         for (int attempt = 0; attempt < DROP_POSITION_MAX_ATTEMPTS; attempt++) {
             double angle = random.nextDouble() * Math.PI * 2.0;
             double radius = DROP_MIN_RADIUS + random.nextDouble() * (DROP_MAX_RADIUS - DROP_MIN_RADIUS);
-            double px = centerX + Math.cos(angle) * radius - COLLECTIBLE_SIZE * 0.5;
-            double py = centerY + Math.sin(angle) * radius - COLLECTIBLE_SIZE * 0.5;
+            double px = centerX + Math.cos(angle) * radius - width * 0.5;
+            double py = centerY + Math.sin(angle) * radius - height * 0.5;
             Point2D candidate = new Point2D(px, py);
 
             boolean overlaps = false;
@@ -3035,51 +3523,13 @@ public class Game {
         return fallback;
     }
 
-    private void checkCollectDroppedItems() {
-        if (droppedCollectibles.isEmpty()) {
+    private void handleEnemyDeathDrops(Enemy enemy) {
+        if (enemy == null || enemy.hasSpawnedDeathDrop() || enemy.isAlive()) {
             return;
         }
-        double px = player.getX() + player.getWidth() * 0.22;
-        double py = player.getY() + player.getHeight() * 0.30;
-        double pw = player.getWidth() * 0.56;
-        double ph = player.getHeight() * 0.62;
-
-        List<CollectibleDrop> picked = new ArrayList<>();
-        for (CollectibleDrop item : droppedCollectibles) {
-            if (item == null) {
-                continue;
-            }
-            if (!CollisionSystem.intersects(px, py, pw, ph, item.getX(), item.getY(), item.getWidth(), item.getHeight())) {
-                continue;
-            }
-            if (item.getType() == DropType.COIN) {
-                addCoin(item.getValue());
-            } else {
-                addXp(item.getValue());
-            }
-            if (DEBUG_DROP_LOGS) {
-                System.out.println("Collected: " + item.getType() + " value=" + item.getValue());
-            }
-            picked.add(item);
-        }
-        if (!picked.isEmpty()) {
-            droppedCollectibles.removeAll(picked);
-        }
-    }
-
-    private void addCoin(int amount) {
-        if (amount <= 0) {
-            return;
-        }
-        inventory.addItem(COIN_ITEM_ID, amount);
-        refreshBuildInventoryUi();
-    }
-
-    private void addXp(int amount) {
-        if (amount <= 0) {
-            return;
-        }
-        player.addExperience(amount);
+        List<DropSpec> dropTable = enemy.isHostile() ? ENEMY_DROP_TABLE : ANIMAL_DROP_TABLE;
+        enemy.markDeathDropSpawned();
+        spawnDropTable(enemy.getCenterX(), enemy.getCenterY(), dropTable);
     }
 
     private String normalizeShopItemId(String itemId) {
@@ -3087,10 +3537,12 @@ public class Game {
             return "";
         }
         return switch (itemId.trim().toLowerCase()) {
+            case "axe", "riu", "rìu" -> AXE_ITEM_ID;
             case WALL_ITEM_ALIAS -> WOOD_FENCE_ITEM_ID;
             case "wood_fence", "wood fence" -> WOOD_FENCE_ITEM_ID;
             case "cung", "archer_tower" -> ARCHER_TOWER_ITEM_ID;
             case "archer", "friendly_archer", "friendly archer" -> FRIENDLY_ARCHER_ITEM_ID;
+            case "chest", "ruong", "ruong_do" -> CHEST_ITEM_ID;
             case "bomb", "bomb_trap", "bomb trap", "bom" -> BOMB_TRAP_ITEM_ID;
             case "fire_bomb", "fire bomb", "firebomb", "bom_lua", "bomb_fire" -> FIRE_BOMB_ITEM_ID;
             default -> itemId.trim().toLowerCase();
@@ -3099,14 +3551,12 @@ public class Game {
 
     private void logShopPurchase(String requestedItemId,
                                  String resolvedItemId,
-                                 int price,
-                                 int currentCoin,
+                                 Map<String, Integer> purchaseCosts,
                                  boolean inventoryAddResult,
                                  String reasonFailed) {
         System.out.println("[ShopDebug] itemId=" + requestedItemId
                 + " resolvedItemId=" + resolvedItemId
-                + " price=" + price
-                + " currentCoin=" + currentCoin
+                + " costs=" + purchaseCosts
                 + " inventoryAddResult=" + inventoryAddResult
                 + " reasonFailed=" + reasonFailed);
     }

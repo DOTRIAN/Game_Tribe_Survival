@@ -88,8 +88,8 @@ public class TileResourceAdapter {
         props.put("kind", "tree_oak");
         props.put("maxHp", String.valueOf(maxHp));
         props.put("dropItem", "wood");
-        props.put("dropMin", "1");
-        props.put("dropMax", "3");
+        props.put("dropMin", "2");
+        props.put("dropMax", "2");
         props.put("visualTiles", toVisualTilesValue(cluster));
 
         return new MapObjectData(
@@ -119,8 +119,8 @@ public class TileResourceAdapter {
         Map<String, String> props = new HashMap<>();
         props.put("kind", "rock_small");
         props.put("maxHp", String.valueOf(maxHp));
-        props.put("dropItem", "stone");
-        props.put("dropMin", "1");
+        props.put("dropItem", "rock");
+        props.put("dropMin", "2");
         props.put("dropMax", "2");
         props.put("visualTiles", toVisualTilesValue(cluster));
 

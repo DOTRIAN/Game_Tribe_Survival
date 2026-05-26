@@ -6,6 +6,7 @@ import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
+import javafx.scene.text.TextAlignment;
 
 /**
  * MainMenuScreen:
@@ -25,14 +26,24 @@ public class MainMenuScreen extends StackPane {
         VBox panel = new VBox(16);
         panel.getStyleClass().add("menu-panel");
         panel.setAlignment(Pos.CENTER);
-        panel.setPadding(new Insets(32, 40, 32, 40));
-        panel.setMaxWidth(380);
+        panel.setPadding(new Insets(32, 44, 32, 44));
+        panel.setPrefWidth(460);
+        panel.setMaxWidth(460);
 
         Label logo = new Label("TRIBE SURVIVAL");
         logo.getStyleClass().add("menu-logo");
+        logo.setWrapText(true);
+        logo.setMaxWidth(Double.MAX_VALUE);
+        logo.setTextAlignment(TextAlignment.CENTER);
+        logo.setAlignment(Pos.CENTER);
+        logo.setStyle("-fx-font-size: 30px;");
 
         Label subtitle = new Label("2D Top-Down Survival Game");
         subtitle.getStyleClass().add("resource-name");
+        subtitle.setWrapText(true);
+        subtitle.setMaxWidth(Double.MAX_VALUE);
+        subtitle.setTextAlignment(TextAlignment.CENTER);
+        subtitle.setAlignment(Pos.CENTER);
         subtitle.setStyle("-fx-font-family: 'Georgia'; -fx-font-style: italic; -fx-text-fill: #cca35a; -fx-padding: 0 0 12 0;");
 
         this.playButton = createButton("PLAY");
