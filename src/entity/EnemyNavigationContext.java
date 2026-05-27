@@ -26,7 +26,11 @@ public interface EnemyNavigationContext {
 
     BuildObject findBlockingObstacle(Enemy enemy, double targetX, double targetY, int maxRayTiles, int maxNearbyRadiusTiles);
 
+    EnemyObstacleTarget findEscapeObstacle(Enemy enemy, double desiredDirX, double desiredDirY, int searchRadiusTiles);
+
     boolean damageWall(Enemy enemy, BuildObject wall, long nowNs);
+
+    boolean damageObstacle(Enemy enemy, EnemyObstacleTarget obstacle, long nowNs);
 
     boolean damageBase(Enemy enemy, BaseCamp baseCamp, long nowNs);
 

@@ -24,6 +24,7 @@ import entity.BlackGrouseSpawnManager;
 import entity.Enemy;
 import entity.EnemyAiDebug;
 import entity.EnemyNavigationContext;
+import entity.EnemyObstacleTarget;
 import entity.Entity;
 import entity.FlowFieldManager;
 import entity.FriendlyArcher;
@@ -59,6 +60,7 @@ import system.resource.DropResult;
 import system.resource.ResourceContractValidator;
 import system.resource.ResourceHitResult;
 import system.resource.ResourceManager;
+import system.resource.ResourceNode;
 import system.resource.ResourceType;
 import system.resource.TileResourceAdapter;
 import system.bomb.BombSystem;
@@ -452,8 +454,18 @@ public class Game {
             }
 
             @Override
+            public EnemyObstacleTarget findEscapeObstacle(Enemy enemy, double desiredDirX, double desiredDirY, int searchRadiusTiles) {
+                return Game.this.findEscapeObstacle(enemy, desiredDirX, desiredDirY, searchRadiusTiles);
+            }
+
+            @Override
             public boolean damageWall(Enemy enemy, BuildObject wall, long nowNs) {
                 return Game.this.damageEnemyWall(enemy, wall, nowNs);
+            }
+
+            @Override
+            public boolean damageObstacle(Enemy enemy, EnemyObstacleTarget obstacle, long nowNs) {
+                return Game.this.damageEnemyObstacle(enemy, obstacle, nowNs);
             }
 
             @Override
@@ -2126,6 +2138,56 @@ public class Game {
         return nearest;
     }
 
+    private EnemyObstacleTarget findEscapeObstacle(Enemy enemy, double desiredDirX, double desiredDirY, int searchRadiusTiles) {
+        if (enemy == null) {
+            return null;
+        }
+        int tileWidth = buildCollisionManager.getTileWidth();
+        int tileHeight = buildCollisionManager.getTileHeight();
+        double radius = Math.max(1, searchRadiusTiles) * Math.max(tileWidth, tileHeight);
+        double enemyCenterX = enemy.getCenterX();
+        double enemyCenterY = enemy.getCenterY();
+        double desiredLength = Math.sqrt(desiredDirX * desiredDirX + desiredDirY * desiredDirY);
+        double dirX = desiredLength <= 0.001 ? 0.0 : desiredDirX / desiredLength;
+        double dirY = desiredLength <= 0.001 ? 0.0 : desiredDirY / desiredLength;
+
+        EnemyObstacleTarget best = null;
+        double bestScore = Double.POSITIVE_INFINITY;
+
+        for (BuildObject object : buildManager.getPlacedObjectsInWorldRect(
+                enemyCenterX - radius,
+                enemyCenterY - radius,
+                radius * 2.0,
+                radius * 2.0
+        )) {
+            if (object == null || !object.isAlive() || !isBreakableEscapeBuildType(object.getType())) {
+                continue;
+            }
+            double score = scoreEscapeObstacle(enemy, dirX, dirY, object.getCenterX(), object.getCenterY(), object.getCollisionX(), object.getCollisionY(), object.getCollisionWidth(), object.getCollisionHeight(), object.getHealth(), 0.0);
+            if (score < bestScore) {
+                bestScore = score;
+                best = EnemyObstacleTarget.forBuild(object);
+            }
+        }
+
+        for (ResourceNode resource : resourceManager.getAliveResources()) {
+            if (resource == null || !isBreakableEscapeResource(enemy, resource)) {
+                continue;
+            }
+            if (Math.abs(resource.getCenterX() - enemyCenterX) > radius + resource.getCollisionWidth()
+                    || Math.abs(resource.getCenterY() - enemyCenterY) > radius + resource.getCollisionHeight()) {
+                continue;
+            }
+            double typePenalty = resource.getResourceType() == ResourceType.ROCK && enemy instanceof WolfEnemy ? 28.0 : 0.0;
+            double score = scoreEscapeObstacle(enemy, dirX, dirY, resource.getCenterX(), resource.getCenterY(), resource.getCollisionX(), resource.getCollisionY(), resource.getCollisionWidth(), resource.getCollisionHeight(), resource.getCurrentHp(), typePenalty);
+            if (score < bestScore) {
+                bestScore = score;
+                best = EnemyObstacleTarget.forResource(resource);
+            }
+        }
+        return best;
+    }
+
     private boolean damageEnemyWall(Enemy enemy, BuildObject wall, long now) {
         if (enemy == null || wall == null || !wall.isAlive()) {
             return false;
@@ -2156,6 +2218,38 @@ public class Game {
         return true;
     }
 
+    private boolean damageEnemyObstacle(Enemy enemy, EnemyObstacleTarget obstacle, long nowNs) {
+        if (enemy == null || obstacle == null || !obstacle.isAlive()) {
+            return false;
+        }
+        if (obstacle.isBuildObject()) {
+            return damageEnemyWall(enemy, obstacle.buildObject(), nowNs);
+        }
+        ResourceNode resource = obstacle.resourceNode();
+        if (resource == null || !resource.isAlive() || !isBreakableEscapeResource(enemy, resource)) {
+            return false;
+        }
+        if (!isEnemyWithinObstacleAttackRange(enemy, resource)) {
+            return false;
+        }
+        int obstacleDamage = resolveEnemyResourceDamage(enemy, resource);
+        if (obstacleDamage <= 0) {
+            return false;
+        }
+        ResourceHitResult hitResult = resourceManager.hitResource(resource.getObjectId(), obstacleDamage, nowNs);
+        if (hitResult == null) {
+            return false;
+        }
+        spawnResourceDamageText(hitResult, nowNs);
+        if (hitResult.isDestroyed()) {
+            if (hitResult.getResourceNode() != null) {
+                onResourceDestroyed(hitResult.getResourceNode(), false);
+            }
+            flowFieldManager.markDirty(nowNs, FLOW_FIELD_DESTROY_REBUILD_DEBOUNCE_NS);
+        }
+        return true;
+    }
+
     private boolean damageWolfBase(WolfEnemy enemy, BaseCamp targetBaseCamp, long now) {
         if (enemy == null || targetBaseCamp == null || targetBaseCamp.isDead()) {
             return false;
@@ -2180,6 +2274,81 @@ public class Game {
             }
         }
         return false;
+    }
+
+    private boolean isBreakableEscapeBuildType(BuildType type) {
+        return isAttackableWallType(type) || type == BuildType.DOOR;
+    }
+
+    private boolean isBreakableEscapeResource(Enemy enemy, ResourceNode resource) {
+        if (resource == null || !resource.isAlive()) {
+            return false;
+        }
+        return switch (resource.getResourceType()) {
+            case TREE -> true;
+            case ROCK -> enemy instanceof GolemEnemy || enemy instanceof WolfEnemy;
+            case GRASS -> resource.getKind().toLowerCase().contains("bush");
+            case UNKNOWN -> resource.getKind().toLowerCase().contains("bush");
+            default -> false;
+        };
+    }
+
+    private double scoreEscapeObstacle(Enemy enemy,
+                                       double dirX,
+                                       double dirY,
+                                       double centerX,
+                                       double centerY,
+                                       double collisionX,
+                                       double collisionY,
+                                       double collisionWidth,
+                                       double collisionHeight,
+                                       int currentHp,
+                                       double typePenalty) {
+        double offsetX = centerX - enemy.getCenterX();
+        double offsetY = centerY - enemy.getCenterY();
+        double distance = Math.max(0.0, Math.sqrt(offsetX * offsetX + offsetY * offsetY));
+        double dot = dirX == 0.0 && dirY == 0.0 ? 1.0 : ((offsetX * dirX) + (offsetY * dirY)) / Math.max(0.001, Math.sqrt(offsetX * offsetX + offsetY * offsetY));
+        double anglePenalty = dirX == 0.0 && dirY == 0.0 ? 0.0 : (1.0 - Math.max(-1.0, dot)) * 26.0;
+        double hpPenalty = Math.max(0, currentHp) * 2.0;
+        double directBlockBonus = intersectsRect(
+                enemy.getCenterX() + dirX * 10.0,
+                enemy.getCenterY() + dirY * 10.0,
+                Math.max(8.0, enemy.getCollisionWidth()),
+                Math.max(8.0, enemy.getCollisionHeight()),
+                collisionX,
+                collisionY,
+                collisionWidth,
+                collisionHeight
+        ) ? -18.0 : 0.0;
+        return distance + anglePenalty + hpPenalty + typePenalty + directBlockBonus;
+    }
+
+    private boolean isEnemyWithinObstacleAttackRange(Enemy enemy, ResourceNode resource) {
+        double padding = enemy instanceof GolemEnemy ? 44.0 : 48.0;
+        return intersectsRect(
+                enemy.getCollisionX() - padding,
+                enemy.getCollisionY() - padding,
+                enemy.getCollisionWidth() + padding * 2.0,
+                enemy.getCollisionHeight() + padding * 2.0,
+                resource.getCollisionX(),
+                resource.getCollisionY(),
+                resource.getCollisionWidth(),
+                resource.getCollisionHeight()
+        );
+    }
+
+    private int resolveEnemyResourceDamage(Enemy enemy, ResourceNode resource) {
+        if (enemy instanceof GolemEnemy) {
+            return resource.getResourceType() == ResourceType.ROCK ? 3 : 4;
+        }
+        if (enemy instanceof WolfEnemy) {
+            return resource.getResourceType() == ResourceType.ROCK ? 1 : 2;
+        }
+        return Math.max(1, enemy.getDamage());
+    }
+
+    private boolean intersectsRect(double ax, double ay, double aw, double ah, double bx, double by, double bw, double bh) {
+        return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
     }
 
     private void toggleCampChestOverlay(long now) {
@@ -3729,11 +3898,18 @@ public class Game {
     }
 
     private void onResourceDestroyed(system.resource.ResourceNode resource) {
+        onResourceDestroyed(resource, true);
+    }
+
+    private void onResourceDestroyed(system.resource.ResourceNode resource, boolean dropRewards) {
         if (resource == null) {
             return;
         }
         if (DEBUG_DROP_LOGS) {
             System.out.println("Resource destroyed at: " + resource.getCenterX() + ", " + resource.getCenterY());
+        }
+        if (!dropRewards) {
+            return;
         }
         List<DropSpec> dropTable = switch (resource.getResourceType()) {
             case TREE -> TREE_DROP_TABLE;

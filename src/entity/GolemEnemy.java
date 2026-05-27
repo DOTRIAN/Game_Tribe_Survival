@@ -9,6 +9,7 @@ import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.image.Image;
 import javafx.scene.paint.Color;
 import system.DamageSystem;
+import system.resource.ResourceNode;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -69,9 +70,11 @@ public class GolemEnemy extends Enemy {
     private static final long PATH_FAIL_RETRY_NS = 1_000_000_000L;
     private static final long STUCK_REPATH_NS = 650_000_000L;
     private static final long STUCK_WAIT_NS = 300_000_000L;
+    private static final long STUCK_TRIGGER_NS = 700_000_000L;
     private static final long OBSTACLE_SEARCH_RETRY_NS = 500_000_000L;
     private static final long STUCK_SAMPLE_NS = 700_000_000L;
     private static final double STUCK_MOVE_EPSILON = 1.8;
+    private static final double LOCAL_ESCAPE_DISTANCE = 30.0;
     private static final double ESCAPE_SEARCH_STEP = 18.0;
     private static final int ESCAPE_SEARCH_RINGS = 6;
     private static final int ESCAPE_SEARCH_SAMPLES = 16;
@@ -112,6 +115,8 @@ public class GolemEnemy extends Enemy {
     private State resumeStateAfterHurt;
     private Entity currentTarget;
     private BuildObject currentBuildTarget;
+    private ResourceNode currentResourceTarget;
+    private EnemyObstacleTarget escapeObstacleTarget;
     private boolean facingRight;
     private AttackDirection attackDirection;
     private boolean removeFromWorld;
@@ -128,6 +133,11 @@ public class GolemEnemy extends Enemy {
     private double lastPathTargetY;
     private double stuckSampleX;
     private double stuckSampleY;
+    private double desiredMoveDirX;
+    private double desiredMoveDirY;
+    private long stuckTimerNs;
+    private int blockedCount;
+    private int blockedDirections;
     private int currentPathIndex;
     private boolean attackDamageAppliedThisCycle;
     private boolean pendingPathRequest;
@@ -170,6 +180,8 @@ public class GolemEnemy extends Enemy {
         this.resumeStateAfterHurt = State.WALKING_TO_BASE;
         this.currentTarget = null;
         this.currentBuildTarget = null;
+        this.currentResourceTarget = null;
+        this.escapeObstacleTarget = null;
         this.facingRight = true;
         this.attackDirection = AttackDirection.RIGHT;
         this.removeFromWorld = false;
@@ -186,6 +198,11 @@ public class GolemEnemy extends Enemy {
         this.lastPathTargetY = Double.NaN;
         this.stuckSampleX = getCenterX();
         this.stuckSampleY = getCenterY();
+        this.desiredMoveDirX = 0.0;
+        this.desiredMoveDirY = 0.0;
+        this.stuckTimerNs = 0L;
+        this.blockedCount = 0;
+        this.blockedDirections = 0;
         this.currentPathIndex = 0;
         this.attackDamageAppliedThisCycle = false;
         this.pendingPathRequest = false;
@@ -219,6 +236,20 @@ public class GolemEnemy extends Enemy {
             }
             return;
         }
+        if (currentBuildTarget != null && !currentBuildTarget.isAlive()) {
+            currentBuildTarget = null;
+        }
+        if (currentResourceTarget != null && !currentResourceTarget.isAlive()) {
+            currentResourceTarget = null;
+        }
+        if (escapeObstacleTarget != null && !escapeObstacleTarget.isAlive()) {
+            escapeObstacleTarget = null;
+            currentResourceTarget = null;
+        }
+        if (escapeObstacleTarget != null) {
+            updateEscapeObstacleTarget(nowNs, worldWidth, worldHeight);
+            return;
+        }
 
         Entity preferredTarget = choosePreferredTarget(baseCamp, player, friendlies);
         if (preferredTarget == null) {
@@ -231,10 +262,6 @@ public class GolemEnemy extends Enemy {
             return;
         }
 
-        if (currentBuildTarget != null && !currentBuildTarget.isAlive()) {
-            currentBuildTarget = null;
-        }
-
         if (currentBuildTarget != null && shouldDropBuildTargetForEntity(preferredTarget)) {
             currentBuildTarget = null;
             clearPath();
@@ -242,6 +269,10 @@ public class GolemEnemy extends Enemy {
 
         if (currentBuildTarget != null) {
             updateBuildTarget(nowNs, preferredTarget, worldWidth, worldHeight);
+            return;
+        }
+        if (currentResourceTarget != null) {
+            updateResourceTarget(nowNs, preferredTarget, worldWidth, worldHeight);
             return;
         }
 
@@ -281,6 +312,21 @@ public class GolemEnemy extends Enemy {
                     navigationContext.onObstacleDestroyed(currentBuildTarget, nowNs);
                 }
                 currentBuildTarget = null;
+                clearPath();
+            }
+            lastAttackAtNs = nowNs;
+            attackDamageAppliedThisCycle = true;
+            return true;
+        }
+        if (currentResourceTarget != null) {
+            if (!isWithinAttackRange(currentResourceTarget)
+                    || navigationContext == null
+                    || !navigationContext.damageObstacle(this, EnemyObstacleTarget.forResource(currentResourceTarget), nowNs)) {
+                return false;
+            }
+            if (!currentResourceTarget.isAlive()) {
+                currentResourceTarget = null;
+                escapeObstacleTarget = null;
                 clearPath();
             }
             lastAttackAtNs = nowNs;
@@ -454,6 +500,7 @@ public class GolemEnemy extends Enemy {
 
     private void updateEntityTarget(long nowNs, Entity target, double worldWidth, double worldHeight) {
         currentTarget = target;
+        currentResourceTarget = null;
         faceTarget(target.getCenterX(), target.getCenterY());
         if (isWithinAttackRange(target)) {
             startAttack();
@@ -492,6 +539,7 @@ public class GolemEnemy extends Enemy {
             return;
         }
         currentTarget = null;
+        currentResourceTarget = null;
         faceTarget(currentBuildTarget.getCenterX(), currentBuildTarget.getCenterY());
         if (isWithinAttackRange(currentBuildTarget)) {
             startAttack();
@@ -509,11 +557,35 @@ public class GolemEnemy extends Enemy {
         walkingAnimation.update(nowNs, true);
     }
 
+    private void updateResourceTarget(long nowNs, Entity preferredEntity, double worldWidth, double worldHeight) {
+        if (currentResourceTarget == null || !currentResourceTarget.isAlive()) {
+            currentResourceTarget = null;
+            updateEntityTarget(nowNs, preferredEntity, worldWidth, worldHeight);
+            return;
+        }
+        currentTarget = null;
+        faceTarget(currentResourceTarget.getCenterX(), currentResourceTarget.getCenterY());
+        if (isWithinAttackRange(currentResourceTarget)) {
+            startAttack();
+            updateAttack(nowNs);
+            return;
+        }
+
+        state = State.CHASE_TARGET;
+        aiState = EnemyAiState.MOVE_TO_OBSTACLE;
+        Point2D approach = selectResourceApproachPoint(currentResourceTarget);
+        boolean moved = followPathToPoint(approach.getX(), approach.getY(), nowNs, worldWidth, worldHeight);
+        if (!moved && canMoveDirectlyTo(approach.getX(), approach.getY())) {
+            moveToward(approach.getX(), approach.getY(), worldWidth, worldHeight);
+        }
+        walkingAnimation.update(nowNs, true);
+    }
+
     private void startAttack() {
         clearPath();
         if (state != State.ATTACKING) {
             state = State.ATTACKING;
-            if (currentBuildTarget != null) {
+            if (currentBuildTarget != null || currentResourceTarget != null) {
                 aiState = EnemyAiState.ATTACK_OBSTACLE;
             } else if (currentTarget instanceof BaseCamp) {
                 aiState = EnemyAiState.ATTACK_BASE;
@@ -528,6 +600,8 @@ public class GolemEnemy extends Enemy {
     private void enterIdle(long nowNs) {
         currentTarget = null;
         currentBuildTarget = null;
+        currentResourceTarget = null;
+        escapeObstacleTarget = null;
         clearPath();
         state = State.IDLE;
         aiState = EnemyAiState.IDLE;
@@ -617,6 +691,18 @@ public class GolemEnemy extends Enemy {
         );
     }
 
+    private Point2D selectResourceApproachPoint(ResourceNode target) {
+        if (target == null) {
+            return new Point2D(getCenterX(), getCenterY());
+        }
+        return selectApproachPoint(
+                target.getCollisionX(),
+                target.getCollisionY(),
+                target.getCollisionWidth(),
+                target.getCollisionHeight()
+        );
+    }
+
     private Point2D selectApproachPoint(double targetX, double targetY, double targetWidth, double targetHeight) {
         double targetCenterX = targetX + targetWidth * 0.5;
         double targetCenterY = targetY + targetHeight * 0.5;
@@ -634,11 +720,15 @@ public class GolemEnemy extends Enemy {
             return false;
         }
         applyPendingPathResult(nowNs);
+        setDesiredMove(targetX - getCenterX(), targetY - getCenterY());
         if (canMoveDirectlyTo(targetX, targetY)) {
             clearPath();
             boolean movedDirectly = moveToward(targetX, targetY, worldWidth, worldHeight);
             if (movedDirectly) {
                 blockedSinceNs = 0L;
+                blockedCount = 0;
+                blockedDirections = 0;
+                stuckTimerNs = 0L;
                 updateStuckSample(nowNs);
             }
             return movedDirectly;
@@ -664,6 +754,9 @@ public class GolemEnemy extends Enemy {
         }
         if (moved) {
             blockedSinceNs = 0L;
+            blockedCount = 0;
+            blockedDirections = 0;
+            stuckTimerNs = 0L;
             updateStuckSample(nowNs);
             return true;
         }
@@ -692,42 +785,112 @@ public class GolemEnemy extends Enemy {
             return;
         }
         double moved = distance(stuckSampleX, stuckSampleY, getCenterX(), getCenterY());
+        long elapsedNs = nowNs - stuckSampleAtNs;
         stuckSampleAtNs = nowNs;
         stuckSampleX = getCenterX();
         stuckSampleY = getCenterY();
         if (moved < STUCK_MOVE_EPSILON) {
-            recoverFromBlockedPath(lastPathTargetX, lastPathTargetY, nowNs);
+            stuckTimerNs += Math.max(0L, elapsedNs);
+            if (stuckTimerNs >= STUCK_TRIGGER_NS) {
+                recoverFromBlockedPath(lastPathTargetX, lastPathTargetY, nowNs);
+            }
+            return;
         }
+        stuckTimerNs = 0L;
     }
 
     private void recoverFromBlockedPath(double targetX, double targetY, long nowNs) {
         blockedSinceNs = 0L;
+        blockedCount++;
+        blockedDirections = countBlockedDirections();
+        stuckTimerNs = 0L;
         clearPath();
         if (navigationContext != null) {
             navigationContext.recordStuck(getEnemyType());
         }
         aiState = EnemyAiState.STUCK_RECOVERY;
-        BuildObject obstacle = findBlockingObstacleThrottled(targetX, targetY, nowNs);
-        if (obstacle != null) {
-            currentBuildTarget = obstacle;
-            currentTarget = null;
-            aiState = EnemyAiState.MOVE_TO_OBSTACLE;
-            waitUntilNs = 0L;
-            return;
-        }
-        if (!chooseEscapeWaypoint(targetX, targetY)) {
-            nextObstacleSearchAtNs = 0L;
-            BuildObject nearbyObstacle = findBlockingObstacleThrottled(getCenterX(), getCenterY(), nowNs);
-            if (nearbyObstacle != null) {
-                currentBuildTarget = nearbyObstacle;
+        if (navigationContext != null && (blockedDirections >= 2 || blockedCount >= 2)) {
+            EnemyObstacleTarget escapeTarget = navigationContext.findEscapeObstacle(this, desiredMoveDirX, desiredMoveDirY, 3);
+            if (escapeTarget != null) {
+                escapeObstacleTarget = escapeTarget;
                 currentTarget = null;
+                currentBuildTarget = escapeTarget.buildObject();
+                currentResourceTarget = escapeTarget.resourceNode();
                 aiState = EnemyAiState.MOVE_TO_OBSTACLE;
                 waitUntilNs = 0L;
                 return;
             }
-            chooseSideStepWaypoint(targetX, targetY);
+        }
+        if (chooseOrderedEscapeWaypoint(targetX, targetY)) {
+            waitUntilNs = 0L;
+            return;
+        }
+        if (navigationContext != null) {
+            EnemyObstacleTarget escapeTarget = navigationContext.findEscapeObstacle(this, desiredMoveDirX, desiredMoveDirY, 3);
+            if (escapeTarget != null) {
+                escapeObstacleTarget = escapeTarget;
+                currentTarget = null;
+                currentBuildTarget = escapeTarget.buildObject();
+                currentResourceTarget = escapeTarget.resourceNode();
+                aiState = EnemyAiState.MOVE_TO_OBSTACLE;
+                waitUntilNs = 0L;
+                return;
+            }
         }
         waitUntilNs = nowNs + STUCK_WAIT_NS;
+    }
+
+    private boolean chooseOrderedEscapeWaypoint(double targetX, double targetY) {
+        double desiredX = desiredMoveDirX;
+        double desiredY = desiredMoveDirY;
+        if ((Math.abs(desiredX) < 0.001 && Math.abs(desiredY) < 0.001) && !Double.isNaN(targetX) && !Double.isNaN(targetY)) {
+            desiredX = targetX - getCenterX();
+            desiredY = targetY - getCenterY();
+        }
+        double length = Math.sqrt(desiredX * desiredX + desiredY * desiredY);
+        if (length < 0.001) {
+            desiredX = facingRight ? 1.0 : -1.0;
+            desiredY = 0.0;
+            length = 1.0;
+        }
+        double forwardX = desiredX / length;
+        double forwardY = desiredY / length;
+        double[][] candidates = {
+                {-forwardX, -forwardY},
+                {-forwardY, forwardX},
+                {forwardY, -forwardX},
+                {(-forwardX - forwardY) * 0.70710678118, (-forwardY + forwardX) * 0.70710678118},
+                {(-forwardX + forwardY) * 0.70710678118, (-forwardY - forwardX) * 0.70710678118}
+        };
+        for (double[] candidate : candidates) {
+            double centerX = getCenterX() + candidate[0] * LOCAL_ESCAPE_DISTANCE;
+            double centerY = getCenterY() + candidate[1] * LOCAL_ESCAPE_DISTANCE;
+            if (!canStandCenteredAt(centerX, centerY) || !canMoveDirectlyTo(centerX, centerY)) {
+                continue;
+            }
+            currentPath.add(new Point2D(centerX, centerY));
+            currentPathIndex = 0;
+            return true;
+        }
+        return false;
+    }
+
+    private int countBlockedDirections() {
+        int blocked = 0;
+        double step = Math.max(10.0, Math.min(getCollisionWidth(), getCollisionHeight()));
+        if (!canStandCenteredAt(getCenterX() + step, getCenterY())) {
+            blocked++;
+        }
+        if (!canStandCenteredAt(getCenterX() - step, getCenterY())) {
+            blocked++;
+        }
+        if (!canStandCenteredAt(getCenterX(), getCenterY() + step)) {
+            blocked++;
+        }
+        if (!canStandCenteredAt(getCenterX(), getCenterY() - step)) {
+            blocked++;
+        }
+        return blocked;
     }
 
     private boolean chooseEscapeWaypoint(double targetX, double targetY) {
@@ -985,8 +1148,19 @@ public class GolemEnemy extends Enemy {
                     currentBuildTarget.getCollisionHeight()
             );
         }
+        if (currentResourceTarget != null && currentResourceTarget.isAlive()) {
+            graphicsContext.setStroke(Color.color(0.95, 0.65, 0.15, 0.95));
+            graphicsContext.strokeRect(
+                    currentResourceTarget.getCollisionX() - cameraX,
+                    currentResourceTarget.getCollisionY() - cameraY,
+                    currentResourceTarget.getCollisionWidth(),
+                    currentResourceTarget.getCollisionHeight()
+            );
+        }
         graphicsContext.setFill(Color.color(1.0, 1.0, 1.0, 0.98));
-        graphicsContext.fillText(aiState.name(), x - cameraX, y - HITBOX_OFFSET_Y - cameraY - 5.0);
+        String obstacleLabel = escapeObstacleTarget == null ? "-" : escapeObstacleTarget.getDebugLabel();
+        graphicsContext.fillText(aiState.name() + " s=" + (stuckTimerNs / 1_000_000L) + "ms b=" + blockedDirections + " o=" + obstacleLabel,
+                x - cameraX, y - HITBOX_OFFSET_Y - cameraY - 5.0);
         graphicsContext.restore();
     }
 
@@ -1025,6 +1199,27 @@ public class GolemEnemy extends Enemy {
             return false;
         }
         return intersectsAttackHitbox(
+                target.getCollisionX(),
+                target.getCollisionY(),
+                target.getCollisionWidth(),
+                target.getCollisionHeight()
+        );
+    }
+
+    private boolean isWithinAttackRange(ResourceNode target) {
+        if (target == null) {
+            return false;
+        }
+        return intersectsAttackHitbox(
+                target.getCollisionX(),
+                target.getCollisionY(),
+                target.getCollisionWidth(),
+                target.getCollisionHeight()
+        ) || intersectsRect(
+                getCollisionX() - 40.0,
+                getCollisionY() - 40.0,
+                getCollisionWidth() + 80.0,
+                getCollisionHeight() + 80.0,
                 target.getCollisionX(),
                 target.getCollisionY(),
                 target.getCollisionWidth(),
@@ -1078,6 +1273,33 @@ public class GolemEnemy extends Enemy {
         lastPathTargetX = Double.NaN;
         lastPathTargetY = Double.NaN;
         blockedSinceNs = 0L;
+    }
+
+    private void updateEscapeObstacleTarget(long nowNs, double worldWidth, double worldHeight) {
+        if (escapeObstacleTarget == null || !escapeObstacleTarget.isAlive()) {
+            escapeObstacleTarget = null;
+            currentBuildTarget = null;
+            currentResourceTarget = null;
+            return;
+        }
+        if (escapeObstacleTarget.isBuildObject()) {
+            currentBuildTarget = escapeObstacleTarget.buildObject();
+            updateBuildTarget(nowNs, null, worldWidth, worldHeight);
+            return;
+        }
+        currentResourceTarget = escapeObstacleTarget.resourceNode();
+        updateResourceTarget(nowNs, null, worldWidth, worldHeight);
+    }
+
+    private void setDesiredMove(double dx, double dy) {
+        double length = Math.sqrt(dx * dx + dy * dy);
+        if (length <= 0.001) {
+            desiredMoveDirX = 0.0;
+            desiredMoveDirY = 0.0;
+            return;
+        }
+        desiredMoveDirX = dx / length;
+        desiredMoveDirY = dy / length;
     }
 
     private Image currentFrame() {

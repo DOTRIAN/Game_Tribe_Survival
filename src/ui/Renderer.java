@@ -424,6 +424,7 @@ public class Renderer {
         graphicsContext.setFill(Color.color(1, 1, 1, 0.82));
         graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 12));
         graphicsContext.fillText(dayNightPhase, 16, viewportHeight - 18);
+        renderNightAnnouncement(viewportWidth, timeAnnouncement);
 
         if (currentLevel != null && objectiveStatus != null && !objectiveStatus.isBlank()) {
             graphicsContext.setFill(Color.color(0, 0, 0, 0.30));
@@ -446,6 +447,28 @@ public class Renderer {
             graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 12));
             graphicsContext.fillText("Collision Debug [F3]", 16, viewportHeight - 36);
         }
+    }
+
+    private void renderNightAnnouncement(double viewportWidth, String announcement) {
+        if (announcement == null || announcement.isBlank()) {
+            return;
+        }
+        double warningWidth = 360.0;
+        double warningHeight = 68.0;
+        double warningX = Math.max(20.0, (viewportWidth - warningWidth) * 0.5);
+        double warningY = 82.0;
+        graphicsContext.save();
+        graphicsContext.setFill(Color.color(0.02, 0.02, 0.02, 0.68));
+        graphicsContext.fillRoundRect(warningX, warningY, warningWidth, warningHeight, 18, 18);
+        graphicsContext.setStroke(Color.color(1.0, 0.35, 0.22, 0.72));
+        graphicsContext.strokeRoundRect(warningX + 0.5, warningY + 0.5, warningWidth - 1, warningHeight - 1, 18, 18);
+        graphicsContext.setFill(Color.web("#fff0cc"));
+        graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 14));
+        String[] lines = announcement.split("\\R", 3);
+        for (int i = 0; i < Math.min(2, lines.length); i++) {
+            graphicsContext.fillText(lines[i], warningX + 18, warningY + 27 + i * 22);
+        }
+        graphicsContext.restore();
     }
 
     private void renderCollisionOverlay(Player player,
