@@ -298,13 +298,12 @@ public class WolfEnemy extends Enemy {
             escapeObstacleTarget = null;
             activeResourceTarget = null;
         }
-        if (escapeObstacleTarget != null) {
-            updateEscapeObstacleTarget(nowNs, worldWidth, worldHeight);
-            return;
-        }
 
         Player playerTarget = resolvePlayerTarget(player, nowNs);
         if (playerTarget != null) {
+            if (escapeObstacleTarget != null) {
+                clearObstacleFocus();
+            }
             activeEntityTarget = playerTarget;
             activeBuildTarget = null;
             activeResourceTarget = null;
@@ -317,10 +316,21 @@ public class WolfEnemy extends Enemy {
             return;
         }
 
+        if (!isNight && escapeObstacleTarget != null) {
+            clearObstacleFocus();
+        }
+        if (escapeObstacleTarget != null) {
+            updateEscapeObstacleTarget(nowNs, worldWidth, worldHeight);
+            return;
+        }
+
         if (isNight && handleNightRaid(nowNs, player, baseCamp, worldWidth, worldHeight)) {
             return;
         }
 
+        if (state == BrainState.CHASE) {
+            clearPath();
+        }
         activeEntityTarget = null;
         activeBuildTarget = null;
         activeResourceTarget = null;
@@ -1651,6 +1661,13 @@ public class WolfEnemy extends Enemy {
         activeBuildTarget = null;
         activeResourceTarget = null;
         escapeObstacleTarget = null;
+    }
+
+    private void clearObstacleFocus() {
+        activeBuildTarget = null;
+        activeResourceTarget = null;
+        escapeObstacleTarget = null;
+        clearPath();
     }
 
     private void clearPath() {
