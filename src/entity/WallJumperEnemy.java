@@ -30,7 +30,7 @@ public class WallJumperEnemy extends Enemy {
     private static final long DEATH_FRAME_NS = 110_000_000L;
     private static final long SPAWN_DELAY_NS = 80_000_000L;
     private static final long ATTACK_COOLDOWN_NS = 1_000_000_000L;
-    private static final double MOVE_SPEED = 0.78;
+    private static final double MOVE_SPEED = 1.20;
     private static final double ATTACK_RANGE_PADDING = 18.0;
     private static final int MAX_HP = 14;
     private static final int BASE_DAMAGE = 2;
@@ -68,6 +68,11 @@ public class WallJumperEnemy extends Enemy {
         this.stateStartedAtNs = 0L;
         this.lastBaseAttackAtNs = -ATTACK_COOLDOWN_NS;
         this.removeFromWorld = false;
+    }
+
+    public static void preloadAssets() {
+        SpriteSheetLoader.loadGrid(asset("D_Walk"), FRAME_COUNT, 1);
+        SpriteSheetLoader.loadGrid(asset("D_Death"), FRAME_COUNT, 1);
     }
 
     public void updateTowardBase(long nowNs, BaseCamp baseCamp, double worldWidth, double worldHeight) {

@@ -8,11 +8,11 @@ package core;
 public final class GameBalance {
     public static final int STARTING_COIN_AMOUNT = 120;
 
-    public static final int STONE_WALL_PRICE = 6;
-    public static final int WOOD_FENCE_PRICE = STONE_WALL_PRICE;
-    public static final int WOOD_WALL_PRICE = 4;
+    public static final int STONE_WALL_PRICE = 1;
+    public static final int WOOD_FENCE_PRICE = 1;
+    public static final int WOOD_WALL_PRICE = 1;
     public static final int TORCH_PRICE = 20;
-    public static final int ARCHER_TOWER_PRICE = 35;
+    public static final int ARCHER_TOWER_PRICE = 20;
     public static final int BOMB_TRAP_PRICE = 1;
     public static final int FRIENDLY_ARCHER_PRICE = 1;
     public static final int FIRE_BOMB_PRICE = 1;

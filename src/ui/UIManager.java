@@ -482,7 +482,7 @@ public class UIManager {
         meta.put("potion", new ItemUiMeta("potion", "Potion", "Emergency heal during survival runs.", 12, "PT", null));
         meta.put("torch", new ItemUiMeta("torch", "Torch", "Animated torch that lights dark areas after placement.", GameBalance.TORCH_PRICE, "TR", torchIcon));
         meta.put(AXE_ITEM_ID, new ItemUiMeta(AXE_ITEM_ID, "Axe", "Equip to use Slice attacks on trees, rocks, and enemies.", 0, "AX", axeIcon, Map.of("wood", 5, "stone", 2)));
-        meta.put("archer_tower", new ItemUiMeta("archer_tower", "Archer Tower", "Auto attacks enemies entering its range.", GameBalance.ARCHER_TOWER_PRICE, "AT", archerTowerIcon));
+        meta.put("archer_tower", new ItemUiMeta("archer_tower", "Archer Tower", "Auto attacks enemies entering its range.", 0, "AT", archerTowerIcon, Map.of("wood", GameBalance.ARCHER_TOWER_PRICE)));
         meta.put("friendly_archer", new ItemUiMeta("friendly_archer", "Archer", "Friendly ranged unit", GameBalance.FRIENDLY_ARCHER_PRICE, "AR", friendlyArcherIcon));
         meta.put("chest", new ItemUiMeta("chest", "Chest", "Storage chest that can be opened with C when nearby.", 50, "CH", chestIcon));
         meta.put("bomb_trap", new ItemUiMeta("bomb_trap", "Bomb Trap", "Throw with Q and explode in an area, damaging units, fences, and resources.", GameBalance.BOMB_TRAP_PRICE, "BT", bombIcon));

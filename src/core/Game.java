@@ -24,10 +24,15 @@ import entity.BaseCamp;
 import entity.ArrowProjectile;
 import entity.BlackGrouseSpawnManager;
 import entity.Enemy;
+import entity.EnemyAiDebug;
+import entity.EnemyNavigationContext;
+import entity.EnemyObstacleTarget;
 import entity.Entity;
+import entity.FlowFieldManager;
 import entity.FriendlyArcher;
 import entity.FriendlyArcherManager;
 import entity.GolemEnemy;
+import entity.PathfindingManager;
 import entity.Player;
 import entity.ThrownBomb;
 import entity.WallJumperEnemy;
@@ -57,6 +62,7 @@ import system.resource.DropResult;
 import system.resource.ResourceContractValidator;
 import system.resource.ResourceHitResult;
 import system.resource.ResourceManager;
+import system.resource.ResourceNode;
 import system.resource.ResourceType;
 import system.resource.TileResourceAdapter;
 import system.bomb.BombSystem;
@@ -104,8 +110,11 @@ public class Game {
     private static final long GOLEM_SPAWN_MIN_INTERVAL_NS = 7_500_000_000L;
     private static final long GOLEM_SPAWN_MAX_INTERVAL_NS = 11_500_000_000L;
     private static final long AUTOSAVE_INTERVAL_NS = 20_000_000_000L;
+    private static final long FLOW_FIELD_REBUILD_DEBOUNCE_NS = 500_000_000L;
+    private static final long FLOW_FIELD_DESTROY_REBUILD_DEBOUNCE_NS = 200_000_000L;
     private static final int WALL_JUMPER_MAX_ALIVE = 5;
     private static final int GOLEM_MAX_ALIVE = 2;
+    private static final int MAX_PATH_REQUESTS_PER_FRAME = 3;
     private static final BuildType[] ATTACKABLE_WALL_TYPES = {
             BuildType.FENCE,
             BuildType.WOOD_WALL,
@@ -119,6 +128,7 @@ public class Game {
     private static final int INITIAL_FENCE_PADDING_X_TILES = 10;
     private static final int INITIAL_FENCE_PADDING_Y_TILES = 8;
     private static final int INITIAL_FENCE_GATE_SIZE_TILES = 3;
+    private static final int INITIAL_CORNER_FENCE_ARM_TILES = 3;
 
     private final GameLoop gameLoop;
     private final Renderer renderer;
@@ -130,6 +140,10 @@ public class Game {
     private final CollisionManager buildCollisionManager;
     private final BlackGrouseSpawnManager blackGrouseSpawnManager;
     private final WolfSpawnManager wolfSpawnManager;
+    private final EnemyNavigationContext enemyNavigationContext;
+    private final EnemyAiDebug enemyAiDebug;
+    private final PathfindingManager pathfindingManager;
+    private final FlowFieldManager flowFieldManager;
     private final Player player;
     private final BaseCamp baseCamp;
     private final List<Enemy> enemies;
@@ -138,7 +152,8 @@ public class Game {
     private final List<MapObjectData> mapCollisions;
     private final ResourceManager resourceManager;
     private final TileCollisionResolver tileCollisionResolver;
-    private final DayNightCycle dayNightCycle;
+    private final DayNightManager dayNightManager;
+    private final EnemyWaveManager enemyWaveManager;
     private final List<FloatingDamageText> floatingDamageTexts;
     private final List<DroppedItem> droppedItems;
     private final List<ArrowProjectile> arrowProjectiles;
@@ -175,6 +190,7 @@ public class Game {
     private double cameraY;
     private double worldWidth;
     private double worldHeight;
+    private int lastBuildObjectCount;
 
     private final Random random;
 
@@ -215,6 +231,7 @@ public class Game {
     private static final String PICKAXE_ITEM_ID = "pickaxe";
     private static final String AXE_ITEM_ID = "axe";
     private static final String CARROT_ITEM_ID = "carrot";
+    private static final String NIKU_ITEM_ID = "niku";
     private static final String[] HOTBAR_PRIORITY = {
             WOOD_FENCE_ITEM_ID,
             TORCH_ITEM_ID,
@@ -290,12 +307,16 @@ public class Game {
         this.inputHandler = new InputHandler();
         this.wallAssetManager = new AssetManager();
         DropManager.preloadAll();
+        WolfEnemy.preloadAssets();
+        GolemEnemy.preloadAssets();
+        WallJumperEnemy.preloadAssets();
         this.player = new Player(100, 100, 58, 58, 4, 100);
         this.baseCamp = new BaseCamp(0, 0, 116, 116, DEFAULT_BASE_CAMP_HP);
         this.gameLoop = new GameLoop(this);
         this.enemies = new ArrayList<>();
         this.resourceManager = new ResourceManager();
-        this.dayNightCycle = new DayNightCycle();
+        this.dayNightManager = new DayNightManager();
+        this.enemyWaveManager = new EnemyWaveManager();
         this.floatingDamageTexts = new ArrayList<>();
         this.droppedItems = new ArrayList<>();
         this.arrowProjectiles = new ArrayList<>();
@@ -377,6 +398,112 @@ public class Game {
             return blockingEntities;
         });
         this.buildManager = new BuildManager(wallAssetManager, buildCollisionManager);
+        this.enemyAiDebug = new EnemyAiDebug();
+        this.pathfindingManager = new PathfindingManager(
+                buildCollisionManager.getTileWidth(),
+                buildCollisionManager.getTileHeight(),
+                MAX_PATH_REQUESTS_PER_FRAME,
+                4,
+                800,
+                enemyAiDebug
+        );
+        this.flowFieldManager = new FlowFieldManager(
+                buildCollisionManager.getTileWidth(),
+                buildCollisionManager.getTileHeight(),
+                Math.max(1, (int) Math.ceil(worldWidth / buildCollisionManager.getTileWidth())),
+                Math.max(1, (int) Math.ceil(worldHeight / buildCollisionManager.getTileHeight())),
+                this::isFlowFieldBlockedTile,
+                enemyAiDebug
+        );
+        this.enemyNavigationContext = new EnemyNavigationContext() {
+            @Override
+            public int getTileWidth() {
+                return buildCollisionManager.getTileWidth();
+            }
+
+            @Override
+            public int getTileHeight() {
+                return buildCollisionManager.getTileHeight();
+            }
+
+            @Override
+            public void requestPath(Enemy requester,
+                                    double startX,
+                                    double startY,
+                                    double targetX,
+                                    double targetY,
+                                    PathfindingManager.WalkValidator validator,
+                                    long nowNs) {
+                pathfindingManager.requestPath(requester, startX, startY, targetX, targetY, requester.getWidth(), requester.getHeight(), validator, nowNs);
+            }
+
+            @Override
+            public PathfindingManager.PathResult consumePathResult(Enemy requester) {
+                return pathfindingManager.consumeResult(requester);
+            }
+
+            @Override
+            public boolean canPathOccupy(Enemy requester, double x, double y, double width, double height) {
+                return Game.this.canEnemyPathOccupy(requester, x, y, width, height);
+            }
+
+            @Override
+            public Point2D getFlowFieldWaypoint(double worldX, double worldY) {
+                return flowFieldManager.getWaypoint(worldX, worldY);
+            }
+
+            @Override
+            public BuildObject findBlockingObstacle(Enemy enemy, double targetX, double targetY, int maxRayTiles, int maxNearbyRadiusTiles) {
+                return Game.this.findBlockingObstacle(enemy, targetX, targetY, maxRayTiles, maxNearbyRadiusTiles);
+            }
+
+            @Override
+            public EnemyObstacleTarget findEscapeObstacle(Enemy enemy, double desiredDirX, double desiredDirY, int searchRadiusTiles) {
+                return Game.this.findEscapeObstacle(enemy, desiredDirX, desiredDirY, searchRadiusTiles);
+            }
+
+            @Override
+            public boolean damageWall(Enemy enemy, BuildObject wall, long nowNs) {
+                return Game.this.damageEnemyWall(enemy, wall, nowNs);
+            }
+
+            @Override
+            public boolean damageObstacle(Enemy enemy, EnemyObstacleTarget obstacle, long nowNs) {
+                return Game.this.damageEnemyObstacle(enemy, obstacle, nowNs);
+            }
+
+            @Override
+            public boolean damageBase(Enemy enemy, BaseCamp targetBaseCamp, long nowNs) {
+                if (enemy instanceof WolfEnemy wolfEnemy) {
+                    return Game.this.damageWolfBase(wolfEnemy, targetBaseCamp, nowNs);
+                }
+                int beforeHp = targetBaseCamp.getHp();
+                DamageSystem.applyDamage(enemy, targetBaseCamp, enemy.getDamage(), nowNs);
+                int dealt = Math.max(0, beforeHp - targetBaseCamp.getHp());
+                if (dealt <= 0) {
+                    return false;
+                }
+                eventBus.publish(new GameEvent(GameEventType.BASE_CAMP_DAMAGED, Map.of("damage", dealt, "hp", targetBaseCamp.getHp())));
+                return true;
+            }
+
+            @Override
+            public void onObstacleDestroyed(BuildObject obstacle, long nowNs) {
+                if (obstacle != null) {
+                    flowFieldManager.markDirty(nowNs, FLOW_FIELD_DESTROY_REBUILD_DEBOUNCE_NS);
+                }
+            }
+
+            @Override
+            public void recordFenceAttack(String enemyType) {
+                enemyAiDebug.recordFenceAttack(enemyType);
+            }
+
+            @Override
+            public void recordStuck(String enemyType) {
+                enemyAiDebug.recordStuck();
+            }
+        };
         this.blackGrouseSpawnManager = new BlackGrouseSpawnManager(
                 loadedMap,
                 buildCollisionManager,
@@ -387,32 +514,7 @@ public class Game {
         this.wolfSpawnManager = new WolfSpawnManager(
                 buildCollisionManager,
                 this::canWolfOccupy,
-                new WolfEnemy.WorldQuery() {
-                    @Override
-                    public int getTileWidth() {
-                        return buildCollisionManager.getTileWidth();
-                    }
-
-                    @Override
-                    public int getTileHeight() {
-                        return buildCollisionManager.getTileHeight();
-                    }
-
-                    @Override
-                    public BuildObject findNearestWallToAttack(WolfEnemy enemy, double towardX, double towardY, double maxDistance) {
-                        return Game.this.findNearestWolfWallToAttack(enemy, towardX, towardY, maxDistance);
-                    }
-
-                    @Override
-                    public boolean damageWall(WolfEnemy enemy, BuildObject wall, long nowNs) {
-                        return Game.this.damageWolfWall(enemy, wall, nowNs);
-                    }
-
-                    @Override
-                    public boolean damageBase(WolfEnemy enemy, BaseCamp baseCamp, long nowNs) {
-                        return Game.this.damageWolfBase(enemy, baseCamp, nowNs);
-                    }
-                },
+                enemyNavigationContext,
                 random
         );
         this.buildController = new BuildController(buildManager);
@@ -428,8 +530,9 @@ public class Game {
             seedStartingBuildItems();
         }
         loadMapWoodFences();
+        this.lastBuildObjectCount = buildManager.getPlacedObjects().size();
+        this.flowFieldManager.markDirty(System.nanoTime(), 0L);
         spawnAmbientBlackGrouse();
-        spawnCornerWolves();
         refreshBuildInventoryUi();
         renderer.setContinueAvailable(hasLoadedSaveSnapshot);
         renderer.setSettingsBackAction(this::closeSettingsFromUi);
@@ -536,8 +639,7 @@ public class Game {
 
     public void render(long now) {
         renderer.setIntroDialogueRunner(introDialogueRunner);
-        // objectiveStatus dung lai slot hien level objective de hien mission sinh ton.
-        String objectiveStatus = buildSurvivalObjectiveStatus(now);
+        String objectiveStatus = null;
 
         long renderStartNs = System.nanoTime();
         renderer.render(
@@ -576,9 +678,13 @@ public class Game {
                 screenShakeX,
                 screenShakeY,
                 screenFlashUntilNs > now ? Math.min(1.0, (screenFlashUntilNs - now) / 180_000_000.0) : 0.0,
-                dayNightCycle.getDarknessAlpha(now),
-                dayNightCycle.isNight(now),
-                dayNightCycle.getPhaseName(now),
+                dayNightManager.getDarknessAlpha(now),
+                dayNightManager.isNight(now),
+                dayNightManager.getScheduleDebugText(now),
+                dayNightManager.getTimeIcon(now),
+                dayNightManager.getTimeTitle(now),
+                dayNightManager.getClockText(now),
+                dayNightManager.getAnnouncement(now),
                 worldWidth,
                 worldHeight
         );
@@ -639,7 +745,8 @@ public class Game {
             baseCamp.configure(safeSpawn[0] - 72, safeSpawn[1] - 72, 116, 116, DEFAULT_BASE_CAMP_HP);
             baseCamp.clampPosition(0, 0, worldWidth, worldHeight);
         }
-        dayNightCycle.reset(System.nanoTime());
+        dayNightManager.reset(System.nanoTime());
+        enemyWaveManager.reset();
         updateCamera();
     }
 
@@ -1486,7 +1593,6 @@ public class Game {
         resetWorldPosition();
         loadMapWoodFences();
         spawnAmbientBlackGrouse();
-        spawnCornerWolves();
         gameState = GameState.PLAYING;
     }
 
@@ -1497,17 +1603,60 @@ public class Game {
     }
 
     private void updateEnemySpawning(long now) {
-        updateWallJumperSpawning(now);
-        updateGolemSpawning(now);
-        if (now - lastEnemySpawnAtNs < ENEMY_SPAWN_INTERVAL_NS) {
-            return;
-        }
+        enemyWaveManager.update(now, dayNightManager, new EnemyWaveManager.WaveActions() {
+            @Override
+            public void spawnDayWolves(int count) {
+                Game.this.spawnWaveWolves(count);
+            }
 
-        lastEnemySpawnAtNs = now;
+            @Override
+            public void spawnNightWolves(int count) {
+                Game.this.spawnWaveWolves(count);
+            }
+
+            @Override
+            public void spawnGolems(int count, GolemEnemy.GolemMode mode) {
+                Game.this.spawnGolemWave(count, mode);
+            }
+
+            @Override
+            public void spawnWallJumpers(int count) {
+                Game.this.spawnWallJumperWave(count);
+            }
+
+            @Override
+            public void showWarning() {
+                renderer.showToast("Màn đêm sắp xuống. Hãy dựng rào và chuẩn bị vũ khí.");
+            }
+
+            @Override
+            public void showDawn() {
+                renderer.showToast("Trời sắp sáng. Quái đang rút khỏi trại.");
+            }
+
+            @Override
+            public void startDawnRetreat() {
+                // Spawn da dung o phase DAWN. AI hien tai tiep tuc chay ra/bi despawn khi sang ngay moi.
+            }
+
+            @Override
+            public void finishDawn() {
+                Game.this.despawnHostileEnemiesForMorning();
+                renderer.showToast("Trời đã sáng. Quái rút vào rừng.");
+            }
+        });
     }
 
     private void updateEnemies(long now) {
-        wolfSpawnManager.updateAll(now, dayNightCycle.isNight(now), player, baseCamp, debugCollisionOverlayEnabled, worldWidth, worldHeight);
+        int buildObjectCount = buildManager.getPlacedObjects().size();
+        if (buildObjectCount != lastBuildObjectCount) {
+            flowFieldManager.markDirty(now, FLOW_FIELD_REBUILD_DEBOUNCE_NS);
+            lastBuildObjectCount = buildObjectCount;
+        }
+        flowFieldManager.update(now, baseCamp);
+        pathfindingManager.update(now);
+        enemyAiDebug.flush(now, enemies.size());
+        wolfSpawnManager.updateAll(now, dayNightManager.isNight(now), player, baseCamp, debugCollisionOverlayEnabled, worldWidth, worldHeight);
         List<Enemy> dead = new ArrayList<>();
         for (Enemy enemy : enemies) {
             if (enemy == null) {
@@ -1519,6 +1668,7 @@ public class Game {
                 continue;
             }
             if (enemy instanceof GolemEnemy golemEnemy) {
+                golemEnemy.setDebugEnabled(debugCollisionOverlayEnabled);
                 golemEnemy.updateAi(now, baseCamp, player, friendlyArcherManager.getArchers(), worldWidth, worldHeight);
                 int baseHpBefore = baseCamp.getHp();
                 if (golemEnemy.applyAttackIfReady(now)) {
@@ -1971,51 +2121,126 @@ public class Game {
         }
     }
 
-    private BuildObject findNearestWolfWallToAttack(WolfEnemy enemy, double towardX, double towardY, double maxDistance) {
-        if (enemy == null || maxDistance <= 0.0) {
+    private BuildObject findBlockingObstacle(Enemy enemy, double targetX, double targetY, int maxRayTiles, int maxNearbyRadiusTiles) {
+        if (enemy == null) {
             return null;
         }
-        BuildObject nearest = null;
-        double bestScore = Double.POSITIVE_INFINITY;
-        double targetAngle = Math.atan2(towardY - enemy.getCenterY(), towardX - enemy.getCenterX());
-        for (BuildObject object : buildManager.getPlacedObjectsInWorldRect(
-                enemy.getCenterX() - maxDistance,
-                enemy.getCenterY() - maxDistance,
-                maxDistance * 2.0,
-                maxDistance * 2.0
-        )) {
-            if (object == null || !object.isAlive()) {
-                continue;
+        BuildObject byRaycast = raycastBlockingObstacle(enemy, targetX, targetY, maxRayTiles);
+        if (byRaycast != null) {
+            return byRaycast;
+        }
+        return findNearbyBlockingObstacle(enemy, maxNearbyRadiusTiles);
+    }
+
+    private BuildObject raycastBlockingObstacle(Enemy enemy, double targetX, double targetY, int maxRayTiles) {
+        int tileWidth = buildCollisionManager.getTileWidth();
+        int tileHeight = buildCollisionManager.getTileHeight();
+        double startX = enemy.getCenterX();
+        double startY = enemy.getCenterY();
+        double dx = targetX - startX;
+        double dy = targetY - startY;
+        double distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance < 0.001) {
+            return null;
+        }
+        double step = Math.max(tileWidth, tileHeight);
+        int maxSteps = Math.min(Math.max(1, maxRayTiles), Math.max(1, (int) Math.ceil(distance / step)));
+        for (int i = 1; i <= maxSteps; i++) {
+            double t = i / (double) maxSteps;
+            int tileX = (int) Math.floor((startX + dx * t) / tileWidth);
+            int tileY = (int) Math.floor((startY + dy * t) / tileHeight);
+            BuildObject object = buildManager.getPlacedObjectAt(tileX, tileY);
+            if (object != null && object.isAlive() && isAttackableWallType(object.getType())) {
+                return object;
             }
-            if (!isAttackableWallType(object.getType())) {
+        }
+        return null;
+    }
+
+    private BuildObject findNearbyBlockingObstacle(Enemy enemy, int maxNearbyRadiusTiles) {
+        int tileWidth = buildCollisionManager.getTileWidth();
+        int tileHeight = buildCollisionManager.getTileHeight();
+        double radius = Math.max(1, maxNearbyRadiusTiles) * Math.max(tileWidth, tileHeight);
+        BuildObject nearest = null;
+        double bestDistance = Double.POSITIVE_INFINITY;
+        for (BuildObject object : buildManager.getPlacedObjectsInWorldRect(
+                enemy.getCenterX() - radius,
+                enemy.getCenterY() - radius,
+                radius * 2.0,
+                radius * 2.0
+        )) {
+            if (object == null || !object.isAlive() || !isAttackableWallType(object.getType())) {
                 continue;
             }
             double distance = edgeDistanceBetween(enemy, object);
-            if (distance > maxDistance) {
-                continue;
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                nearest = object;
             }
-            double angle = Math.atan2(object.getCenterY() - enemy.getCenterY(), object.getCenterX() - enemy.getCenterX());
-            double anglePenalty = Math.abs(normalizeAngleRadians(angle - targetAngle)) * 18.0;
-            double score = distance + anglePenalty;
-            if (score >= bestScore) {
-                continue;
-            }
-            nearest = object;
-            bestScore = score;
         }
         return nearest;
     }
 
-    private boolean damageWolfWall(WolfEnemy enemy, BuildObject wall, long now) {
+    private EnemyObstacleTarget findEscapeObstacle(Enemy enemy, double desiredDirX, double desiredDirY, int searchRadiusTiles) {
+        if (enemy == null) {
+            return null;
+        }
+        int tileWidth = buildCollisionManager.getTileWidth();
+        int tileHeight = buildCollisionManager.getTileHeight();
+        double radius = Math.max(1, searchRadiusTiles) * Math.max(tileWidth, tileHeight);
+        double enemyCenterX = enemy.getCenterX();
+        double enemyCenterY = enemy.getCenterY();
+        double desiredLength = Math.sqrt(desiredDirX * desiredDirX + desiredDirY * desiredDirY);
+        double dirX = desiredLength <= 0.001 ? 0.0 : desiredDirX / desiredLength;
+        double dirY = desiredLength <= 0.001 ? 0.0 : desiredDirY / desiredLength;
+
+        EnemyObstacleTarget best = null;
+        double bestScore = Double.POSITIVE_INFINITY;
+
+        for (BuildObject object : buildManager.getPlacedObjectsInWorldRect(
+                enemyCenterX - radius,
+                enemyCenterY - radius,
+                radius * 2.0,
+                radius * 2.0
+        )) {
+            if (object == null || !object.isAlive() || !isBreakableEscapeBuildType(object.getType())) {
+                continue;
+            }
+            double score = scoreEscapeObstacle(enemy, dirX, dirY, object.getCenterX(), object.getCenterY(), object.getCollisionX(), object.getCollisionY(), object.getCollisionWidth(), object.getCollisionHeight(), object.getHealth(), 0.0);
+            if (score < bestScore) {
+                bestScore = score;
+                best = EnemyObstacleTarget.forBuild(object);
+            }
+        }
+
+        for (ResourceNode resource : resourceManager.getAliveResources()) {
+            if (resource == null || !isBreakableEscapeResource(enemy, resource)) {
+                continue;
+            }
+            if (Math.abs(resource.getCenterX() - enemyCenterX) > radius + resource.getCollisionWidth()
+                    || Math.abs(resource.getCenterY() - enemyCenterY) > radius + resource.getCollisionHeight()) {
+                continue;
+            }
+            double typePenalty = resource.getResourceType() == ResourceType.ROCK && enemy instanceof WolfEnemy ? 28.0 : 0.0;
+            double score = scoreEscapeObstacle(enemy, dirX, dirY, resource.getCenterX(), resource.getCenterY(), resource.getCollisionX(), resource.getCollisionY(), resource.getCollisionWidth(), resource.getCollisionHeight(), resource.getCurrentHp(), typePenalty);
+            if (score < bestScore) {
+                bestScore = score;
+                best = EnemyObstacleTarget.forResource(resource);
+            }
+        }
+        return best;
+    }
+
+    private boolean damageEnemyWall(Enemy enemy, BuildObject wall, long now) {
         if (enemy == null || wall == null || !wall.isAlive()) {
             return false;
         }
-        double attackPadding = 18.0;
+        double attackRangePadding = enemy instanceof GolemEnemy ? 10.0 : 18.0;
         BuildDamageResult hitResult = buildManager.hitFirstDamageableIntersecting(
-                enemy.getCollisionX() - attackPadding,
-                enemy.getCollisionY() - attackPadding,
-                enemy.getCollisionWidth() + attackPadding * 2.0,
-                enemy.getCollisionHeight() + attackPadding * 2.0,
+                enemy.getCollisionX() - attackRangePadding,
+                enemy.getCollisionY() - attackRangePadding,
+                enemy.getCollisionWidth() + attackRangePadding * 2.0,
+                enemy.getCollisionHeight() + attackRangePadding * 2.0,
                 enemy.getDamage(),
                 now,
                 object -> object == wall
@@ -2031,6 +2256,39 @@ public class Game {
                     hitResult.getObject().getCenterX(),
                     hitResult.getObject().getCenterY()
             );
+            flowFieldManager.markDirty(now, FLOW_FIELD_DESTROY_REBUILD_DEBOUNCE_NS);
+        }
+        return true;
+    }
+
+    private boolean damageEnemyObstacle(Enemy enemy, EnemyObstacleTarget obstacle, long nowNs) {
+        if (enemy == null || obstacle == null || !obstacle.isAlive()) {
+            return false;
+        }
+        if (obstacle.isBuildObject()) {
+            return damageEnemyWall(enemy, obstacle.buildObject(), nowNs);
+        }
+        ResourceNode resource = obstacle.resourceNode();
+        if (resource == null || !resource.isAlive() || !isBreakableEscapeResource(enemy, resource)) {
+            return false;
+        }
+        if (!isEnemyWithinObstacleAttackRange(enemy, resource)) {
+            return false;
+        }
+        int obstacleDamage = resolveEnemyResourceDamage(enemy, resource);
+        if (obstacleDamage <= 0) {
+            return false;
+        }
+        ResourceHitResult hitResult = resourceManager.hitResource(resource.getObjectId(), obstacleDamage, nowNs);
+        if (hitResult == null) {
+            return false;
+        }
+        spawnResourceDamageText(hitResult, nowNs);
+        if (hitResult.isDestroyed()) {
+            if (hitResult.getResourceNode() != null) {
+                onResourceDestroyed(hitResult.getResourceNode(), false);
+            }
+            flowFieldManager.markDirty(nowNs, FLOW_FIELD_DESTROY_REBUILD_DEBOUNCE_NS);
         }
         return true;
     }
@@ -2049,41 +2307,6 @@ public class Game {
         return true;
     }
 
-    private BuildObject findNearestGolemWallToAttack(GolemEnemy enemy, double towardX, double towardY, double maxDistance) {
-        if (enemy == null || maxDistance <= 0.0) {
-            return null;
-        }
-        BuildObject nearest = null;
-        double bestScore = Double.POSITIVE_INFINITY;
-        double targetAngle = Math.atan2(towardY - enemy.getCenterY(), towardX - enemy.getCenterX());
-        for (BuildObject object : buildManager.getPlacedObjectsInWorldRect(
-                enemy.getCenterX() - maxDistance,
-                enemy.getCenterY() - maxDistance,
-                maxDistance * 2.0,
-                maxDistance * 2.0
-        )) {
-            if (object == null || !object.isAlive()) {
-                continue;
-            }
-            if (!isAttackableWallType(object.getType())) {
-                continue;
-            }
-            double distance = edgeDistanceBetween(enemy, object);
-            if (distance > maxDistance) {
-                continue;
-            }
-            double angle = Math.atan2(object.getCenterY() - enemy.getCenterY(), object.getCenterX() - enemy.getCenterX());
-            double anglePenalty = Math.abs(normalizeAngleRadians(angle - targetAngle)) * 20.0;
-            double score = distance + anglePenalty;
-            if (score >= bestScore) {
-                continue;
-            }
-            nearest = object;
-            bestScore = score;
-        }
-        return nearest;
-    }
-
     private boolean isAttackableWallType(BuildType type) {
         if (type == null) {
             return false;
@@ -2096,32 +2319,79 @@ public class Game {
         return false;
     }
 
-    private boolean damageGolemWall(GolemEnemy enemy, BuildObject wall, long now) {
-        if (enemy == null || wall == null || !wall.isAlive()) {
+    private boolean isBreakableEscapeBuildType(BuildType type) {
+        return isAttackableWallType(type) || type == BuildType.DOOR;
+    }
+
+    private boolean isBreakableEscapeResource(Enemy enemy, ResourceNode resource) {
+        if (resource == null || !resource.isAlive()) {
             return false;
         }
-        BuildDamageResult hitResult = buildManager.hitFirstDamageableIntersecting(
-                enemy.getAttackHitboxX(),
-                enemy.getAttackHitboxY(),
-                enemy.getAttackHitboxWidth(),
-                enemy.getAttackHitboxHeight(),
-                enemy.getDamage(),
-                now,
-                object -> object == wall
+        return switch (resource.getResourceType()) {
+            case TREE -> true;
+            case ROCK -> enemy instanceof GolemEnemy || enemy instanceof WolfEnemy;
+            case GRASS -> resource.getKind().toLowerCase().contains("bush");
+            case UNKNOWN -> resource.getKind().toLowerCase().contains("bush");
+            default -> false;
+        };
+    }
+
+    private double scoreEscapeObstacle(Enemy enemy,
+                                       double dirX,
+                                       double dirY,
+                                       double centerX,
+                                       double centerY,
+                                       double collisionX,
+                                       double collisionY,
+                                       double collisionWidth,
+                                       double collisionHeight,
+                                       int currentHp,
+                                       double typePenalty) {
+        double offsetX = centerX - enemy.getCenterX();
+        double offsetY = centerY - enemy.getCenterY();
+        double distance = Math.max(0.0, Math.sqrt(offsetX * offsetX + offsetY * offsetY));
+        double dot = dirX == 0.0 && dirY == 0.0 ? 1.0 : ((offsetX * dirX) + (offsetY * dirY)) / Math.max(0.001, Math.sqrt(offsetX * offsetX + offsetY * offsetY));
+        double anglePenalty = dirX == 0.0 && dirY == 0.0 ? 0.0 : (1.0 - Math.max(-1.0, dot)) * 26.0;
+        double hpPenalty = Math.max(0, currentHp) * 2.0;
+        double directBlockBonus = intersectsRect(
+                enemy.getCenterX() + dirX * 10.0,
+                enemy.getCenterY() + dirY * 10.0,
+                Math.max(8.0, enemy.getCollisionWidth()),
+                Math.max(8.0, enemy.getCollisionHeight()),
+                collisionX,
+                collisionY,
+                collisionWidth,
+                collisionHeight
+        ) ? -18.0 : 0.0;
+        return distance + anglePenalty + hpPenalty + typePenalty + directBlockBonus;
+    }
+
+    private boolean isEnemyWithinObstacleAttackRange(Enemy enemy, ResourceNode resource) {
+        double padding = enemy instanceof GolemEnemy ? 44.0 : 48.0;
+        return intersectsRect(
+                enemy.getCollisionX() - padding,
+                enemy.getCollisionY() - padding,
+                enemy.getCollisionWidth() + padding * 2.0,
+                enemy.getCollisionHeight() + padding * 2.0,
+                resource.getCollisionX(),
+                resource.getCollisionY(),
+                resource.getCollisionWidth(),
+                resource.getCollisionHeight()
         );
-        if (hitResult == null) {
-            return false;
+    }
+
+    private int resolveEnemyResourceDamage(Enemy enemy, ResourceNode resource) {
+        if (enemy instanceof GolemEnemy) {
+            return resource.getResourceType() == ResourceType.ROCK ? 3 : 4;
         }
-        spawnBuildDamageText(hitResult, now);
-        if (hitResult.isDestroyed() && hitResult.getDropAmount() > 0 && !hitResult.getDropItemId().isBlank()) {
-            spawnDroppedItem(
-                    hitResult.getDropItemId(),
-                    hitResult.getDropAmount(),
-                    hitResult.getObject().getCenterX(),
-                    hitResult.getObject().getCenterY()
-            );
+        if (enemy instanceof WolfEnemy) {
+            return resource.getResourceType() == ResourceType.ROCK ? 1 : 2;
         }
-        return true;
+        return Math.max(1, enemy.getDamage());
+    }
+
+    private boolean intersectsRect(double ax, double ay, double aw, double ah, double bx, double by, double bw, double bh) {
+        return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
     }
 
     private void toggleCampChestOverlay(long now) {
@@ -2349,35 +2619,48 @@ public class Game {
         }
     }
 
+    private void spawnWaveWolves(int count) {
+        wolfSpawnManager.spawnAtMapEdges(enemies, count, worldWidth, worldHeight);
+    }
+
+    private void spawnGolemWave(int count, GolemEnemy.GolemMode mode) {
+        for (int i = 0; i < count; i++) {
+            GolemEnemy spawned = spawnGolemEnemy(mode);
+            if (spawned != null) {
+                enemies.add(spawned);
+            }
+        }
+    }
+
+    private void spawnWallJumperWave(int count) {
+        for (int i = 0; i < count; i++) {
+            WallJumperEnemy spawned = spawnWallJumperEnemy();
+            if (spawned != null) {
+                enemies.add(spawned);
+            }
+        }
+    }
+
+    private void despawnHostileEnemiesForMorning() {
+        enemies.removeIf(enemy -> enemy != null && enemy.isHostile());
+        wolfSpawnManager.clear();
+    }
+
     private GolemEnemy spawnGolemEnemy() {
+        return spawnGolemEnemy(GolemEnemy.GolemMode.NORMAL);
+    }
+
+    private GolemEnemy spawnGolemEnemy(GolemEnemy.GolemMode mode) {
         for (int attempt = 0; attempt < 16; attempt++) {
-            double[] spawn = randomEdgeSpawnPoint(GolemEnemy.RENDER_WIDTH, GolemEnemy.RENDER_HEIGHT);
+            double[] spawn = randomEdgeSpawnPoint(GolemEnemy.RENDER_WIDTH, GolemEnemy.RENDER_HEIGHT, 144.0);
             GolemEnemy enemy = new GolemEnemy(
                     spawn[0],
                     spawn[1],
                     this::canGolemOccupy,
-                    new GolemEnemy.WorldQuery() {
-                        @Override
-                        public int getTileWidth() {
-                            return buildCollisionManager.getTileWidth();
-                        }
-
-                        @Override
-                        public int getTileHeight() {
-                            return buildCollisionManager.getTileHeight();
-                        }
-
-                        @Override
-                        public BuildObject findNearestWallToAttack(GolemEnemy enemy, double towardX, double towardY, double maxDistance) {
-                            return Game.this.findNearestGolemWallToAttack(enemy, towardX, towardY, maxDistance);
-                        }
-
-                        @Override
-                        public boolean damageWall(GolemEnemy enemy, BuildObject wall, long nowNs) {
-                            return Game.this.damageGolemWall(enemy, wall, nowNs);
-                        }
-                    }
+                    enemyNavigationContext,
+                    mode
             );
+            enemy.setInitialPathDelayNs((long) (random.nextDouble() * 1_000_000_000L));
             if (canGolemOccupy(enemy, enemy.getX(), enemy.getY(), enemy.getWidth(), enemy.getHeight())) {
                 return enemy;
             }
@@ -2398,7 +2681,8 @@ public class Game {
         for (int attempt = 0; attempt < 18; attempt++) {
             double[] spawn = randomEdgeSpawnPoint(
                     WallJumperEnemy.defaultRenderWidth(tileSize),
-                    WallJumperEnemy.defaultRenderHeight(tileSize)
+                    WallJumperEnemy.defaultRenderHeight(tileSize),
+                    132.0
             );
             WallJumperEnemy enemy = new WallJumperEnemy(spawn[0], spawn[1], tileSize, this::canWallJumperOccupy);
             if (canWallJumperOccupy(enemy, enemy.getX(), enemy.getY(), enemy.getWidth(), enemy.getHeight())) {
@@ -2743,6 +3027,40 @@ public class Game {
         return true;
     }
 
+    private boolean canEnemyPathOccupy(Enemy enemy, double x, double y, double width, double height) {
+        if (enemy == null) {
+            return false;
+        }
+        double collisionX = enemy.getCollisionXAt(x, width, height);
+        double collisionY = enemy.getCollisionYAt(y, width, height);
+        double collisionWidth = enemy.getCollisionWidthAt(width, height);
+        double collisionHeight = enemy.getCollisionHeightAt(width, height);
+        if (collisionX < 0 || collisionY < 0 || collisionX + collisionWidth > worldWidth || collisionY + collisionHeight > worldHeight) {
+            return false;
+        }
+        if (intersectsBaseCampCollision(collisionX, collisionY, collisionWidth, collisionHeight)) {
+            return false;
+        }
+        return !buildCollisionManager.isBlockedByStaticObjects(collisionX, collisionY, collisionWidth, collisionHeight)
+                && !buildCollisionManager.isBlockedByTerrain(collisionX, collisionY, collisionWidth, collisionHeight)
+                && !buildCollisionManager.isBlockedByWater(collisionX, collisionY, collisionWidth, collisionHeight)
+                && !intersectsPlacedBuildObjectFast(collisionX, collisionY, collisionWidth, collisionHeight);
+    }
+
+    private boolean isFlowFieldBlockedTile(int tileX, int tileY) {
+        int tileWidth = buildCollisionManager.getTileWidth();
+        int tileHeight = buildCollisionManager.getTileHeight();
+        double x = tileX * tileWidth;
+        double y = tileY * tileHeight;
+        if (buildCollisionManager.isBlockedByStaticObjects(x, y, tileWidth, tileHeight)
+                || buildCollisionManager.isBlockedByTerrain(x, y, tileWidth, tileHeight)
+                || buildCollisionManager.isBlockedByWater(x, y, tileWidth, tileHeight)) {
+            return true;
+        }
+        BuildObject object = buildManager.getPlacedObjectAt(tileX, tileY);
+        return object != null && object.isAlive();
+    }
+
     private boolean canGolemOccupy(GolemEnemy enemy, double x, double y, double width, double height) {
         if (enemy == null) {
             return false;
@@ -2925,10 +3243,6 @@ public class Game {
         blackGrouseSpawnManager.spawnInitialFlock(enemies);
     }
 
-    private void spawnCornerWolves() {
-        wolfSpawnManager.spawnAtMapCorners(enemies, worldWidth, worldHeight);
-    }
-
     private int countAliveEnemyByType(String type) {
         int count = 0;
         for (Enemy enemy : enemies) {
@@ -2944,8 +3258,12 @@ public class Game {
     }
 
     private double[] randomEdgeSpawnPoint(double objectWidth, double objectHeight) {
+        return randomEdgeSpawnPoint(objectWidth, objectHeight, 12.0);
+    }
+
+    private double[] randomEdgeSpawnPoint(double objectWidth, double objectHeight, double edgeInset) {
         int side = random.nextInt(4);
-        double margin = 12;
+        double margin = Math.max(0.0, edgeInset);
         double x;
         double y;
         double width = Math.max(1.0, objectWidth);
@@ -3264,6 +3582,9 @@ public class Game {
         if (inventory.getAmount(COIN_ITEM_ID) <= 0) {
             inventory.addItem(COIN_ITEM_ID, GameBalance.STARTING_COIN_AMOUNT);
         }
+        if (inventory.getAmount(NIKU_ITEM_ID) <= 0) {
+            inventory.addItem(NIKU_ITEM_ID, 2);
+        }
     }
 
     private void loadMapWoodFences() {
@@ -3273,25 +3594,10 @@ public class Game {
         Set<String> fenceTiles = new LinkedHashSet<>();
 
         FencePerimeter perimeter = buildInitialFencePerimeterAroundBaseCamp();
-        int gateSize = INITIAL_FENCE_GATE_SIZE_TILES;
-        int gateStartX = perimeter.centerX() - gateSize / 2;
-        int gateEndX = gateStartX + gateSize - 1;
-        int gateStartY = perimeter.centerY() - gateSize / 2;
-        int gateEndY = gateStartY + gateSize - 1;
-
-        for (int x = perimeter.left(); x <= perimeter.right(); x++) {
-            if (x < gateStartX || x > gateEndX) {
-                fenceTiles.add(x + ":" + perimeter.top());
-                fenceTiles.add(x + ":" + perimeter.bottom());
-            }
-        }
-
-        for (int y = perimeter.top(); y <= perimeter.bottom(); y++) {
-            if (y < gateStartY || y > gateEndY) {
-                fenceTiles.add(perimeter.left() + ":" + y);
-                fenceTiles.add(perimeter.right() + ":" + y);
-            }
-        }
+        addCornerFenceMarkers(fenceTiles, perimeter.left(), perimeter.top(), 1, 1);
+        addCornerFenceMarkers(fenceTiles, perimeter.right(), perimeter.top(), -1, 1);
+        addCornerFenceMarkers(fenceTiles, perimeter.left(), perimeter.bottom(), 1, -1);
+        addCornerFenceMarkers(fenceTiles, perimeter.right(), perimeter.bottom(), -1, -1);
 
         for (String key : fenceTiles) {
             String[] parts = key.split(":");
@@ -3299,6 +3605,17 @@ public class Game {
                 continue;
             }
             addMapWoodFence(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]));
+        }
+    }
+
+    private void addCornerFenceMarkers(Set<String> fenceTiles, int cornerX, int cornerY, int stepX, int stepY) {
+        if (fenceTiles == null) {
+            return;
+        }
+        int armLength = Math.max(1, INITIAL_CORNER_FENCE_ARM_TILES);
+        for (int index = 0; index < armLength; index++) {
+            fenceTiles.add((cornerX + stepX * index) + ":" + cornerY);
+            fenceTiles.add(cornerX + ":" + (cornerY + stepY * index));
         }
     }
 
@@ -3556,7 +3873,7 @@ public class Game {
             case POTION_ITEM_ID -> Map.of(COIN_ITEM_ID, 12);
             case TORCH_ITEM_ID -> Map.of(COIN_ITEM_ID, TORCH_PRICE);
             case AXE_ITEM_ID -> Map.of("wood", AXE_WOOD_COST, "stone", AXE_STONE_COST);
-            case ARCHER_TOWER_ITEM_ID -> Map.of(COIN_ITEM_ID, ARCHER_TOWER_PRICE);
+            case ARCHER_TOWER_ITEM_ID -> Map.of("wood", ARCHER_TOWER_PRICE);
             case FRIENDLY_ARCHER_ITEM_ID -> Map.of(COIN_ITEM_ID, FRIENDLY_ARCHER_PRICE);
             case CHEST_ITEM_ID -> Map.of(COIN_ITEM_ID, CHEST_PRICE);
             case BOMB_TRAP_ITEM_ID -> Map.of(COIN_ITEM_ID, BOMB_TRAP_PRICE);
@@ -3624,11 +3941,18 @@ public class Game {
     }
 
     private void onResourceDestroyed(system.resource.ResourceNode resource) {
+        onResourceDestroyed(resource, true);
+    }
+
+    private void onResourceDestroyed(system.resource.ResourceNode resource, boolean dropRewards) {
         if (resource == null) {
             return;
         }
         if (DEBUG_DROP_LOGS) {
             System.out.println("Resource destroyed at: " + resource.getCenterX() + ", " + resource.getCenterY());
+        }
+        if (!dropRewards) {
+            return;
         }
         List<DropSpec> dropTable = switch (resource.getResourceType()) {
             case TREE -> TREE_DROP_TABLE;

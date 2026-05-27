@@ -4,19 +4,37 @@ import javafx.scene.image.Image;
 import javafx.scene.image.PixelReader;
 import javafx.scene.image.WritableImage;
 
+import java.util.HashMap;
+import java.util.Map;
+
 public final class SpriteSheetLoader {
+    private static final Map<String, Image> SHEET_CACHE = new HashMap<>();
+    private static final Map<String, Image[]> FRAME_CACHE = new HashMap<>();
+
     private SpriteSheetLoader() {
     }
 
-    public static Image[] loadGrid(String imagePath, int columns, int rows) {
-        Image spriteSheet = new Image(imagePath);
+    public static synchronized Image[] loadGrid(String imagePath, int columns, int rows) {
+        String cacheKey = "grid-auto|" + imagePath + "|" + columns + "|" + rows;
+        Image[] cached = FRAME_CACHE.get(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+        Image spriteSheet = loadSheet(imagePath);
         int frameWidth = (int) spriteSheet.getWidth() / columns;
         int frameHeight = (int) spriteSheet.getHeight() / rows;
-        return loadGrid(imagePath, columns, rows, frameWidth, frameHeight);
+        Image[] frames = loadGrid(imagePath, columns, rows, frameWidth, frameHeight);
+        FRAME_CACHE.put(cacheKey, frames);
+        return frames;
     }
 
-    public static Image[] loadGrid(String imagePath, int columns, int rows, int frameWidth, int frameHeight) {
-        Image spriteSheet = new Image(imagePath);
+    public static synchronized Image[] loadGrid(String imagePath, int columns, int rows, int frameWidth, int frameHeight) {
+        String cacheKey = "grid|" + imagePath + "|" + columns + "|" + rows + "|" + frameWidth + "|" + frameHeight;
+        Image[] cached = FRAME_CACHE.get(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+        Image spriteSheet = loadSheet(imagePath);
         PixelReader pixelReader = spriteSheet.getPixelReader();
 
         Image[] frames = new Image[columns * rows];
@@ -31,11 +49,17 @@ public final class SpriteSheetLoader {
             }
         }
 
+        FRAME_CACHE.put(cacheKey, frames);
         return frames;
     }
 
-    public static Image[] loadHorizontalStrip(String imagePath, int frameCount) {
-        Image spriteSheet = new Image(imagePath);
+    public static synchronized Image[] loadHorizontalStrip(String imagePath, int frameCount) {
+        String cacheKey = "strip|" + imagePath + "|" + frameCount;
+        Image[] cached = FRAME_CACHE.get(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+        Image spriteSheet = loadSheet(imagePath);
         PixelReader pixelReader = spriteSheet.getPixelReader();
         if (pixelReader == null || frameCount <= 0) {
             return new Image[0];
@@ -53,18 +77,24 @@ public final class SpriteSheetLoader {
             }
             frames[index] = new WritableImage(pixelReader, startX, 0, frameWidth, sheetHeight);
         }
+        FRAME_CACHE.put(cacheKey, frames);
         return frames;
     }
 
     // Cat theo region bat dau tu (startX,startY) de lay dung row mong muon trong spritesheet.
-    public static Image[] loadGridRegion(String imagePath,
-                                         int startX,
-                                         int startY,
-                                         int columns,
-                                         int rows,
-                                         int frameWidth,
-                                         int frameHeight) {
-        Image spriteSheet = new Image(imagePath);
+    public static synchronized Image[] loadGridRegion(String imagePath,
+                                                      int startX,
+                                                      int startY,
+                                                      int columns,
+                                                      int rows,
+                                                      int frameWidth,
+                                                      int frameHeight) {
+        String cacheKey = "region|" + imagePath + "|" + startX + "|" + startY + "|" + columns + "|" + rows + "|" + frameWidth + "|" + frameHeight;
+        Image[] cached = FRAME_CACHE.get(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+        Image spriteSheet = loadSheet(imagePath);
         PixelReader pixelReader = spriteSheet.getPixelReader();
 
         Image[] frames = new Image[columns * rows];
@@ -79,6 +109,11 @@ public final class SpriteSheetLoader {
             }
         }
 
+        FRAME_CACHE.put(cacheKey, frames);
         return frames;
+    }
+
+    private static Image loadSheet(String imagePath) {
+        return SHEET_CACHE.computeIfAbsent(imagePath, Image::new);
     }
 }
