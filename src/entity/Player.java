@@ -207,6 +207,12 @@ public class Player extends Entity {
         return Math.max(0, Math.min(1, elapsed / levelUpEffectDurationNs));
     }
 
+    public Image getSkillUnlockPreviewFrame(long nowNs) {
+        int frameCount = Math.max(1, sliceDownAnimation.getFrameCount());
+        int frameIndex = (int) ((nowNs / SLICE_FRAME_NS) % frameCount);
+        return sliceDownAnimation.getFrameAtIndex(frameIndex);
+    }
+
     public int getLastLeveledUpTo() {
         return lastLeveledUpTo;
     }
@@ -396,7 +402,7 @@ public class Player extends Entity {
     }
 
     private void growOnLevelUp() {
-        double scale = 1.03;
+        double scale = 1.01;
         double oldCenterX = x + width / 2.0;
         double oldCenterY = y + height / 2.0;
 

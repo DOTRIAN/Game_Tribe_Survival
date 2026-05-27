@@ -65,7 +65,6 @@ public class UIManager {
         this.shopItems = List.of(
                 itemMetaMap.get("wall"),
                 itemMetaMap.get("torch"),
-                itemMetaMap.get(AXE_ITEM_ID),
                 itemMetaMap.get("archer_tower"),
                 itemMetaMap.get("friendly_archer"),
                 itemMetaMap.get("chest"),
@@ -292,6 +291,7 @@ public class UIManager {
             case WELCOME -> mainMenuScreen.setVisible(true);
             case NAME_INPUT -> nameInputScreen.setVisible(true);
             case INTRO -> introOverlay.setVisible(true);
+            case DIALOGUE -> introOverlay.setVisible(true);
             case GUIDE -> guideOverlay.setVisible(true);
             case PAUSED -> pauseOverlay.setVisible(true);
             case GAME_OVER -> gameOverOverlay.setVisible(true);
@@ -475,6 +475,7 @@ public class UIManager {
         Image woodIcon = InventoryIconLoader.loadMainIcon("assets/Chip/wood");
         Image rockIcon = InventoryIconLoader.loadMainIcon("assets/Chip/rock");
         Image nikuIcon = InventoryIconLoader.loadMainIcon("assets/Chip/niku");
+        Image sealGemIcon = InventoryIconLoader.loadFileIcon("assets/vien ngoc.png");
         Image axeIcon = InventoryIconLoader.loadFileIcon("assets/player/Slice_Base/riu.jpg");
         meta.put("wall", new ItemUiMeta("wall", "Wood Fence", "Buildable wooden fence that auto-connects left and right.", GameBalance.WOOD_FENCE_PRICE, "WF", wallIcon));
         meta.put("wood_fence", new ItemUiMeta("wood_fence", "Wood Fence", "Buildable wooden fence that auto-connects left and right.", GameBalance.WOOD_FENCE_PRICE, "WF", wallIcon));
@@ -494,6 +495,7 @@ public class UIManager {
         meta.put("rock", new ItemUiMeta("rock", "Rock", "Mining resource from stone nodes.", 0, "RK", rockIcon));
         meta.put("stone", new ItemUiMeta("stone", "Stone", "Solid building material.", 0, "ST", null));
         meta.put("niku", new ItemUiMeta("niku", "Niku", "Meat dropped from animals.", 0, "NK", nikuIcon));
+        meta.put("seal_gem", new ItemUiMeta("seal_gem", "Ngọc Phong Ấn", "Viên ngọc nhận được sau khi vượt qua đêm đầu tiên.", 0, "NG", sealGemIcon));
         meta.put("fiber", new ItemUiMeta("fiber", "Fiber", "Soft crafting material.", 0, "FB", null));
         meta.put("carrot", new ItemUiMeta("carrot", "Carrot", "Simple food item.", 3, "CR", null));
         return meta;

@@ -18,7 +18,7 @@ import java.util.Map;
  * - Displays currency, building blocks, raw resources, and food elegantly with glassmorphism styling.
  */
 public class ResourcePanel extends VBox {
-    private static final List<String> PINNED_ORDER = List.of("coin", "wood_fence", "bomb_trap", "wood", "rock", "axe", "niku", "carrot", "potion", "torch");
+    private static final List<String> PINNED_ORDER = List.of("coin", "wood_fence", "bomb_trap", "wood", "rock", "niku", "carrot", "potion", "torch");
 
     private final Label titleLabel;
     private final VBox rowsBox;
@@ -74,6 +74,9 @@ public class ResourcePanel extends VBox {
             if (PINNED_ORDER.contains(entry.getKey())) {
                 continue;
             }
+            if ("seal_gem".equals(entry.getKey())) {
+                continue;
+            }
             if (entry.getValue() == null || entry.getValue() <= 0) {
                 continue;
             }
@@ -123,6 +126,9 @@ public class ResourcePanel extends VBox {
         }
         for (Map.Entry<String, Integer> entry : inventorySnapshot.entrySet()) {
             if (PINNED_ORDER.contains(entry.getKey())) {
+                continue;
+            }
+            if ("seal_gem".equals(entry.getKey())) {
                 continue;
             }
             builder.append(entry.getKey()).append('=').append(entry.getValue()).append(';');

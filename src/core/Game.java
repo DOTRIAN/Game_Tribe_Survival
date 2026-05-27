@@ -12,6 +12,9 @@ import buildsystem.object.BombTrap;
 import buildsystem.object.BuildObject;
 import buildsystem.object.Chest;
 import buildsystem.sprite.AssetManager;
+import dialogue.model.DialoguePage;
+import dialogue.model.DialogueScript;
+import dialogue.io.ScriptedDialogueLoader;
 import dialogue.runtime.DialogueRunner;
 import dialogue.script.OpeningIntroFactory;
 import drop.AnimatedDropItem;
@@ -77,6 +80,7 @@ import world.InfiniteWorldManager;
 import world.WorldChunk;
 
 import java.util.ArrayList;
+import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -95,6 +99,7 @@ public class Game {
     private record TileCoord(int x, int y) {}
     private record TileBounds(int minX, int minY, int maxX, int maxY, int tileCount) {}
     private record FencePerimeter(int left, int top, int right, int bottom, int centerX, int centerY) {}
+    private record ObjectiveStep(String title, int targetAmount, boolean foodObjective, String itemId) {}
 
     private enum GameOverReason {
         PLAYER_DIED,
@@ -124,6 +129,7 @@ public class Game {
 
     // World save file cho mode sinh ton.
     private static final String SURVIVAL_SAVE_FILE = "data/survival_world.json";
+    private static final String DAY_ONE_DIALOGUE_SCRIPT_PATH = "tongquanproject/scriptday1.txt";
     private static final int DEFAULT_BASE_CAMP_HP = 100;
     private static final int INITIAL_FENCE_PADDING_X_TILES = 10;
     private static final int INITIAL_FENCE_PADDING_Y_TILES = 8;
@@ -231,11 +237,21 @@ public class Game {
     private static final String PICKAXE_ITEM_ID = "pickaxe";
     private static final String AXE_ITEM_ID = "axe";
     private static final String CARROT_ITEM_ID = "carrot";
+    private static final int DAY_ONE_OBJECTIVE_WOOD = 20;
+    private static final int DAY_ONE_OBJECTIVE_ROCK = 10;
+    private static final int DAY_ONE_OBJECTIVE_FOOD = 5;
+    private static final int DAY_ONE_OBJECTIVE_REWARD_GOLD = 10;
+    private static final int AXE_SKILL_UNLOCK_LEVEL = 3;
     private static final String NIKU_ITEM_ID = "niku";
+    private static final String SEAL_GEM_ITEM_ID = "seal_gem";
+    private static final List<ObjectiveStep> DAY_ONE_OBJECTIVES = List.of(
+            new ObjectiveStep("Nhiệm vụ 1", DAY_ONE_OBJECTIVE_WOOD, false, "wood"),
+            new ObjectiveStep("Nhiệm vụ 2", DAY_ONE_OBJECTIVE_ROCK, false, "rock"),
+            new ObjectiveStep("Nhiệm vụ 3", DAY_ONE_OBJECTIVE_FOOD, true, "")
+    );
     private static final String[] HOTBAR_PRIORITY = {
             WOOD_FENCE_ITEM_ID,
             TORCH_ITEM_ID,
-            AXE_ITEM_ID,
             ARCHER_TOWER_ITEM_ID,
             CHEST_ITEM_ID,
             BOMB_TRAP_ITEM_ID,
@@ -253,19 +269,19 @@ public class Game {
     private static final boolean DEBUG_DROP_LOGS = false;
     private static final List<DropSpec> TREE_DROP_TABLE = List.of(
             new DropSpec(DropItemType.WOOD, 2),
-            new DropSpec(DropItemType.XP, 2)
+            new DropSpec(DropItemType.GOLD, 2)
     );
     private static final List<DropSpec> ROCK_DROP_TABLE = List.of(
             new DropSpec(DropItemType.ROCK, 2),
-            new DropSpec(DropItemType.XP, 2)
+            new DropSpec(DropItemType.GOLD, 2)
     );
     private static final List<DropSpec> ENEMY_DROP_TABLE = List.of(
             new DropSpec(DropItemType.GOLD, 2),
-            new DropSpec(DropItemType.XP, 2)
+            new DropSpec(DropItemType.GOLD, 2)
     );
     private static final List<DropSpec> ANIMAL_DROP_TABLE = List.of(
             new DropSpec(DropItemType.NIKU, 2),
-            new DropSpec(DropItemType.XP, 2)
+            new DropSpec(DropItemType.GOLD, 2)
     );
     private static final int WOOD_FENCE_PRICE = GameBalance.WOOD_FENCE_PRICE;
     private static final int WOOD_WALL_PRICE = GameBalance.WOOD_WALL_PRICE;
@@ -300,6 +316,17 @@ public class Game {
     private boolean skipWorldPrimaryClickOnce;
     private boolean debugCollisionOverlayEnabled;
     private Chest openedChest;
+    private boolean dayOneObjectiveUnlocked;
+    private boolean dayOneObjectiveCompleted;
+    private long dayOneObjectiveCompletedAtNs;
+    private boolean axeSkillUnlockAnnounced;
+    private int dayOneObjectiveStep;
+    private long axeSkillCelebrationUntilNs;
+    private boolean firstNightRewardTriggered;
+    private boolean gemRewardAnimationActive;
+    private boolean gemRewardGranted;
+    private long gemRewardAnimationStartedAtNs;
+    private long gemRewardAnimationDurationNs;
 
     public Game(Stage stage) {
         // Constructor:
@@ -367,6 +394,17 @@ public class Game {
         this.skipWorldPrimaryClickOnce = false;
         this.debugCollisionOverlayEnabled = false;
         this.openedChest = null;
+        this.dayOneObjectiveUnlocked = false;
+        this.dayOneObjectiveCompleted = false;
+        this.dayOneObjectiveCompletedAtNs = -1L;
+        this.axeSkillUnlockAnnounced = false;
+        this.dayOneObjectiveStep = 0;
+        this.axeSkillCelebrationUntilNs = -1L;
+        this.firstNightRewardTriggered = false;
+        this.gemRewardAnimationActive = false;
+        this.gemRewardGranted = false;
+        this.gemRewardAnimationStartedAtNs = -1L;
+        this.gemRewardAnimationDurationNs = 2_000_000_000L;
 
         MapData loadedMap = tryLoadMap();
         this.mapData = loadedMap;
@@ -616,6 +654,9 @@ public class Game {
             case INTRO:
                 handleIntroState();
                 break;
+            case DIALOGUE:
+                handleDialogueState();
+                break;
             case PLAYING:
                 if (handlePlayingState(now)) {
                     return;
@@ -639,7 +680,16 @@ public class Game {
 
     public void render(long now) {
         renderer.setIntroDialogueRunner(introDialogueRunner);
-        String objectiveStatus = null;
+        renderer.setGemRewardAnimation(
+                gemRewardAnimationActive,
+                gemRewardAnimationActive
+                        ? Math.max(0.0, Math.min(1.0, (double) (now - gemRewardAnimationStartedAtNs) / gemRewardAnimationDurationNs))
+                        : 0.0
+        );
+        renderer.setSkillUnlockCelebration(
+                now < axeSkillCelebrationUntilNs ? "Chúc mừng! Mở khóa kỹ năng \"Tiều phu đốn củi\"" : null
+        );
+        String objectiveStatus = buildActiveObjectiveStatus(now);
 
         long renderStartNs = System.nanoTime();
         renderer.render(
@@ -1112,6 +1162,19 @@ public class Game {
         }
     }
 
+    private void handleDialogueState() {
+        if (inputHandler.isJustPressed(KeyCode.F11)) {
+            renderer.toggleFullscreen();
+        }
+        if (inputHandler.isJustPressed(KeyCode.SPACE)) {
+            if (!renderer.isIntroPageFullyRevealed(System.nanoTime())) {
+                renderer.revealIntroPageImmediately();
+                return;
+            }
+            advanceOpeningIntro();
+        }
+    }
+
     private boolean handlePlayingState(long now) {
         if (inputHandler.isJustPressed(KeyCode.F11)) {
             renderer.toggleFullscreen();
@@ -1248,8 +1311,10 @@ public class Game {
                 performPlayerAttack(now, player.getAttackAnimationTypeForCurrentMode());
             }
         } else if (!blockingOverlayVisible && inputHandler.isJustPressed(KeyCode.F)) {
-            if (player.consumeEnergy(SKILL_F_ENERGY_COST)) {
-                performPlayerAttack(now, player.getAttackAnimationTypeForCurrentMode());
+            if (!isAxeSkillUnlocked()) {
+                renderer.showToast("Unlock Axe Skill at level 3");
+            } else if (player.consumeEnergy(SKILL_F_ENERGY_COST)) {
+                performPlayerAttack(now, Player.AttackAnimationType.SLICE);
             }
         }
 
@@ -1265,6 +1330,8 @@ public class Game {
 
         resourceManager.update(now);
         updateDroppedItemPickup();
+        updateActiveObjectiveChain(now);
+        updateGemRewardAnimation(now);
         cleanupExpiredDamageTexts(now);
         cleanupExpiredExplosionEffects(now);
         updateScreenImpulse(now);
@@ -1463,10 +1530,68 @@ public class Game {
             gameState = GameState.PLAYING;
             return;
         }
+        String scriptId = introDialogueRunner.getScript().getId();
         if (!introDialogueRunner.advance()) {
+            if ("opening_intro".equals(scriptId)) {
+                startDayOneDialogue();
+                return;
+            }
+            if ("night_one_reward".equals(scriptId)) {
+                introDialogueRunner = null;
+                activateGemRewardAnimation(System.nanoTime());
+                gameState = GameState.PLAYING;
+                return;
+            }
             introDialogueRunner = null;
+            dayOneObjectiveUnlocked = true;
+            dayOneObjectiveCompleted = false;
+            dayOneObjectiveCompletedAtNs = -1L;
+            dayOneObjectiveStep = 0;
             gameState = GameState.PLAYING;
         }
+    }
+
+    private void startDayOneDialogue() {
+        introDialogueRunner = new DialogueRunner(
+                ScriptedDialogueLoader.loadDayOneScript(Path.of(DAY_ONE_DIALOGUE_SCRIPT_PATH), player.getPlayerName())
+        );
+        renderer.hideToast();
+        renderer.setInventoryVisible(false);
+        renderer.setShopVisible(false);
+        renderer.setChestVisible(false);
+        gameState = GameState.DIALOGUE;
+    }
+
+    private void startNightOneRewardDialogue() {
+        introDialogueRunner = new DialogueRunner(createNightOneRewardScript());
+        renderer.hideToast();
+        renderer.setInventoryVisible(false);
+        renderer.setShopVisible(false);
+        renderer.setChestVisible(false);
+        gameState = GameState.DIALOGUE;
+    }
+
+    private void activateGemRewardAnimation(long now) {
+        gemRewardAnimationActive = true;
+        gemRewardGranted = false;
+        gemRewardAnimationStartedAtNs = now;
+    }
+
+    private DialogueScript createNightOneRewardScript() {
+        return new DialogueScript(
+                "night_one_reward",
+                List.of(
+                        new DialoguePage(
+                                "Thổ Địa",
+                                "assets/phuthuy.png",
+                                List.of(
+                                        "Kinh, cũng ra gì đấy.",
+                                        "Khá khen cho nỗ lực của ngươi.",
+                                        "Ta sẽ tặng ngươi 1 viên ngọc."
+                                )
+                        )
+                )
+        );
     }
 
     /**
@@ -1554,6 +1679,16 @@ public class Game {
 
     private void restartSurvival() {
         introDialogueRunner = null;
+        dayOneObjectiveUnlocked = false;
+        dayOneObjectiveCompleted = false;
+        dayOneObjectiveCompletedAtNs = -1L;
+        axeSkillUnlockAnnounced = false;
+        dayOneObjectiveStep = 0;
+        axeSkillCelebrationUntilNs = -1L;
+        firstNightRewardTriggered = false;
+        gemRewardAnimationActive = false;
+        gemRewardGranted = false;
+        gemRewardAnimationStartedAtNs = -1L;
         clearPersistentProgressForFreshStart();
 
         // Reset world moi: clear enemy/resource procedural va inventory.
@@ -1631,7 +1766,6 @@ public class Game {
 
             @Override
             public void showDawn() {
-                renderer.showToast("Trời sắp sáng. Quái đang rút khỏi trại.");
             }
 
             @Override
@@ -1642,7 +1776,6 @@ public class Game {
             @Override
             public void finishDawn() {
                 Game.this.despawnHostileEnemiesForMorning();
-                renderer.showToast("Trời đã sáng. Quái rút vào rừng.");
             }
         });
     }
@@ -3286,9 +3419,260 @@ public class Game {
     }
 
     private String buildSurvivalObjectiveStatus(long now) {
-        int day = getCurrentSurvivalDay(now);
-        return "Day " + day
-                + " | Base HP " + baseCamp.getHp() + "/" + baseCamp.getMaxHp();
+        if (!dayOneObjectiveUnlocked) {
+            return "";
+        }
+        if (dayOneObjectiveCompleted) {
+            return "Chuỗi nhiệm vụ hoàn thành!\n"
+                    + "• Đã đạt level " + player.getLevel() + "\n"
+                    + "• Kỹ năng F đã mở khóa";
+        }
+        return switch (dayOneObjectiveStep) {
+            case 0 -> "Nhiệm vụ 1:\n• " + inventory.getAmount("wood") + "/" + DAY_ONE_OBJECTIVE_WOOD + " gỗ";
+            case 1 -> "Nhiệm vụ 2:\n• " + inventory.getAmount("rock") + "/" + DAY_ONE_OBJECTIVE_ROCK + " đá";
+            default -> "Nhiệm vụ 3:\n• " + getCurrentFoodAmount() + "/" + DAY_ONE_OBJECTIVE_FOOD + " thức ăn";
+        };
+    }
+
+    private int getCurrentFoodAmount() {
+        return Math.max(0, inventory.getAmount("niku")) + Math.max(0, inventory.getAmount(CARROT_ITEM_ID));
+    }
+
+    private void updateProgressionObjectives(long now) {
+        if (!dayOneObjectiveUnlocked || dayOneObjectiveCompleted) {
+            return;
+        }
+        switch (dayOneObjectiveStep) {
+            case 0 -> {
+                if (inventory.getAmount("wood") >= DAY_ONE_OBJECTIVE_WOOD) {
+                    completeDayOneObjectiveStep(now, 0);
+                }
+            }
+            case 1 -> {
+                if (inventory.getAmount("rock") >= DAY_ONE_OBJECTIVE_ROCK) {
+                    completeDayOneObjectiveStep(now, 1);
+                }
+            }
+            default -> {
+                if (getCurrentFoodAmount() >= DAY_ONE_OBJECTIVE_FOOD) {
+                    completeDayOneObjectiveStep(now, 2);
+                }
+            }
+        }
+    }
+
+    private void completeDayOneObjectiveStep(long now, int step) {
+        inventory.addItem(COIN_ITEM_ID, DAY_ONE_OBJECTIVE_REWARD_GOLD);
+        if (step == 0 || step == 2) {
+            player.addExperience(player.getExperienceToNextLevel());
+        }
+        refreshBuildInventoryUi();
+        if (step >= 2) {
+            dayOneObjectiveCompleted = true;
+            dayOneObjectiveCompletedAtNs = now;
+        } else {
+            dayOneObjectiveStep++;
+        }
+        if (isAxeSkillUnlocked() && !axeSkillUnlockAnnounced) {
+            axeSkillUnlockAnnounced = true;
+            axeSkillCelebrationUntilNs = now + 3_000_000_000L;
+            renderer.showToast("Mở khóa kỹ năng \"Tiều phu đốn củi\" [F]");
+            return;
+        }
+        renderer.showToast("Hoàn thành nhiệm vụ! +10 vàng");
+    }
+
+    private void updateSkillUnlockState() {
+        if (axeSkillUnlockAnnounced || !isAxeSkillUnlocked()) {
+            return;
+        }
+        axeSkillUnlockAnnounced = true;
+        renderer.showToast("Unlocked Axe Skill [F]");
+    }
+
+    private boolean isAxeSkillUnlocked() {
+        return player.getLevel() >= AXE_SKILL_UNLOCK_LEVEL;
+    }
+
+    private String buildCurrentObjectiveStatus(long now) {
+        if (!dayOneObjectiveUnlocked) {
+            return "";
+        }
+        if (dayOneObjectiveCompleted) {
+            return "Chuỗi nhiệm vụ hoàn thành!\n"
+                    + "• Đã đạt level " + player.getLevel() + "\n"
+                    + "• Chờ sống sót qua đêm đầu tiên";
+        }
+
+        ObjectiveStep currentStep = getCurrentObjectiveStep();
+        if (currentStep == null) {
+            return "";
+        }
+        return currentStep.title() + ":\n• "
+                + getObjectiveProgress(currentStep) + "/" + currentStep.targetAmount()
+                + " " + getObjectiveLabel(currentStep);
+    }
+
+    private ObjectiveStep getCurrentObjectiveStep() {
+        if (dayOneObjectiveStep < 0 || dayOneObjectiveStep >= DAY_ONE_OBJECTIVES.size()) {
+            return null;
+        }
+        return DAY_ONE_OBJECTIVES.get(dayOneObjectiveStep);
+    }
+
+    private int getObjectiveProgress(ObjectiveStep objectiveStep) {
+        if (objectiveStep == null) {
+            return 0;
+        }
+        if (objectiveStep.foodObjective()) {
+            return getCurrentFoodAmount();
+        }
+        return Math.max(0, inventory.getAmount(objectiveStep.itemId()));
+    }
+
+    private String getObjectiveLabel(ObjectiveStep objectiveStep) {
+        if (objectiveStep == null) {
+            return "";
+        }
+        if (objectiveStep.foodObjective()) {
+            return "thức ăn";
+        }
+        return switch (objectiveStep.itemId()) {
+            case "wood" -> "gỗ";
+            case "rock" -> "đá";
+            default -> objectiveStep.itemId();
+        };
+    }
+
+    private void updateDayOneObjectiveChain(long now) {
+        if (!dayOneObjectiveUnlocked || dayOneObjectiveCompleted) {
+            return;
+        }
+        ObjectiveStep currentStep = getCurrentObjectiveStep();
+        if (currentStep == null) {
+            return;
+        }
+        if (getObjectiveProgress(currentStep) >= currentStep.targetAmount()) {
+            completeObjectiveStep(now, currentStep);
+        }
+    }
+
+    private void completeObjectiveStep(long now, ObjectiveStep completedStep) {
+        inventory.addItem(COIN_ITEM_ID, DAY_ONE_OBJECTIVE_REWARD_GOLD);
+        player.addExperience(player.getExperienceToNextLevel());
+        refreshBuildInventoryUi();
+
+        dayOneObjectiveStep++;
+        if (dayOneObjectiveStep >= DAY_ONE_OBJECTIVES.size()) {
+            dayOneObjectiveCompleted = true;
+            dayOneObjectiveCompletedAtNs = now;
+        }
+
+        String rewardText = "Hoàn thành " + completedStep.title() + "! +10 vàng, +1 level";
+        if (isAxeSkillUnlocked() && !axeSkillUnlockAnnounced) {
+            axeSkillUnlockAnnounced = true;
+            axeSkillCelebrationUntilNs = now + 3_000_000_000L;
+            renderer.showToast(rewardText + ". Mở khóa \"Tiều phu đốn củi\" [F]");
+            return;
+        }
+        renderer.showToast(rewardText);
+    }
+
+    private void updateNightRewardFlow(long now) {
+        if (firstNightRewardTriggered || dayNightManager.getDay(now) < 2) {
+            return;
+        }
+        if (dayOneObjectiveStep < DAY_ONE_OBJECTIVES.size()) {
+            return;
+        }
+        if (dayNightManager.getPhase(now) != DayNightManager.Phase.DAY) {
+            return;
+        }
+        firstNightRewardTriggered = true;
+        dayOneObjectiveCompleted = true;
+        dayOneObjectiveCompletedAtNs = now;
+        startNightOneRewardDialogue();
+    }
+
+    private void updateGemRewardAnimation(long now) {
+        updateNightRewardFlow(now);
+        if (!gemRewardAnimationActive || gemRewardAnimationStartedAtNs < 0L) {
+            return;
+        }
+        if (now - gemRewardAnimationStartedAtNs < gemRewardAnimationDurationNs) {
+            return;
+        }
+        gemRewardAnimationActive = false;
+        gemRewardAnimationStartedAtNs = -1L;
+        if (!gemRewardGranted) {
+            gemRewardGranted = true;
+            inventory.addItem(SEAL_GEM_ITEM_ID, 1);
+            refreshBuildInventoryUi();
+            renderer.showToast("Nhận được 1 viên Ngọc Phong Ấn.");
+        }
+    }
+
+    private String buildActiveObjectiveStatus(long now) {
+        if (!dayOneObjectiveUnlocked) {
+            return "";
+        }
+        if (dayOneObjectiveCompleted) {
+            return "Chuỗi nhiệm vụ hoàn thành!\n"
+                    + "• Đã đạt level " + player.getLevel() + "\n"
+                    + "• Đã sống sót qua đêm đầu tiên";
+        }
+
+        ObjectiveStep currentStep = getCurrentObjectiveStep();
+        if (currentStep == null) {
+            return "Nhiệm vụ 4:\n• Sống sót qua đêm";
+        }
+        return currentStep.title() + ":\n• "
+                + getObjectiveProgress(currentStep) + "/" + currentStep.targetAmount()
+                + " " + getActiveObjectiveLabel(currentStep);
+    }
+
+    private String getActiveObjectiveLabel(ObjectiveStep objectiveStep) {
+        if (objectiveStep == null) {
+            return "";
+        }
+        if (objectiveStep.foodObjective()) {
+            return "thức ăn";
+        }
+        return switch (objectiveStep.itemId()) {
+            case "wood" -> "gỗ";
+            case "rock" -> "đá";
+            default -> objectiveStep.itemId();
+        };
+    }
+
+    private void updateActiveObjectiveChain(long now) {
+        if (!dayOneObjectiveUnlocked || dayOneObjectiveCompleted) {
+            return;
+        }
+        ObjectiveStep currentStep = getCurrentObjectiveStep();
+        if (currentStep == null) {
+            return;
+        }
+        if (getObjectiveProgress(currentStep) >= currentStep.targetAmount()) {
+            completeActiveObjectiveStep(now, currentStep);
+        }
+    }
+
+    private void completeActiveObjectiveStep(long now, ObjectiveStep completedStep) {
+        inventory.addItem(COIN_ITEM_ID, DAY_ONE_OBJECTIVE_REWARD_GOLD);
+        player.addExperience(player.getExperienceToNextLevel());
+        refreshBuildInventoryUi();
+
+        dayOneObjectiveStep++;
+
+        String rewardText = "Hoàn thành " + completedStep.title() + "! +10 vàng, +1 level";
+        if (isAxeSkillUnlocked() && !axeSkillUnlockAnnounced) {
+            axeSkillUnlockAnnounced = true;
+            axeSkillCelebrationUntilNs = now + 3_000_000_000L;
+            renderer.showToast(rewardText + ". Mở khóa \"Tiều phu đốn củi\" [F]");
+            return;
+        }
+        renderer.showToast(rewardText);
     }
 
     // getGameOverMessage:
@@ -3829,6 +4213,7 @@ public class Game {
             return;
         }
         player.setEquipmentMode(AXE_ITEM_ID.equals(selectedItemId)
+                && isAxeSkillUnlocked()
                 ? Player.EquipmentMode.AXE_MODE
                 : Player.EquipmentMode.HAND_MODE);
         if (isBuildItemId(selectedItemId)) {
@@ -3872,7 +4257,6 @@ public class Game {
             case WOOD_WALL_ITEM_ID -> Map.of(COIN_ITEM_ID, WOOD_WALL_PRICE);
             case POTION_ITEM_ID -> Map.of(COIN_ITEM_ID, 12);
             case TORCH_ITEM_ID -> Map.of(COIN_ITEM_ID, TORCH_PRICE);
-            case AXE_ITEM_ID -> Map.of("wood", AXE_WOOD_COST, "stone", AXE_STONE_COST);
             case ARCHER_TOWER_ITEM_ID -> Map.of("wood", ARCHER_TOWER_PRICE);
             case FRIENDLY_ARCHER_ITEM_ID -> Map.of(COIN_ITEM_ID, FRIENDLY_ARCHER_PRICE);
             case CHEST_ITEM_ID -> Map.of(COIN_ITEM_ID, CHEST_PRICE);

@@ -96,3 +96,5 @@ Khi trời sáng, quái còn sống sẽ bỏ chạy vào rừng.
 
 
 kịch bản sửa lại, là dìu ko cho mua nữa ,mà phải farm để tăng kinh nghiệm, sau khi đạt level 3 sẽ được tặng rìu
+
+script day 1

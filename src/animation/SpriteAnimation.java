@@ -39,6 +39,14 @@ public class SpriteAnimation {
         return frames[currentFrameIndex];
     }
 
+    public Image getFrameAtIndex(int index) {
+        if (frames.length == 0) {
+            return null;
+        }
+        int safeIndex = Math.max(0, Math.min(frames.length - 1, index));
+        return frames[safeIndex];
+    }
+
     public int getCurrentFrameIndex() {
         return currentFrameIndex;
     }

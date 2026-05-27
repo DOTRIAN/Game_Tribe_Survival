@@ -52,6 +52,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.IntConsumer;
+import java.nio.file.Path;
 
 /**
  * Renderer:
@@ -71,10 +72,15 @@ public class Renderer {
     private final GameSettings settings;
     private final AssetManager buildAssetManager;
     private final Image welcomeBackgroundImage;
+    private final Image introBackgroundImage;
     private final Image gameBackgroundImage;
     private final LabelFpsTracker fpsTracker;
     private final Map<String, Image> tintedBuildImageCache;
+    private final Image sealGemImage;
     private DialogueRunner introDialogueRunner;
+    private String skillUnlockCelebrationText;
+    private boolean gemRewardAnimationActive;
+    private double gemRewardAnimationProgress;
     private MapRenderer mapRenderer;
 
     public Renderer(Stage stage, InputHandler inputHandler, AssetManager buildAssetManager) {
@@ -85,11 +91,16 @@ public class Renderer {
         this.settingsManager = new SettingsManager();
         this.settings = settingsManager.load();
         this.buildAssetManager = buildAssetManager;
-        this.welcomeBackgroundImage = new Image("file:assets/backgrounds/menu_bg1.png");
+        this.welcomeBackgroundImage = new Image(Path.of("assets", "anhintro.jpg").toUri().toString(), false);
+        this.introBackgroundImage = new Image(Path.of("assets", "anhintro.jpg").toUri().toString(), false);
         this.gameBackgroundImage = new Image("file:assets/backgrounds/grass03.png");
         this.fpsTracker = new LabelFpsTracker();
         this.tintedBuildImageCache = new LinkedHashMap<>();
+        this.sealGemImage = new Image(Path.of("assets", "vien ngoc.png").toUri().toString(), false);
         this.introDialogueRunner = null;
+        this.skillUnlockCelebrationText = null;
+        this.gemRewardAnimationActive = false;
+        this.gemRewardAnimationProgress = 0.0;
 
         StackPane root = new StackPane();
         root.setStyle("-fx-background-color: #0f1114;");
@@ -161,7 +172,7 @@ public class Renderer {
         if (gameState == GameState.NAME_INPUT) {
             uiManager.setNameDraft(playerNameDraft, maxNameLength);
         }
-        if (gameState == GameState.INTRO) {
+        if (gameState == GameState.INTRO || gameState == GameState.DIALOGUE) {
             uiManager.updateIntroDialogue(introDialogueRunner, now);
         }
         if (gameState == GameState.PLAYING || gameState == GameState.PAUSED || gameState == GameState.GAME_OVER || gameState == GameState.LEVEL_COMPLETE) {
@@ -185,14 +196,21 @@ public class Renderer {
         graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
         graphicsContext.setImageSmoothing(false);
 
-        if (gameState == GameState.WELCOME || gameState == GameState.NAME_INPUT || gameState == GameState.INTRO || gameState == GameState.GUIDE || uiManager.isSettingsVisible()) {
+        if (gameState == GameState.INTRO) {
+            drawBackgroundCover(introBackgroundImage, viewportWidth, viewportHeight);
+            graphicsContext.setFill(Color.color(0, 0, 0, welcomeFlashing ? 0.42 : 0.28));
+            graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
+            return;
+        }
+
+        if (gameState == GameState.WELCOME || gameState == GameState.NAME_INPUT || gameState == GameState.GUIDE || uiManager.isSettingsVisible()) {
             drawBackgroundCover(welcomeBackgroundImage, viewportWidth, viewportHeight);
             graphicsContext.setFill(Color.color(0, 0, 0, welcomeFlashing ? 0.42 : 0.28));
             graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
             return;
         }
 
-        if (gameState == GameState.PLAYING || gameState == GameState.PAUSED || gameState == GameState.GAME_OVER || gameState == GameState.LEVEL_COMPLETE) {
+        if (gameState == GameState.DIALOGUE || gameState == GameState.PLAYING || gameState == GameState.PAUSED || gameState == GameState.GAME_OVER || gameState == GameState.LEVEL_COMPLETE) {
             renderGameplay(player, baseCamp, enemies, friendlyArchers, now, cameraX, cameraY, currentLevel, objectiveStatus,
                     debugCollisionOverlayEnabled, mapCollisions, allResources, collectedResources, buildManager, arrowProjectiles, thrownBombs, droppedItems, explosionEffects, fireBombBurnZones, floatingDamageTexts,
                     cameraShakeX, cameraShakeY, screenFlashAlpha,
@@ -218,6 +236,15 @@ public class Renderer {
 
     public void setIntroDialogueRunner(DialogueRunner introDialogueRunner) {
         this.introDialogueRunner = introDialogueRunner;
+    }
+
+    public void setSkillUnlockCelebration(String skillUnlockCelebrationText) {
+        this.skillUnlockCelebrationText = skillUnlockCelebrationText;
+    }
+
+    public void setGemRewardAnimation(boolean active, double progress) {
+        this.gemRewardAnimationActive = active;
+        this.gemRewardAnimationProgress = Math.max(0.0, Math.min(1.0, progress));
     }
 
     public boolean isIntroPageFullyRevealed(long nowNs) {
@@ -444,15 +471,12 @@ public class Renderer {
         graphicsContext.fillText(dayNightPhase, 16, viewportHeight - 18);
         renderNightAnnouncement(viewportWidth, timeAnnouncement);
 
-        if (currentLevel != null && objectiveStatus != null && !objectiveStatus.isBlank()) {
-            graphicsContext.setFill(Color.color(0, 0, 0, 0.30));
-            graphicsContext.fillRoundRect(20, 134, 360, 40, 12, 12);
-            graphicsContext.setFill(Color.web("#f4efe1"));
-            graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 13));
-            graphicsContext.fillText("L" + currentLevel.getId() + " " + currentLevel.getName(), 30, 150);
-            graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 11));
-            graphicsContext.fillText(objectiveStatus.length() > 58 ? objectiveStatus.substring(0, 58) + "..." : objectiveStatus, 30, 166);
+        if (objectiveStatus != null && !objectiveStatus.isBlank()) {
+            renderObjectivePanel(currentLevel, objectiveStatus);
         }
+        renderSealGemBadge(collectedResources, viewportWidth);
+        renderGemRewardAnimation(collectedResources, viewportWidth);
+        renderSkillUnlockCelebration(player, now, viewportWidth);
 
         if (settings.isShowFps()) {
             fpsTracker.update(now);
@@ -486,6 +510,130 @@ public class Renderer {
         for (int i = 0; i < Math.min(2, lines.length); i++) {
             graphicsContext.fillText(lines[i], warningX + 18, warningY + 27 + i * 22);
         }
+        graphicsContext.restore();
+    }
+
+    private void renderObjectivePanel(Level currentLevel, String objectiveStatus) {
+        String title = currentLevel != null
+                ? "L" + currentLevel.getId() + " " + currentLevel.getName()
+                : "Nhiệm vụ hiện tại";
+        String[] lines = objectiveStatus.split("\\R");
+        int lineCount = Math.max(1, lines.length);
+
+        double panelWidth = 280;
+        double panelX = getViewportWidth() - panelWidth - 252;
+        double titleY = 24;
+        double titleWidth = 154;
+        double titleHeight = 26;
+        double panelY = 40;
+        double panelHeight = 22 + (lineCount * 22);
+
+        graphicsContext.setFill(Color.color(0.12, 0.09, 0.07, 0.92));
+        graphicsContext.fillRoundRect(panelX, titleY, titleWidth, titleHeight, 10, 10);
+        graphicsContext.setStroke(Color.color(0.87, 0.72, 0.47, 0.75));
+        graphicsContext.setLineWidth(1.2);
+        graphicsContext.strokeRoundRect(panelX, titleY, titleWidth, titleHeight, 10, 10);
+
+        graphicsContext.setFill(Color.color(0, 0, 0, 0.34));
+        graphicsContext.fillRoundRect(panelX, panelY, panelWidth, panelHeight, 12, 12);
+        graphicsContext.setStroke(Color.color(0.87, 0.72, 0.47, 0.28));
+        graphicsContext.strokeRoundRect(panelX, panelY, panelWidth, panelHeight, 12, 12);
+
+        graphicsContext.setFill(Color.web("#f4efe1"));
+        graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 12));
+        graphicsContext.fillText(title, panelX + 14, titleY + 17);
+
+        graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 12));
+        double textY = panelY + 22;
+        for (String line : lines) {
+            graphicsContext.fillText(line, panelX + 14, textY);
+            textY += 20;
+        }
+    }
+
+    private void renderSkillUnlockCelebration(Player player, long now, double viewportWidth) {
+        if (skillUnlockCelebrationText == null || skillUnlockCelebrationText.isBlank() || player == null) {
+            return;
+        }
+        Image frame = player.getSkillUnlockPreviewFrame(now);
+        double panelWidth = 430;
+        double panelHeight = 110;
+        double panelX = (viewportWidth - panelWidth) * 0.5;
+        double panelY = 82.0;
+
+        graphicsContext.setFill(Color.color(0.08, 0.06, 0.04, 0.88));
+        graphicsContext.fillRoundRect(panelX, panelY, panelWidth, panelHeight, 16, 16);
+        graphicsContext.setStroke(Color.color(0.88, 0.72, 0.40, 0.9));
+        graphicsContext.setLineWidth(1.5);
+        graphicsContext.strokeRoundRect(panelX, panelY, panelWidth, panelHeight, 16, 16);
+
+        if (frame != null && !frame.isError()) {
+            graphicsContext.drawImage(frame, panelX + 18, panelY + 14, 72, 72);
+        }
+
+        graphicsContext.setFill(Color.web("#f5e7c8"));
+        graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 14));
+        graphicsContext.fillText("LEVEL 3 UNLOCK", panelX + 104, panelY + 34);
+        graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 12));
+        graphicsContext.fillText(skillUnlockCelebrationText, panelX + 104, panelY + 58);
+        graphicsContext.fillText("Nhấn F để dùng kỹ năng.", panelX + 104, panelY + 80);
+    }
+
+    private void renderSealGemBadge(Map<String, Integer> collectedResources, double viewportWidth) {
+        int gemCount = collectedResources == null ? 0 : Math.max(0, collectedResources.getOrDefault("seal_gem", 0));
+        if (gemCount <= 0 && !gemRewardAnimationActive) {
+            return;
+        }
+        if (sealGemImage == null || sealGemImage.isError()) {
+            return;
+        }
+
+        double badgeWidth = 220.0;
+        double badgeHeight = 54.0;
+        double badgeX = viewportWidth - badgeWidth - 20.0;
+        double badgeY = 204.0;
+
+        graphicsContext.save();
+        graphicsContext.setFill(Color.color(0.10, 0.08, 0.06, 0.90));
+        graphicsContext.fillRoundRect(badgeX, badgeY, badgeWidth, badgeHeight, 12, 12);
+        graphicsContext.setStroke(Color.color(0.88, 0.74, 0.45, 0.78));
+        graphicsContext.setLineWidth(1.2);
+        graphicsContext.strokeRoundRect(badgeX, badgeY, badgeWidth, badgeHeight, 12, 12);
+        graphicsContext.drawImage(sealGemImage, badgeX + 12.0, badgeY + 9.0, 36.0, 36.0);
+        graphicsContext.setFill(Color.web("#f6edc7"));
+        graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 13));
+        graphicsContext.fillText("NGỌC PHONG ẤN", badgeX + 58.0, badgeY + 22.0);
+        graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 12));
+        graphicsContext.fillText("Số lượng: " + gemCount, badgeX + 58.0, badgeY + 40.0);
+        graphicsContext.restore();
+    }
+
+    private void renderGemRewardAnimation(Map<String, Integer> collectedResources, double viewportWidth) {
+        if (!gemRewardAnimationActive || sealGemImage == null || sealGemImage.isError()) {
+            return;
+        }
+
+        double progress = gemRewardAnimationProgress;
+        double eased = 1.0 - Math.pow(1.0 - progress, 3.0);
+        double startX = (viewportWidth * 0.5) - 36.0;
+        double startY = 138.0;
+        double badgeWidth = 220.0;
+        double badgeX = viewportWidth - badgeWidth - 20.0;
+        double badgeY = 204.0;
+        double endX = badgeX + 12.0;
+        double endY = badgeY + 9.0;
+        double x = startX + ((endX - startX) * eased);
+        double y = startY + ((endY - startY) * eased);
+        double size = 72.0 - (20.0 * eased);
+
+        graphicsContext.save();
+        graphicsContext.setGlobalAlpha(0.92);
+        graphicsContext.setFill(Color.color(0.93, 0.82, 0.42, 0.22 * (1.0 - progress)));
+        graphicsContext.fillOval(x - 10.0, y - 10.0, size + 20.0, size + 20.0);
+        graphicsContext.drawImage(sealGemImage, x, y, size, size);
+        graphicsContext.setFill(Color.web("#f6edc7"));
+        graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 14));
+        graphicsContext.fillText("Ngọc Phong Ấn", startX - 28.0, startY - 14.0);
         graphicsContext.restore();
     }
 

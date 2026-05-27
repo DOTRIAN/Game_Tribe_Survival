@@ -343,6 +343,38 @@
     -fx-background-radius: 16;
 }
 
+.dialogue-story-panel {
+    -fx-background-color: #6f4b2c, #c8915e, #edc093;
+    -fx-background-insets: 0, 3, 6;
+    -fx-background-radius: 2, 2, 2;
+    -fx-border-color: #3e2816;
+    -fx-border-width: 2;
+    -fx-border-radius: 2;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.45), 10, 0.18, 0, 4);
+}
+
+.dialogue-nameplate {
+    -fx-background-color: #2a1e14;
+    -fx-background-radius: 1;
+    -fx-border-color: #7b5534;
+    -fx-border-width: 2;
+    -fx-border-radius: 1;
+    -fx-text-fill: #d39a58;
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+    -fx-padding: 7 18 7 18;
+    -fx-font-family: "Consolas", "Courier New", monospace;
+}
+
+.dialogue-portrait-frame {
+    -fx-background-color: rgba(123, 85, 52, 0.12);
+    -fx-background-radius: 2;
+    -fx-border-color: rgba(123, 85, 52, 0.9);
+    -fx-border-width: 3;
+    -fx-border-radius: 2;
+    -fx-padding: 4;
+}
+
 .dialogue-kicker {
     -fx-text-fill: #cca35a;
     -fx-font-size: 12px;
@@ -357,16 +389,24 @@
 }
 
 .dialogue-line {
-    -fx-text-fill: #efe2cf;
+    -fx-text-fill: #5f432d;
     -fx-font-size: 15px;
-    -fx-line-spacing: 2px;
+    -fx-font-family: "Consolas", "Courier New", monospace;
+    -fx-line-spacing: 3px;
 }
 
 .dialogue-footer {
-    -fx-text-fill: rgba(239, 226, 207, 0.72);
+    -fx-text-fill: rgba(95, 67, 45, 0.78);
     -fx-font-size: 12px;
     -fx-font-weight: bold;
     -fx-padding: 8 0 0 0;
+    -fx-font-family: "Consolas", "Courier New", monospace;
+}
+
+.dialogue-corner {
+    -fx-background-color: #3e2816;
+    -fx-border-color: #c8915e;
+    -fx-border-width: 1;
 }
 
 /* Settings Sliders & Custom Checkboxes */

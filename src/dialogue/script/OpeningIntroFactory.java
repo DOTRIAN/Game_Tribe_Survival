@@ -52,7 +52,7 @@ public final class OpeningIntroFactory {
                                 "",
                                 "",
                                 List.of(
-                                        "Hỡi Mai An Tiêm...",
+                                        "Hỡi tên phàm nhân kia...",
                                         "Ta là Thổ Địa cai quản hòn đảo này.",
                                         "Vợ ngươi vẫn còn sống.",
                                         "Nhưng đang bị giam giữ bởi Quỷ Đỏ.",
