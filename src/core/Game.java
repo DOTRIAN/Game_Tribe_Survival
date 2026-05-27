@@ -100,6 +100,7 @@ public class Game {
     private record TileBounds(int minX, int minY, int maxX, int maxY, int tileCount) {}
     private record FencePerimeter(int left, int top, int right, int bottom, int centerX, int centerY) {}
     private record ObjectiveStep(String title, int targetAmount, boolean foodObjective, String itemId) {}
+    private record SkillUnlockInfo(int level, String name, Player.AttackAnimationType attackType) {}
 
     private enum GameOverReason {
         PLAYER_DIED,
@@ -237,17 +238,24 @@ public class Game {
     private static final String PICKAXE_ITEM_ID = "pickaxe";
     private static final String AXE_ITEM_ID = "axe";
     private static final String CARROT_ITEM_ID = "carrot";
-    private static final int DAY_ONE_OBJECTIVE_WOOD = 20;
+    private static final int DAY_ONE_OBJECTIVE_WOOD = 10;
     private static final int DAY_ONE_OBJECTIVE_ROCK = 10;
     private static final int DAY_ONE_OBJECTIVE_FOOD = 5;
     private static final int DAY_ONE_OBJECTIVE_REWARD_GOLD = 10;
-    private static final int AXE_SKILL_UNLOCK_LEVEL = 3;
+    private static final int AXE_SKILL_UNLOCK_LEVEL = 2;
+    private static final int STORMBREAKER_UNLOCK_LEVEL = 3;
+    private static final int DEATH_SPEAR_UNLOCK_LEVEL = 4;
     private static final String NIKU_ITEM_ID = "niku";
     private static final String SEAL_GEM_ITEM_ID = "seal_gem";
     private static final List<ObjectiveStep> DAY_ONE_OBJECTIVES = List.of(
             new ObjectiveStep("Nhiệm vụ 1", DAY_ONE_OBJECTIVE_WOOD, false, "wood"),
             new ObjectiveStep("Nhiệm vụ 2", DAY_ONE_OBJECTIVE_ROCK, false, "rock"),
             new ObjectiveStep("Nhiệm vụ 3", DAY_ONE_OBJECTIVE_FOOD, true, "")
+    );
+    private static final List<SkillUnlockInfo> SKILL_UNLOCKS = List.of(
+            new SkillUnlockInfo(AXE_SKILL_UNLOCK_LEVEL, "Tiều phu đốn củi", Player.AttackAnimationType.SLICE),
+            new SkillUnlockInfo(STORMBREAKER_UNLOCK_LEVEL, "StormBreaker", Player.AttackAnimationType.CRUSH),
+            new SkillUnlockInfo(DEATH_SPEAR_UNLOCK_LEVEL, "Ngọn giáo tử thần", Player.AttackAnimationType.PIERCE)
     );
     private static final String[] HOTBAR_PRIORITY = {
             WOOD_FENCE_ITEM_ID,
@@ -322,6 +330,7 @@ public class Game {
     private boolean axeSkillUnlockAnnounced;
     private int dayOneObjectiveStep;
     private long axeSkillCelebrationUntilNs;
+    private SkillUnlockInfo pendingSkillUnlockCelebration;
     private boolean firstNightRewardTriggered;
     private boolean gemRewardAnimationActive;
     private boolean gemRewardGranted;
@@ -400,6 +409,7 @@ public class Game {
         this.axeSkillUnlockAnnounced = false;
         this.dayOneObjectiveStep = 0;
         this.axeSkillCelebrationUntilNs = -1L;
+        this.pendingSkillUnlockCelebration = null;
         this.firstNightRewardTriggered = false;
         this.gemRewardAnimationActive = false;
         this.gemRewardGranted = false;
@@ -686,10 +696,13 @@ public class Game {
                         ? Math.max(0.0, Math.min(1.0, (double) (now - gemRewardAnimationStartedAtNs) / gemRewardAnimationDurationNs))
                         : 0.0
         );
+        SkillUnlockInfo activeCelebration = now < axeSkillCelebrationUntilNs ? pendingSkillUnlockCelebration : null;
         renderer.setSkillUnlockCelebration(
-                now < axeSkillCelebrationUntilNs ? "Chúc mừng! Mở khóa kỹ năng \"Tiều phu đốn củi\"" : null
+                activeCelebration == null ? null : "LEVEL " + activeCelebration.level() + " UNLOCK",
+                activeCelebration == null ? null : "Chúc mừng! Mở khóa kỹ năng \"" + activeCelebration.name() + "\"",
+                activeCelebration == null ? null : activeCelebration.attackType()
         );
-        String objectiveStatus = buildActiveObjectiveStatus(now);
+        String objectiveStatus = buildObjectiveStatusV2(now);
 
         long renderStartNs = System.nanoTime();
         renderer.render(
@@ -1311,11 +1324,11 @@ public class Game {
                 performPlayerAttack(now, player.getAttackAnimationTypeForCurrentMode());
             }
         } else if (!blockingOverlayVisible && inputHandler.isJustPressed(KeyCode.F)) {
-            if (!isAxeSkillUnlocked()) {
-                renderer.showToast("Unlock Axe Skill at level 3");
-            } else if (player.consumeEnergy(SKILL_F_ENERGY_COST)) {
-                performPlayerAttack(now, Player.AttackAnimationType.SLICE);
-            }
+            tryUseUnlockedSkill(now, Player.AttackAnimationType.SLICE, "Tiều phu đốn củi", AXE_SKILL_UNLOCK_LEVEL, "F");
+        } else if (!blockingOverlayVisible && inputHandler.isJustPressed(KeyCode.J)) {
+            tryUseUnlockedSkill(now, Player.AttackAnimationType.CRUSH, "StormBreaker", STORMBREAKER_UNLOCK_LEVEL, "J");
+        } else if (!blockingOverlayVisible && inputHandler.isJustPressed(KeyCode.K)) {
+            tryUseUnlockedSkill(now, Player.AttackAnimationType.PIERCE, "Ngọn giáo tử thần", DEATH_SPEAR_UNLOCK_LEVEL, "K");
         }
 
         boolean moving = oldX != player.getX() || oldY != player.getY();
@@ -1330,7 +1343,7 @@ public class Game {
 
         resourceManager.update(now);
         updateDroppedItemPickup();
-        updateActiveObjectiveChain(now);
+        updateObjectiveProgressionV2(now);
         updateGemRewardAnimation(now);
         cleanupExpiredDamageTexts(now);
         cleanupExpiredExplosionEffects(now);
@@ -1685,6 +1698,7 @@ public class Game {
         axeSkillUnlockAnnounced = false;
         dayOneObjectiveStep = 0;
         axeSkillCelebrationUntilNs = -1L;
+        pendingSkillUnlockCelebration = null;
         firstNightRewardTriggered = false;
         gemRewardAnimationActive = false;
         gemRewardGranted = false;
@@ -2606,7 +2620,12 @@ public class Game {
             return;
         }
 
-        int attackDamage = attackType == Player.AttackAnimationType.SLICE ? 2 : 1;
+        int attackDamage = switch (attackType) {
+            case SLICE -> 2;
+            case CRUSH -> 3;
+            case PIERCE -> 4;
+            case HIT -> 1;
+        };
         double[] attackBox = player.buildAttackHitbox();
 
         boolean hitEnemy = applyAttackToFirstEnemy(attackBox[0], attackBox[1], attackBox[2], attackBox[3], attackDamage, now);
@@ -3673,6 +3692,125 @@ public class Game {
             return;
         }
         renderer.showToast(rewardText);
+    }
+
+    private String buildObjectiveStatusV2(long now) {
+        if (!dayOneObjectiveUnlocked) {
+            return "";
+        }
+        if (dayOneObjectiveCompleted) {
+            return "Chuỗi nhiệm vụ hoàn thành!\n"
+                    + "• Đã đạt level " + player.getLevel() + "\n"
+                    + "• Đã sống sót qua đêm đầu tiên";
+        }
+
+        ObjectiveStep currentStep = getCurrentObjectiveStep();
+        if (currentStep == null) {
+            return "Nhiệm vụ 4:\n• Sống sót qua đêm";
+        }
+        return currentStep.title() + ":\n• "
+                + getObjectiveProgress(currentStep) + "/" + currentStep.targetAmount()
+                + " " + getObjectiveLabelV2(currentStep);
+    }
+
+    private String getObjectiveLabelV2(ObjectiveStep objectiveStep) {
+        if (objectiveStep == null) {
+            return "";
+        }
+        if (objectiveStep.foodObjective()) {
+            return "thức ăn";
+        }
+        return switch (objectiveStep.itemId()) {
+            case "wood" -> "gỗ";
+            case "rock" -> "đá";
+            default -> objectiveStep.itemId();
+        };
+    }
+
+    private void updateObjectiveProgressionV2(long now) {
+        if (!dayOneObjectiveUnlocked || dayOneObjectiveCompleted) {
+            return;
+        }
+        ObjectiveStep currentStep = getCurrentObjectiveStep();
+        if (currentStep == null) {
+            return;
+        }
+        if (getObjectiveProgress(currentStep) >= currentStep.targetAmount()) {
+            completeObjectiveStepV2(now, currentStep);
+        }
+    }
+
+    private void completeObjectiveStepV2(long now, ObjectiveStep completedStep) {
+        inventory.addItem(COIN_ITEM_ID, DAY_ONE_OBJECTIVE_REWARD_GOLD);
+        player.addExperience(player.getExperienceToNextLevel());
+        refreshBuildInventoryUi();
+        dayOneObjectiveStep++;
+
+        String rewardText = "Hoàn thành " + completedStep.title() + "! +10 vàng, +1 level";
+        SkillUnlockInfo unlockedSkill = findSkillUnlockedAtLevel(player.getLastLeveledUpTo());
+        if (unlockedSkill != null) {
+            triggerSkillUnlockCelebration(unlockedSkill, now);
+            renderer.showToast(rewardText + ". Mở khóa \"" + unlockedSkill.name() + "\" [" + getSkillKeyLabel(unlockedSkill.attackType()) + "]");
+            return;
+        }
+        renderer.showToast(rewardText);
+    }
+
+    private SkillUnlockInfo findSkillUnlockedAtLevel(int level) {
+        for (SkillUnlockInfo skillUnlock : SKILL_UNLOCKS) {
+            if (skillUnlock.level() == level) {
+                return skillUnlock;
+            }
+        }
+        return null;
+    }
+
+    private Player.AttackAnimationType getHighestUnlockedSkillType() {
+        SkillUnlockInfo highest = null;
+        for (SkillUnlockInfo skillUnlock : SKILL_UNLOCKS) {
+            if (player.getLevel() < skillUnlock.level()) {
+                continue;
+            }
+            if (highest == null || skillUnlock.level() > highest.level()) {
+                highest = skillUnlock;
+            }
+        }
+        return highest == null ? null : highest.attackType();
+    }
+
+    private void triggerSkillUnlockCelebration(SkillUnlockInfo unlockedSkill, long now) {
+        if (unlockedSkill == null) {
+            return;
+        }
+        pendingSkillUnlockCelebration = unlockedSkill;
+        axeSkillUnlockAnnounced = true;
+        axeSkillCelebrationUntilNs = now + 3_000_000_000L;
+    }
+
+    private void tryUseUnlockedSkill(long now,
+                                     Player.AttackAnimationType attackType,
+                                     String skillName,
+                                     int unlockLevel,
+                                     String keyLabel) {
+        if (player.getLevel() < unlockLevel) {
+            renderer.showToast("Mở khóa " + skillName + " ở level " + unlockLevel + " [" + keyLabel + "]");
+            return;
+        }
+        if (player.consumeEnergy(SKILL_F_ENERGY_COST)) {
+            performPlayerAttack(now, attackType);
+        }
+    }
+
+    private String getSkillKeyLabel(Player.AttackAnimationType attackType) {
+        if (attackType == null) {
+            return "F";
+        }
+        return switch (attackType) {
+            case SLICE -> "F";
+            case CRUSH -> "J";
+            case PIERCE -> "K";
+            case HIT -> "";
+        };
     }
 
     // getGameOverMessage:

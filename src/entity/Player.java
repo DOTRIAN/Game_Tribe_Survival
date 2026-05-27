@@ -22,6 +22,8 @@ public class Player extends Entity {
     private static final long RUN_FRAME_NS = 80_000_000L;
     private static final long HIT_FRAME_NS = 85_000_000L;
     private static final long SLICE_FRAME_NS = 80_000_000L;
+    private static final long CRUSH_FRAME_NS = 80_000_000L;
+    private static final long PIERCE_FRAME_NS = 80_000_000L;
     private static final long DEATH_FRAME_NS = 110_000_000L;
 
     private enum FacingDirection {
@@ -32,7 +34,9 @@ public class Player extends Entity {
 
     public enum AttackAnimationType {
         HIT,
-        SLICE
+        SLICE,
+        CRUSH,
+        PIERCE
     }
 
     public enum EquipmentMode {
@@ -61,6 +65,12 @@ public class Player extends Entity {
     private final SpriteAnimation sliceDownAnimation;
     private final SpriteAnimation sliceSideAnimation;
     private final SpriteAnimation sliceUpAnimation;
+    private final SpriteAnimation crushDownAnimation;
+    private final SpriteAnimation crushSideAnimation;
+    private final SpriteAnimation crushUpAnimation;
+    private final SpriteAnimation pierceDownAnimation;
+    private final SpriteAnimation pierceSideAnimation;
+    private final SpriteAnimation pierceUpAnimation;
     private final SpriteAnimation hitDownAnimation;
     private final SpriteAnimation hitSideAnimation;
     private final SpriteAnimation hitUpAnimation;
@@ -103,6 +113,12 @@ public class Player extends Entity {
         Image[] sliceDownFrames = loadStrip("Slice_Base/Slice_Down-Sheet.png", 8);
         Image[] sliceSideFrames = loadStrip("Slice_Base/Slice_Side-Sheet.png", 8);
         Image[] sliceUpFrames = loadStrip("Slice_Base/Slice_Up-Sheet.png", 8);
+        Image[] crushDownFrames = loadStrip("../tilesets/Pixel Crawler - Free Pack/Entities/Characters/Body_A/Animations/Crush_Base/Crush_Down-Sheet.png", 8);
+        Image[] crushSideFrames = loadStrip("../tilesets/Pixel Crawler - Free Pack/Entities/Characters/Body_A/Animations/Crush_Base/Crush_Side-Sheet.png", 8);
+        Image[] crushUpFrames = loadStrip("../tilesets/Pixel Crawler - Free Pack/Entities/Characters/Body_A/Animations/Crush_Base/Crush_Up-Sheet.png", 8);
+        Image[] pierceDownFrames = loadStrip("../tilesets/Pixel Crawler - Free Pack/Entities/Characters/Body_A/Animations/Pierce_Base/Pierce_Down-Sheet.png", 8);
+        Image[] pierceSideFrames = loadStrip("../tilesets/Pixel Crawler - Free Pack/Entities/Characters/Body_A/Animations/Pierce_Base/Pierce_Side-Sheet.png", 8);
+        Image[] pierceUpFrames = loadStrip("../tilesets/Pixel Crawler - Free Pack/Entities/Characters/Body_A/Animations/Pierce_Base/Pierce_Top-Sheet.png", 8);
         Image[] hitDownFrames = loadStrip("Hit_Base/Hit_Down-Sheet.png", 4);
         Image[] hitSideFrames = loadStrip("Hit_Base/Hit_Side-Sheet.png", 4);
         Image[] hitUpFrames = loadStrip("Hit_Base/Hit_Up-Sheet.png", 4);
@@ -115,6 +131,8 @@ public class Player extends Entity {
                 walkDownFrames, walkSideFrames, walkUpFrames,
                 runDownFrames, runSideFrames, runUpFrames,
                 sliceDownFrames, sliceSideFrames, sliceUpFrames,
+                crushDownFrames, crushSideFrames, crushUpFrames,
+                pierceDownFrames, pierceSideFrames, pierceUpFrames,
                 hitDownFrames, hitSideFrames, hitUpFrames,
                 deathDownFrames, deathSideFrames, deathUpFrames
         );
@@ -123,6 +141,8 @@ public class Player extends Entity {
                 walkDownFrames, walkSideFrames, walkUpFrames,
                 runDownFrames, runSideFrames, runUpFrames,
                 sliceDownFrames, sliceSideFrames, sliceUpFrames,
+                crushDownFrames, crushSideFrames, crushUpFrames,
+                pierceDownFrames, pierceSideFrames, pierceUpFrames,
                 hitDownFrames, hitSideFrames, hitUpFrames,
                 deathDownFrames, deathSideFrames, deathUpFrames
         );
@@ -139,6 +159,12 @@ public class Player extends Entity {
         this.sliceDownAnimation = new SpriteAnimation(normalizeFrames(sliceDownFrames, canvasWidth, canvasHeight), SLICE_FRAME_NS);
         this.sliceSideAnimation = new SpriteAnimation(normalizeFrames(sliceSideFrames, canvasWidth, canvasHeight), SLICE_FRAME_NS);
         this.sliceUpAnimation = new SpriteAnimation(normalizeFrames(sliceUpFrames, canvasWidth, canvasHeight), SLICE_FRAME_NS);
+        this.crushDownAnimation = new SpriteAnimation(normalizeFrames(crushDownFrames, canvasWidth, canvasHeight), CRUSH_FRAME_NS);
+        this.crushSideAnimation = new SpriteAnimation(normalizeFrames(crushSideFrames, canvasWidth, canvasHeight), CRUSH_FRAME_NS);
+        this.crushUpAnimation = new SpriteAnimation(normalizeFrames(crushUpFrames, canvasWidth, canvasHeight), CRUSH_FRAME_NS);
+        this.pierceDownAnimation = new SpriteAnimation(normalizeFrames(pierceDownFrames, canvasWidth, canvasHeight), PIERCE_FRAME_NS);
+        this.pierceSideAnimation = new SpriteAnimation(normalizeFrames(pierceSideFrames, canvasWidth, canvasHeight), PIERCE_FRAME_NS);
+        this.pierceUpAnimation = new SpriteAnimation(normalizeFrames(pierceUpFrames, canvasWidth, canvasHeight), PIERCE_FRAME_NS);
         this.hitDownAnimation = new SpriteAnimation(normalizeFrames(hitDownFrames, canvasWidth, canvasHeight), HIT_FRAME_NS);
         this.hitSideAnimation = new SpriteAnimation(normalizeFrames(hitSideFrames, canvasWidth, canvasHeight), HIT_FRAME_NS);
         this.hitUpAnimation = new SpriteAnimation(normalizeFrames(hitUpFrames, canvasWidth, canvasHeight), HIT_FRAME_NS);
@@ -207,10 +233,23 @@ public class Player extends Entity {
         return Math.max(0, Math.min(1, elapsed / levelUpEffectDurationNs));
     }
 
-    public Image getSkillUnlockPreviewFrame(long nowNs) {
-        int frameCount = Math.max(1, sliceDownAnimation.getFrameCount());
-        int frameIndex = (int) ((nowNs / SLICE_FRAME_NS) % frameCount);
-        return sliceDownAnimation.getFrameAtIndex(frameIndex);
+    public Image getSkillUnlockPreviewFrame(long nowNs, AttackAnimationType attackType) {
+        AttackAnimationType resolvedType = attackType == null ? AttackAnimationType.SLICE : attackType;
+        SpriteAnimation previewAnimation = switch (resolvedType) {
+            case CRUSH -> crushDownAnimation;
+            case PIERCE -> pierceDownAnimation;
+            case HIT -> hitDownAnimation;
+            case SLICE -> sliceDownAnimation;
+        };
+        long frameDurationNs = switch (resolvedType) {
+            case CRUSH -> CRUSH_FRAME_NS;
+            case PIERCE -> PIERCE_FRAME_NS;
+            case HIT -> HIT_FRAME_NS;
+            case SLICE -> SLICE_FRAME_NS;
+        };
+        int frameCount = Math.max(1, previewAnimation.getFrameCount());
+        int frameIndex = (int) ((nowNs / frameDurationNs) % frameCount);
+        return previewAnimation.getFrameAtIndex(frameIndex);
     }
 
     public int getLastLeveledUpTo() {
@@ -309,7 +348,12 @@ public class Player extends Entity {
         currentAttackType = attackType == null ? getAttackAnimationTypeForCurrentMode() : attackType;
         resetAllAttackAnimations();
         attackDurationNs = currentAttackAnimation().getFrameCount()
-                * (currentAttackType == AttackAnimationType.SLICE ? SLICE_FRAME_NS : HIT_FRAME_NS);
+                * switch (currentAttackType) {
+                    case SLICE -> SLICE_FRAME_NS;
+                    case CRUSH -> CRUSH_FRAME_NS;
+                    case PIERCE -> PIERCE_FRAME_NS;
+                    case HIT -> HIT_FRAME_NS;
+                };
         return true;
     }
 
@@ -557,17 +601,27 @@ public class Player extends Entity {
     }
 
     private SpriteAnimation currentAttackAnimation() {
-        if (currentAttackType == AttackAnimationType.SLICE) {
-            return switch (facingDirection) {
+        return switch (currentAttackType) {
+            case SLICE -> switch (facingDirection) {
                 case UP -> sliceUpAnimation;
                 case SIDE -> sliceSideAnimation;
                 case DOWN -> sliceDownAnimation;
             };
-        }
-        return switch (facingDirection) {
-            case UP -> hitUpAnimation;
-            case SIDE -> hitSideAnimation;
-            case DOWN -> hitDownAnimation;
+            case CRUSH -> switch (facingDirection) {
+                case UP -> crushUpAnimation;
+                case SIDE -> crushSideAnimation;
+                case DOWN -> crushDownAnimation;
+            };
+            case PIERCE -> switch (facingDirection) {
+                case UP -> pierceUpAnimation;
+                case SIDE -> pierceSideAnimation;
+                case DOWN -> pierceDownAnimation;
+            };
+            case HIT -> switch (facingDirection) {
+                case UP -> hitUpAnimation;
+                case SIDE -> hitSideAnimation;
+                case DOWN -> hitDownAnimation;
+            };
         };
     }
 
@@ -583,6 +637,12 @@ public class Player extends Entity {
         sliceDownAnimation.reset();
         sliceSideAnimation.reset();
         sliceUpAnimation.reset();
+        crushDownAnimation.reset();
+        crushSideAnimation.reset();
+        crushUpAnimation.reset();
+        pierceDownAnimation.reset();
+        pierceSideAnimation.reset();
+        pierceUpAnimation.reset();
         hitDownAnimation.reset();
         hitSideAnimation.reset();
         hitUpAnimation.reset();

@@ -78,7 +78,9 @@ public class Renderer {
     private final Map<String, Image> tintedBuildImageCache;
     private final Image sealGemImage;
     private DialogueRunner introDialogueRunner;
+    private String skillUnlockCelebrationTitle;
     private String skillUnlockCelebrationText;
+    private Player.AttackAnimationType skillUnlockCelebrationType;
     private boolean gemRewardAnimationActive;
     private double gemRewardAnimationProgress;
     private MapRenderer mapRenderer;
@@ -98,7 +100,9 @@ public class Renderer {
         this.tintedBuildImageCache = new LinkedHashMap<>();
         this.sealGemImage = new Image(Path.of("assets", "vien ngoc.png").toUri().toString(), false);
         this.introDialogueRunner = null;
+        this.skillUnlockCelebrationTitle = null;
         this.skillUnlockCelebrationText = null;
+        this.skillUnlockCelebrationType = null;
         this.gemRewardAnimationActive = false;
         this.gemRewardAnimationProgress = 0.0;
 
@@ -238,8 +242,12 @@ public class Renderer {
         this.introDialogueRunner = introDialogueRunner;
     }
 
-    public void setSkillUnlockCelebration(String skillUnlockCelebrationText) {
+    public void setSkillUnlockCelebration(String skillUnlockCelebrationTitle,
+                                          String skillUnlockCelebrationText,
+                                          Player.AttackAnimationType skillUnlockCelebrationType) {
+        this.skillUnlockCelebrationTitle = skillUnlockCelebrationTitle;
         this.skillUnlockCelebrationText = skillUnlockCelebrationText;
+        this.skillUnlockCelebrationType = skillUnlockCelebrationType;
     }
 
     public void setGemRewardAnimation(boolean active, double progress) {
@@ -555,7 +563,7 @@ public class Renderer {
         if (skillUnlockCelebrationText == null || skillUnlockCelebrationText.isBlank() || player == null) {
             return;
         }
-        Image frame = player.getSkillUnlockPreviewFrame(now);
+        Image frame = player.getSkillUnlockPreviewFrame(now, skillUnlockCelebrationType);
         double panelWidth = 430;
         double panelHeight = 110;
         double panelX = (viewportWidth - panelWidth) * 0.5;
@@ -573,10 +581,26 @@ public class Renderer {
 
         graphicsContext.setFill(Color.web("#f5e7c8"));
         graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 14));
-        graphicsContext.fillText("LEVEL 3 UNLOCK", panelX + 104, panelY + 34);
+        graphicsContext.fillText(
+                skillUnlockCelebrationTitle == null || skillUnlockCelebrationTitle.isBlank()
+                        ? "SKILL UNLOCK"
+                        : skillUnlockCelebrationTitle,
+                panelX + 104,
+                panelY + 34
+        );
         graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 12));
         graphicsContext.fillText(skillUnlockCelebrationText, panelX + 104, panelY + 58);
-        graphicsContext.fillText("Nhấn F để dùng kỹ năng.", panelX + 104, panelY + 80);
+        String keyHint;
+        if (skillUnlockCelebrationType == null) {
+            keyHint = "Nhấn F để dùng kỹ năng.";
+        } else {
+            keyHint = switch (skillUnlockCelebrationType) {
+                case CRUSH -> "Nhấn J để dùng kỹ năng.";
+                case PIERCE -> "Nhấn K để dùng kỹ năng.";
+                case HIT, SLICE -> "Nhấn F để dùng kỹ năng.";
+            };
+        }
+        graphicsContext.fillText(keyHint, panelX + 104, panelY + 80);
     }
 
     private void renderSealGemBadge(Map<String, Integer> collectedResources, double viewportWidth) {
