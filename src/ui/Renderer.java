@@ -425,8 +425,6 @@ public class Renderer {
         graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 12));
         graphicsContext.fillText(dayNightPhase, 16, viewportHeight - 18);
 
-        TimeUI.render(graphicsContext, viewportWidth, timeIcon, timeTitle, timeClock, timeAnnouncement);
-
         if (currentLevel != null && objectiveStatus != null && !objectiveStatus.isBlank()) {
             graphicsContext.setFill(Color.color(0, 0, 0, 0.30));
             graphicsContext.fillRoundRect(20, 134, 360, 40, 12, 12);

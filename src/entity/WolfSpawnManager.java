@@ -14,17 +14,17 @@ public class WolfSpawnManager {
 
     private final CollisionManager collisionManager;
     private final WolfEnemy.MovementValidator movementValidator;
-    private final WolfEnemy.WorldQuery worldQuery;
+    private final EnemyNavigationContext navigationContext;
     private final Random random;
     private final List<WolfEnemy> wolves;
 
     public WolfSpawnManager(CollisionManager collisionManager,
                             WolfEnemy.MovementValidator movementValidator,
-                            WolfEnemy.WorldQuery worldQuery,
+                            EnemyNavigationContext navigationContext,
                             Random random) {
         this.collisionManager = collisionManager;
         this.movementValidator = movementValidator;
-        this.worldQuery = worldQuery;
+        this.navigationContext = navigationContext;
         this.random = random == null ? new Random() : random;
         this.wolves = new ArrayList<>();
     }
@@ -115,7 +115,8 @@ public class WolfSpawnManager {
         for (int attempt = 0; attempt < SPAWN_ATTEMPTS_PER_WOLF; attempt++) {
             double x = clamp(baseX + randomJitter(), 0.0, Math.max(0.0, worldWidth - width));
             double y = clamp(baseY + randomJitter(), 0.0, Math.max(0.0, worldHeight - height));
-            WolfEnemy wolf = new WolfEnemy(x, y, width, height, movementValidator, worldQuery, random);
+            WolfEnemy wolf = new WolfEnemy(x, y, width, height, movementValidator, navigationContext, random);
+            wolf.setInitialPathDelayNs((long) (random.nextDouble() * 1_000_000_000L));
             wolf.setHome(x + width * 0.5, y + height * 0.5);
             if (movementValidator == null || movementValidator.canOccupy(wolf, x, y, width, height)) {
                 return wolf;

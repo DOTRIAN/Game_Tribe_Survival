@@ -451,8 +451,8 @@ public class UIManager {
         Image rockIcon = InventoryIconLoader.loadMainIcon("assets/Chip/rock");
         Image nikuIcon = InventoryIconLoader.loadMainIcon("assets/Chip/niku");
         Image axeIcon = InventoryIconLoader.loadFileIcon("assets/player/Slice_Base/riu.jpg");
-        meta.put("wall", new ItemUiMeta("wall", "Wood Fence", "Buildable wooden fence that auto-connects left and right.", 0, "WF", wallIcon, Map.of("wood", GameBalance.WOOD_FENCE_PRICE)));
-        meta.put("wood_fence", new ItemUiMeta("wood_fence", "Wood Fence", "Buildable wooden fence that auto-connects left and right.", 0, "WF", wallIcon, Map.of("wood", GameBalance.WOOD_FENCE_PRICE)));
+        meta.put("wall", new ItemUiMeta("wall", "Wood Fence", "Buildable wooden fence that auto-connects left and right.", GameBalance.WOOD_FENCE_PRICE, "WF", wallIcon));
+        meta.put("wood_fence", new ItemUiMeta("wood_fence", "Wood Fence", "Buildable wooden fence that auto-connects left and right.", GameBalance.WOOD_FENCE_PRICE, "WF", wallIcon));
         meta.put("wood_wall", new ItemUiMeta("wood_wall", "Wood Wall", "Legacy wooden wall kept for existing saves.", GameBalance.WOOD_WALL_PRICE, "WW", wallIcon));
         meta.put("potion", new ItemUiMeta("potion", "Potion", "Emergency heal during survival runs.", 12, "PT", null));
         meta.put("torch", new ItemUiMeta("torch", "Torch", "Animated torch that lights dark areas after placement.", GameBalance.TORCH_PRICE, "TR", torchIcon));
