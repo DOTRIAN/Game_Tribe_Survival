@@ -11,6 +11,7 @@ import buildsystem.core.BuildPreview;
 import buildsystem.sprite.AssetManager;
 import core.GameBalance;
 import core.GameState;
+import dialogue.runtime.DialogueRunner;
 import drop.DroppedItem;
 import entity.Enemy;
 import entity.FriendlyArcher;
@@ -73,6 +74,7 @@ public class Renderer {
     private final Image gameBackgroundImage;
     private final LabelFpsTracker fpsTracker;
     private final Map<String, Image> tintedBuildImageCache;
+    private DialogueRunner introDialogueRunner;
     private MapRenderer mapRenderer;
 
     public Renderer(Stage stage, InputHandler inputHandler, AssetManager buildAssetManager) {
@@ -87,6 +89,7 @@ public class Renderer {
         this.gameBackgroundImage = new Image("file:assets/backgrounds/grass03.png");
         this.fpsTracker = new LabelFpsTracker();
         this.tintedBuildImageCache = new LinkedHashMap<>();
+        this.introDialogueRunner = null;
 
         StackPane root = new StackPane();
         root.setStyle("-fx-background-color: #0f1114;");
@@ -157,6 +160,9 @@ public class Renderer {
         if (gameState == GameState.NAME_INPUT) {
             uiManager.setNameDraft(playerNameDraft, maxNameLength);
         }
+        if (gameState == GameState.INTRO) {
+            uiManager.updateIntroDialogue(introDialogueRunner, now);
+        }
         if (gameState == GameState.PLAYING || gameState == GameState.PAUSED || gameState == GameState.GAME_OVER || gameState == GameState.LEVEL_COMPLETE) {
             uiManager.updateHud(
                     player,
@@ -178,7 +184,7 @@ public class Renderer {
         graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
         graphicsContext.setImageSmoothing(false);
 
-        if (gameState == GameState.WELCOME || gameState == GameState.NAME_INPUT || gameState == GameState.GUIDE || uiManager.isSettingsVisible()) {
+        if (gameState == GameState.WELCOME || gameState == GameState.NAME_INPUT || gameState == GameState.INTRO || gameState == GameState.GUIDE || uiManager.isSettingsVisible()) {
             drawBackgroundCover(welcomeBackgroundImage, viewportWidth, viewportHeight);
             graphicsContext.setFill(Color.color(0, 0, 0, welcomeFlashing ? 0.42 : 0.28));
             graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
@@ -206,6 +212,18 @@ public class Renderer {
 
     public void setNameActions(Runnable onConfirm, Runnable onBack) {
         uiManager.configureNameActions(onConfirm, onBack);
+    }
+
+    public void setIntroDialogueRunner(DialogueRunner introDialogueRunner) {
+        this.introDialogueRunner = introDialogueRunner;
+    }
+
+    public boolean isIntroPageFullyRevealed(long nowNs) {
+        return uiManager.isIntroPageFullyRevealed(nowNs);
+    }
+
+    public void revealIntroPageImmediately() {
+        uiManager.revealIntroPageImmediately();
     }
 
     public void setSettingsBackAction(Runnable onBack) {

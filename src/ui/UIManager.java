@@ -4,6 +4,8 @@ import buildsystem.core.BuildManager;
 import buildsystem.sprite.AssetManager;
 import core.GameBalance;
 import core.GameState;
+import dialogue.runtime.DialogueRunner;
+import dialogue.ui.DialogueOverlay;
 import drop.InventoryIconLoader;
 import entity.Enemy;
 import entity.Player;
@@ -36,6 +38,7 @@ public class UIManager {
     private final AssetManager assetManager;
     private final MainMenuScreen mainMenuScreen;
     private final NameInputScreen nameInputScreen;
+    private final DialogueOverlay introOverlay;
     private final SettingsScreen settingsScreen;
     private final HudOverlay hudOverlay;
     private final ResourcePanel resourcePanel;
@@ -76,6 +79,7 @@ public class UIManager {
 
         this.mainMenuScreen = new MainMenuScreen();
         this.nameInputScreen = new NameInputScreen();
+        this.introOverlay = new DialogueOverlay();
         this.settingsScreen = new SettingsScreen();
         this.hudOverlay = new HudOverlay();
         this.resourcePanel = new ResourcePanel();
@@ -101,6 +105,7 @@ public class UIManager {
         root.getChildren().addAll(
                 mainMenuScreen,
                 nameInputScreen,
+                introOverlay,
                 settingsScreen,
                 hudOverlay,
                 resourcePanel,
@@ -117,6 +122,7 @@ public class UIManager {
         );
         root.setPickOnBounds(false);
         nameInputScreen.setVisible(false);
+        introOverlay.setVisible(false);
         settingsScreen.setVisible(false);
         hudOverlay.setVisible(false);
         resourcePanel.setVisible(false);
@@ -145,6 +151,7 @@ public class UIManager {
         AnchorPane.setRightAnchor(toastContainer, 0.0);
         bindOverlayToRoot(root, mainMenuScreen);
         bindOverlayToRoot(root, nameInputScreen);
+        bindOverlayToRoot(root, introOverlay);
         bindOverlayToRoot(root, settingsScreen);
         bindOverlayToRoot(root, shopOverlay);
         bindOverlayToRoot(root, inventoryOverlay);
@@ -284,6 +291,7 @@ public class UIManager {
         switch (gameState) {
             case WELCOME -> mainMenuScreen.setVisible(true);
             case NAME_INPUT -> nameInputScreen.setVisible(true);
+            case INTRO -> introOverlay.setVisible(true);
             case GUIDE -> guideOverlay.setVisible(true);
             case PAUSED -> pauseOverlay.setVisible(true);
             case GAME_OVER -> gameOverOverlay.setVisible(true);
@@ -319,6 +327,22 @@ public class UIManager {
 
     public void setChestVisible(boolean visible) {
         chestOverlay.setVisible(visible);
+    }
+
+    public void updateIntroDialogue(DialogueRunner runner, long nowNs) {
+        if (runner == null || runner.isComplete()) {
+            introOverlay.showPage(null, 0, 0, nowNs);
+            return;
+        }
+        introOverlay.showPage(runner.getCurrentPage(), runner.getCurrentPageNumber(), runner.getPageCount(), nowNs);
+    }
+
+    public boolean isIntroPageFullyRevealed(long nowNs) {
+        return introOverlay.isPageFullyRevealed(nowNs);
+    }
+
+    public void revealIntroPageImmediately() {
+        introOverlay.revealCurrentPageImmediately();
     }
 
     public boolean isChestVisible() {
@@ -404,6 +428,7 @@ public class UIManager {
     private void hideAllScreens() {
         mainMenuScreen.setVisible(false);
         nameInputScreen.setVisible(false);
+        introOverlay.setVisible(false);
         guideOverlay.setVisible(false);
         pauseOverlay.setVisible(false);
         gameOverOverlay.setVisible(false);

@@ -12,6 +12,8 @@ import buildsystem.object.BombTrap;
 import buildsystem.object.BuildObject;
 import buildsystem.object.Chest;
 import buildsystem.sprite.AssetManager;
+import dialogue.runtime.DialogueRunner;
+import dialogue.script.OpeningIntroFactory;
 import drop.AnimatedDropItem;
 import drop.BombDropItem;
 import drop.DropItemType;
@@ -121,6 +123,7 @@ public class Game {
     private final GameLoop gameLoop;
     private final Renderer renderer;
     private final InputHandler inputHandler;
+    private DialogueRunner introDialogueRunner;
     private final AssetManager wallAssetManager;
     private final BuildManager buildManager;
     private final BuildController buildController;
@@ -313,6 +316,7 @@ public class Game {
         this.welcomeFlashUntilNs = 0L;
         this.pendingWelcomeAction = -1;
         this.playerNameBuffer = new StringBuilder("Player");
+        this.introDialogueRunner = null;
 
         // World size tam thoi; neu load duoc map se bi ghi de bang kich thuoc map pixel that.
         this.worldWidth = 1_000_000;
@@ -506,6 +510,9 @@ public class Game {
             case NAME_INPUT:
                 handleNameInputState();
                 break;
+            case INTRO:
+                handleIntroState();
+                break;
             case PLAYING:
                 if (handlePlayingState(now)) {
                     return;
@@ -528,6 +535,7 @@ public class Game {
     }
 
     public void render(long now) {
+        renderer.setIntroDialogueRunner(introDialogueRunner);
         // objectiveStatus dung lai slot hien level objective de hien mission sinh ton.
         String objectiveStatus = buildSurvivalObjectiveStatus(now);
 
@@ -984,6 +992,19 @@ public class Game {
         }
     }
 
+    private void handleIntroState() {
+        if (inputHandler.isJustPressed(KeyCode.F11)) {
+            renderer.toggleFullscreen();
+        }
+        if (inputHandler.isJustPressed(KeyCode.SPACE)) {
+            if (!renderer.isIntroPageFullyRevealed(System.nanoTime())) {
+                renderer.revealIntroPageImmediately();
+                return;
+            }
+            advanceOpeningIntro();
+        }
+    }
+
     private boolean handlePlayingState(long now) {
         if (inputHandler.isJustPressed(KeyCode.F11)) {
             renderer.toggleFullscreen();
@@ -1315,9 +1336,30 @@ public class Game {
         if (pendingStartFreshWorld) {
             restartSurvival();
             pendingStartFreshWorld = false;
+            startOpeningIntro();
             return;
         }
         gameState = GameState.PLAYING;
+    }
+
+    private void startOpeningIntro() {
+        introDialogueRunner = new DialogueRunner(OpeningIntroFactory.create(player.getPlayerName()));
+        renderer.hideToast();
+        renderer.setInventoryVisible(false);
+        renderer.setShopVisible(false);
+        renderer.setChestVisible(false);
+        gameState = GameState.INTRO;
+    }
+
+    private void advanceOpeningIntro() {
+        if (introDialogueRunner == null) {
+            gameState = GameState.PLAYING;
+            return;
+        }
+        if (!introDialogueRunner.advance()) {
+            introDialogueRunner = null;
+            gameState = GameState.PLAYING;
+        }
     }
 
     /**
@@ -1404,6 +1446,7 @@ public class Game {
     }
 
     private void restartSurvival() {
+        introDialogueRunner = null;
         clearPersistentProgressForFreshStart();
 
         // Reset world moi: clear enemy/resource procedural va inventory.

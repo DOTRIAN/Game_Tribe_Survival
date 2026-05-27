@@ -336,6 +336,39 @@
     -fx-font-weight: bold;
 }
 
+.dialogue-panel {
+    -fx-background-color: linear-gradient(to bottom, rgba(10, 11, 13, 0.94), rgba(18, 16, 14, 0.96));
+    -fx-border-color: rgba(223, 183, 108, 0.32);
+    -fx-border-radius: 16;
+    -fx-background-radius: 16;
+}
+
+.dialogue-kicker {
+    -fx-text-fill: #cca35a;
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+}
+
+.dialogue-title {
+    -fx-text-fill: #ffe6b2;
+    -fx-font-family: "Georgia", serif;
+    -fx-font-size: 28px;
+    -fx-font-weight: bold;
+}
+
+.dialogue-line {
+    -fx-text-fill: #efe2cf;
+    -fx-font-size: 15px;
+    -fx-line-spacing: 2px;
+}
+
+.dialogue-footer {
+    -fx-text-fill: rgba(239, 226, 207, 0.72);
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-padding: 8 0 0 0;
+}
+
 /* Settings Sliders & Custom Checkboxes */
 .settings-slider {
     -fx-pref-width: 180;

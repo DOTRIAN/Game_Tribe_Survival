@@ -4,6 +4,7 @@ public enum GameState {
     WELCOME,
     // Trang thai nhap ten nhan vat truoc khi vao gameplay.
     NAME_INPUT,
+    INTRO,
     GUIDE,
     LEVEL_SELECT,
     PLAYING,

@@ -1,0 +1,52 @@
+Hãy viết phần mở đầu (intro + dialogue) cho game sinh tồn 2D phong cách pixel/OOP Java, lấy cảm hứng từ truyện Mai An Tiêm.
+
+MỤC TIÊU:
+- Phần mở đầu dùng để hợp lý hóa gameplay sinh tồn.
+- Tạo động lực cho player sống sót và đánh boss cuối để cứu vợ.
+- Sau intro sẽ chuyển thẳng vào gameplay chính.
+
+BỐI CẢNH:
+- Nhân vật chính là Mai An Tiêm, bị nhà vua lưu đày ra một hòn đảo hoang cùng vợ.
+- Hòn đảo có quái vật và các yếu tố siêu nhiên.
+- Ban ngày player đi thu thập tài nguyên: wood, stone, food,...
+- Ban đêm quái vật xuất hiện và tấn công.
+- Game chỉ kéo dài 3 ngày.
+- Sau mỗi ngày sống sót, player nhận được 1 viên ngọc phong ấn.
+- Thu thập đủ 3 viên ngọc sẽ mở khóa trận boss cuối để cứu vợ.
+
+DIỄN BIẾN PHẦN MỞ ĐẦU:
+1. Màn hình đen + text kể chuyện.
+2. Giới thiệu việc Mai An Tiêm bị lưu đày ra đảo.
+3. Ban đầu cả hai cùng sinh tồn.
+4. Hòn đảo dần xuất hiện các hiện tượng kỳ lạ vào ban đêm.
+5. Trong một đêm hỗn loạn, vợ của Mai An Tiêm bị yêu quái bắt đi.
+6. Player tỉnh dậy cạnh đống lửa.
+7. Một NPC tên “Thổ Địa” xuất hiện.
+8. NPC này đóng vai trò guider/tutorial NPC xuyên suốt game.
+9. Thổ Địa giải thích:
+   - Vợ vẫn còn sống.
+   - Muốn cứu cô ấy phải thu thập đủ 3 viên ngọc phong ấn.
+   - Ban ngày cần farm tài nguyên, xây nơi trú ẩn, chế tạo vũ khí.
+   - Ban đêm phải sống sót trước quái vật.
+10. Sau đoạn dialogue, gameplay bắt đầu ngay.
+
+YÊU CẦU WRITING:
+- Viết theo phong cách dark fantasy nhẹ, ngắn gọn, dễ hiểu.
+- Dialogue không quá dài dòng.
+- Chia rõ:
+  + Intro narration
+  + Dialogue của Thổ Địa
+  + Transition sang gameplay
+- Tone nên tạo cảm giác cô độc, bí ẩn nhưng vẫn có hy vọng.
+- Không viết thành tiểu thuyết quá dài.
+- Dialogue phù hợp để hiện trong dialogue box của game 2D pixel.
+
+FORMAT OUTPUT:
+- [INTRO]
+- [THO DIA DIALOGUE]
+- [GAMEPLAY START]
+
+Ngoài ra:
+- Hãy viết sao cho dễ implement vào hệ thống dialogue box sau này.
+- Mỗi câu dialogue nên là một dòng riêng biệt.
+- Không thêm nhân vật ngoài Mai An Tiêm và Thổ Địa.
