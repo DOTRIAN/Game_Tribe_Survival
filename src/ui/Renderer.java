@@ -683,16 +683,6 @@ public class Renderer {
             }
         }
 
-        if (resources != null) {
-            graphicsContext.setStroke(Color.color(1.0, 0.55, 0.1, 0.90));
-            for (ResourceNode node : resources) {
-                if (node == null || !node.isAlive()) {
-                    continue;
-                }
-                strokeWorldRect(node.getCollisionX(), node.getCollisionY(), node.getCollisionWidth(), node.getCollisionHeight(), cameraX, cameraY);
-            }
-        }
-
         if (buildManager != null) {
             graphicsContext.setStroke(Color.color(0.25, 1.0, 1.0, 0.90));
             for (BuildObject object : buildManager.getPlacedObjects()) {
