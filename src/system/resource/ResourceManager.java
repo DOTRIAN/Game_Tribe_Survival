@@ -222,7 +222,7 @@ public class ResourceManager {
      */
     public boolean isBlockedByAliveResource(double x, double y, double w, double h) {
         for (ResourceNode node : resourcesById.values()) {
-            if (!node.isAlive()) {
+            if (!node.isAlive() || !node.blocksMovement()) {
                 continue;
             }
             if (node.intersects(x, y, w, h)) {

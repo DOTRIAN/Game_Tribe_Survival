@@ -138,6 +138,13 @@ public class ResourceNode extends Entity {
                 && getCollisionY() + getCollisionHeight() > otherY;
     }
 
+    public boolean blocksMovement() {
+        return switch (resourceType) {
+            case TREE, ROCK -> true;
+            case GRASS, VEGETABLE, UNKNOWN -> false;
+        };
+    }
+
     @Override
     protected double collisionInsetLeft(double width, double height) {
         return switch (resourceType) {
