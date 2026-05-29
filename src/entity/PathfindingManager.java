@@ -143,7 +143,8 @@ public class PathfindingManager {
             for (Node neighbor : neighbors(current)) {
                 if (closed.contains(neighbor)
                         || !isWalkableNode(neighbor, request.width(), request.height(), request.validator())
-                        || isDiagonalCornerCut(current, neighbor, request.width(), request.height(), request.validator())) {
+                        || isDiagonalCornerCut(current, neighbor, request.width(), request.height(), request.validator())
+                        || !isWalkableEdge(current, neighbor, request.width(), request.height(), request.validator())) {
                     continue;
                 }
                 double tentative = gScore.getOrDefault(current, Double.POSITIVE_INFINITY)
@@ -175,6 +176,7 @@ public class PathfindingManager {
         Node direct = toNode(targetX, targetY);
         if (isWalkableNode(direct, width, height, validator)) {
             goals.add(direct);
+            return goals;
         }
         for (int dy = -goalSearchRadius; dy <= goalSearchRadius; dy++) {
             for (int dx = -goalSearchRadius; dx <= goalSearchRadius; dx++) {
@@ -219,6 +221,27 @@ public class PathfindingManager {
         }
         return !isWalkableNode(new Node(current.x() + dx, current.y()), width, height, validator)
                 || !isWalkableNode(new Node(current.x(), current.y() + dy), width, height, validator);
+    }
+
+    private boolean isWalkableEdge(Node from, Node to, double width, double height, WalkValidator validator) {
+        double fromCenterX = from.x() * tileWidth + tileWidth * 0.5;
+        double fromCenterY = from.y() * tileHeight + tileHeight * 0.5;
+        double toCenterX = to.x() * tileWidth + tileWidth * 0.5;
+        double toCenterY = to.y() * tileHeight + tileHeight * 0.5;
+        double dx = toCenterX - fromCenterX;
+        double dy = toCenterY - fromCenterY;
+        double distance = Math.sqrt(dx * dx + dy * dy);
+        double sampleStep = Math.max(4.0, Math.min(tileWidth, tileHeight) * 0.25);
+        int samples = Math.max(1, (int) Math.ceil(distance / sampleStep));
+        for (int i = 1; i <= samples; i++) {
+            double t = i / (double) samples;
+            double centerX = fromCenterX + dx * t;
+            double centerY = fromCenterY + dy * t;
+            if (!validator.canOccupy(centerX - width * 0.5, centerY - height * 0.5, width, height)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private Node toNode(double worldX, double worldY) {
