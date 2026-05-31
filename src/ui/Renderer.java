@@ -63,6 +63,39 @@ public class Renderer {
     private static final double CAMERA_ZOOM = 1.5;
     private static final boolean DEBUG_DRAW_WALL_BOUNDS = false;
     private static final boolean DEBUG_DRAW_WALL_INFO = true;
+    private static final double NIGHT_OVERLAY_ALPHA_SCALE = 0.94;
+    private static final LightRenderProfile PLAYER_NIGHT_LIGHT = new LightRenderProfile(
+            0.48,
+            0.46,
+            Color.color(1.0, 0.98, 0.93, 0.25),
+            0.20,
+            0.82,
+            Color.color(1.0, 0.96, 0.88, 0.07)
+    );
+    private static final LightRenderProfile PLAYER_DAY_LIGHT = new LightRenderProfile(
+            0.42,
+            0.28,
+            Color.color(1.0, 0.98, 0.93, 0.18),
+            0.16,
+            0.76,
+            Color.color(1.0, 0.96, 0.90, 0.05)
+    );
+    private static final LightRenderProfile TORCH_LIGHT_PROFILE = new LightRenderProfile(
+            0.36,
+            0.34,
+            Color.color(1.0, 0.89, 0.62, 0.20),
+            0.18,
+            0.72,
+            Color.color(1.0, 0.78, 0.42, 0.06)
+    );
+    private static final LightRenderProfile BONFIRE_LIGHT_PROFILE = new LightRenderProfile(
+            0.44,
+            0.40,
+            Color.color(1.0, 0.88, 0.60, 0.22),
+            0.22,
+            0.82,
+            Color.color(1.0, 0.76, 0.38, 0.08)
+    );
 
     private final Stage stage;
     private final Canvas canvas;
@@ -1178,7 +1211,7 @@ public class Renderer {
         double viewportHeight = getViewportHeight();
 
         graphicsContext.setGlobalBlendMode(BlendMode.SRC_OVER);
-        graphicsContext.setFill(Color.color(0, 0, 0, darknessAlpha));
+        graphicsContext.setFill(Color.color(0, 0, 0, Math.min(1.0, darknessAlpha * NIGHT_OVERLAY_ALPHA_SCALE)));
         graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
 
         graphicsContext.save();
@@ -1188,7 +1221,12 @@ public class Renderer {
         double playerScreenX = (playerWorldX - cameraX) * CAMERA_ZOOM;
         double playerScreenY = (playerWorldY - cameraY) * CAMERA_ZOOM;
         double playerLightRadius = isNight ? 145 : 180;
-        drawRadialLight(playerScreenX, playerScreenY, playerLightRadius, Color.color(1.0, 0.98, 0.90, 0.42));
+        renderLayeredLight(
+                playerScreenX,
+                playerScreenY,
+                playerLightRadius,
+                isNight ? PLAYER_NIGHT_LIGHT : PLAYER_DAY_LIGHT
+        );
 
         if (buildManager != null) {
             double lightMargin = 256.0;
@@ -1208,14 +1246,19 @@ public class Renderer {
                 double screenX = (object.getCenterX() - cameraX) * CAMERA_ZOOM;
                 double screenY = (object.getCenterY() - cameraY) * CAMERA_ZOOM;
                 double radius = lightComponent.getRadius() * CAMERA_ZOOM * 1.12;
-                double alpha = Math.max(0.16, Math.min(0.52, lightComponent.getIntensity() * 0.48));
-                drawRadialLight(screenX, screenY, radius, Color.color(1.0, 0.86, 0.52, alpha));
+                double intensity = Math.max(0.35, Math.min(1.0, lightComponent.getIntensity()));
+                renderScaledLight(screenX, screenY, radius, TORCH_LIGHT_PROFILE, intensity);
             }
         }
 
         double bonfireWorldX = 1060;
         double bonfireWorldY = 520;
-        drawRadialLight((bonfireWorldX - cameraX) * CAMERA_ZOOM, (bonfireWorldY - cameraY) * CAMERA_ZOOM, 210, Color.color(1.0, 0.84, 0.46, 0.36));
+        renderLayeredLight(
+                (bonfireWorldX - cameraX) * CAMERA_ZOOM,
+                (bonfireWorldY - cameraY) * CAMERA_ZOOM,
+                210,
+                BONFIRE_LIGHT_PROFILE
+        );
         graphicsContext.restore();
         graphicsContext.setGlobalBlendMode(BlendMode.SRC_OVER);
     }
@@ -1270,6 +1313,88 @@ public class Renderer {
                 new Stop(0.0, centerColor),
                 new Stop(0.28, Color.color(centerColor.getRed(), centerColor.getGreen(), centerColor.getBlue(), centerColor.getOpacity() * 0.72)),
                 new Stop(0.62, Color.color(centerColor.getRed(), centerColor.getGreen(), centerColor.getBlue(), centerColor.getOpacity() * 0.30)),
+                new Stop(1.0, Color.color(0, 0, 0, 0.0))
+        );
+        graphicsContext.setFill(gradient);
+        graphicsContext.fillOval(x - radius, y - radius, radius * 2, radius * 2);
+    }
+
+    private void renderScaledLight(double x, double y, double radius, LightRenderProfile profile, double intensityScale) {
+        if (profile == null || intensityScale <= 0.001) {
+            return;
+        }
+        renderLayeredLight(
+                x,
+                y,
+                radius,
+                profile.scale(Math.max(0.0, Math.min(1.35, intensityScale)))
+        );
+    }
+
+    private void renderLayeredLight(double x, double y, double radius, LightRenderProfile profile) {
+        if (profile == null || radius <= 0.001) {
+            return;
+        }
+        drawCustomRadialLight(
+                x,
+                y,
+                radius * profile.innerRadiusScale(),
+                profile.innerColor(),
+                profile.innerMidAlphaScale(),
+                0.16,
+                0.45
+        );
+        drawCustomRadialLight(
+                x,
+                y,
+                radius * profile.outerRadiusScale(),
+                profile.outerColor(),
+                profile.outerMidAlphaScale(),
+                0.24,
+                0.58
+        );
+    }
+
+    private void drawCustomRadialLight(double x,
+                                       double y,
+                                       double radius,
+                                       Color centerColor,
+                                       double midAlphaScale,
+                                       double innerStop,
+                                       double midStop) {
+        if (centerColor == null || radius <= 0.001 || centerColor.getOpacity() <= 0.001) {
+            return;
+        }
+        double clampedInnerStop = Math.max(0.0, Math.min(1.0, innerStop));
+        double clampedMidStop = Math.max(clampedInnerStop, Math.min(1.0, midStop));
+        double clampedMidAlpha = Math.max(0.0, Math.min(1.0, midAlphaScale));
+        RadialGradient gradient = new RadialGradient(
+                0,
+                0,
+                x,
+                y,
+                radius,
+                false,
+                CycleMethod.NO_CYCLE,
+                new Stop(0.0, centerColor),
+                new Stop(
+                        clampedInnerStop,
+                        Color.color(
+                                centerColor.getRed(),
+                                centerColor.getGreen(),
+                                centerColor.getBlue(),
+                                centerColor.getOpacity() * 0.86
+                        )
+                ),
+                new Stop(
+                        clampedMidStop,
+                        Color.color(
+                                centerColor.getRed(),
+                                centerColor.getGreen(),
+                                centerColor.getBlue(),
+                                centerColor.getOpacity() * clampedMidAlpha
+                        )
+                ),
                 new Stop(1.0, Color.color(0, 0, 0, 0.0))
         );
         graphicsContext.setFill(gradient);
@@ -1348,6 +1473,36 @@ public class Renderer {
 
         private int getLastFps() {
             return lastFps;
+        }
+    }
+
+    private record LightRenderProfile(double innerRadiusScale,
+                                      double innerMidAlphaScale,
+                                      Color innerColor,
+                                      double outerRadiusScale,
+                                      double outerMidAlphaScale,
+                                      Color outerColor) {
+        private LightRenderProfile scale(double factor) {
+            return new LightRenderProfile(
+                    innerRadiusScale,
+                    innerMidAlphaScale,
+                    scaleColor(innerColor, factor),
+                    outerRadiusScale,
+                    outerMidAlphaScale,
+                    scaleColor(outerColor, factor)
+            );
+        }
+
+        private static Color scaleColor(Color color, double factor) {
+            if (color == null) {
+                return Color.TRANSPARENT;
+            }
+            return Color.color(
+                    color.getRed(),
+                    color.getGreen(),
+                    color.getBlue(),
+                    Math.max(0.0, Math.min(1.0, color.getOpacity() * factor))
+            );
         }
     }
 }
