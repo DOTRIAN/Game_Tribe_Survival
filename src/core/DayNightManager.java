@@ -20,9 +20,6 @@ public class DayNightManager {
             + WAVE_1_DURATION_NS
             + WAVE_2_DURATION_NS
             + DAWN_DURATION_NS;
-    private static final double MAX_DARKNESS_ALPHA = 0.82;
-    private static final double WARNING_START_ALPHA = 0.18;
-
     private long cycleStartedAtNs = -1L;
 
     public void reset(long nowNs) {
@@ -95,23 +92,26 @@ public class DayNightManager {
     }
 
     public double getDarknessAlpha(long nowNs) {
-        long t = getTimeInCycle(nowNs);
-        long warningStart = DAY_DURATION_NS;
-        long wave1Start = warningStart + WARNING_DURATION_NS;
-        long dawnStart = wave1Start + WAVE_1_DURATION_NS + WAVE_2_DURATION_NS;
-
-        if (t < warningStart) {
+        int minuteOfDay = getGameMinuteOfDay(nowNs);
+        if (minuteOfDay < 360 || minuteOfDay >= 1080) {
+            if (minuteOfDay >= 1080 && minuteOfDay < 1140) {
+                return lerpByMinute(minuteOfDay, 1080, 1140, 0.25, 0.55);
+            }
+            if (minuteOfDay >= 1140 && minuteOfDay < 1380) {
+                return lerpByMinute(minuteOfDay, 1140, 1380, 0.55, 0.70);
+            }
+            if (minuteOfDay >= 1380) {
+                return lerpByMinute(minuteOfDay, 1380, 1440, 0.70, 0.78);
+            }
+            return lerpByMinute(minuteOfDay, 180, 360, 0.78, 0.20);
+        }
+        if (minuteOfDay >= 180 && minuteOfDay < 360) {
+            return lerpByMinute(minuteOfDay, 180, 360, 0.78, 0.20);
+        }
+        if (minuteOfDay >= 360 && minuteOfDay < 1080) {
             return 0.0;
         }
-        if (t < wave1Start) {
-            double progress = (double) (t - warningStart) / WARNING_DURATION_NS;
-            return WARNING_START_ALPHA + progress * (MAX_DARKNESS_ALPHA - WARNING_START_ALPHA);
-        }
-        if (t < dawnStart) {
-            return MAX_DARKNESS_ALPHA;
-        }
-        double progress = (double) (t - dawnStart) / DAWN_DURATION_NS;
-        return Math.max(0.0, (1.0 - progress) * MAX_DARKNESS_ALPHA);
+        return 0.0;
     }
 
     public String getPhaseName(long nowNs) {
@@ -193,6 +193,15 @@ public class DayNightManager {
     private int clampMinute(int minuteOfDay) {
         int wrapped = minuteOfDay % 1440;
         return wrapped < 0 ? wrapped + 1440 : wrapped;
+    }
+
+    private double lerpByMinute(int minuteOfDay, int startMinute, int endMinute, double startAlpha, double endAlpha) {
+        if (endMinute <= startMinute) {
+            return endAlpha;
+        }
+        double progress = (double) (minuteOfDay - startMinute) / (endMinute - startMinute);
+        progress = Math.max(0.0, Math.min(1.0, progress));
+        return startAlpha + (endAlpha - startAlpha) * progress;
     }
 
     private long getTimeInCycle(long nowNs) {

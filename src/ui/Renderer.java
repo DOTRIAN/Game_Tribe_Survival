@@ -1,6 +1,5 @@
 package ui;
 
-import buildsystem.component.LightComponent;
 import buildsystem.core.BuildManager;
 import buildsystem.object.BuildObject;
 import buildsystem.fence.FenceEntity;
@@ -24,14 +23,10 @@ import javafx.geometry.Rectangle2D;
 import javafx.scene.Scene;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
-import javafx.scene.effect.BlendMode;
 import javafx.scene.image.Image;
 import javafx.scene.layout.AnchorPane;
 import javafx.scene.layout.StackPane;
 import javafx.scene.paint.Color;
-import javafx.scene.paint.CycleMethod;
-import javafx.scene.paint.RadialGradient;
-import javafx.scene.paint.Stop;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import javafx.scene.text.Text;
@@ -72,6 +67,7 @@ public class Renderer {
     private final SettingsManager settingsManager;
     private final GameSettings settings;
     private final AssetManager buildAssetManager;
+    private final LightManager lightManager;
     private final Image welcomeBackgroundImage;
     private final Image introBackgroundImage;
     private final Image gameBackgroundImage;
@@ -96,6 +92,7 @@ public class Renderer {
         this.settingsManager = new SettingsManager();
         this.settings = settingsManager.load();
         this.buildAssetManager = buildAssetManager;
+        this.lightManager = new LightManager();
         this.welcomeBackgroundImage = new Image(Path.of("assets", "anhintro.jpg").toUri().toString(), false);
         this.introBackgroundImage = new Image(Path.of("assets", "anhintro.jpg").toUri().toString(), false);
         this.gameBackgroundImage = new Image("file:assets/backgrounds/grass03.png");
@@ -502,7 +499,7 @@ public class Renderer {
             graphicsContext.restore();
         }
 
-        renderNightOverlayAndLights(player, buildManager, cameraX, cameraY, darknessAlpha, isNight);
+        renderNightOverlayAndLights(buildManager, cameraX, cameraY, darknessAlpha, now);
 
         graphicsContext.setFill(Color.color(1, 1, 1, 0.82));
         graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 12));
@@ -1227,54 +1224,18 @@ public class Renderer {
         }
     }
 
-    private void renderNightOverlayAndLights(Player player, BuildManager buildManager, double cameraX, double cameraY, double darknessAlpha, boolean isNight) {
-        if (darknessAlpha <= 0.001) {
-            return;
-        }
-        double viewportWidth = getViewportWidth();
-        double viewportHeight = getViewportHeight();
-
-        graphicsContext.setGlobalBlendMode(BlendMode.SRC_OVER);
-        graphicsContext.setFill(Color.color(0, 0, 0, darknessAlpha));
-        graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
-
-        graphicsContext.save();
-        graphicsContext.setGlobalBlendMode(BlendMode.SCREEN);
-        double playerWorldX = player.getX() + player.getWidth() / 2.0;
-        double playerWorldY = player.getY() + player.getHeight() / 2.0;
-        double playerScreenX = (playerWorldX - cameraX) * CAMERA_ZOOM;
-        double playerScreenY = (playerWorldY - cameraY) * CAMERA_ZOOM;
-        double playerLightRadius = isNight ? 145 : 180;
-        drawRadialLight(playerScreenX, playerScreenY, playerLightRadius, Color.color(1.0, 0.98, 0.90, 0.42));
-
-        if (buildManager != null) {
-            double lightMargin = 256.0;
-            for (BuildObject object : buildManager.getPlacedObjectsInWorldRect(
-                    cameraX - lightMargin,
-                    cameraY - lightMargin,
-                    viewportWidth / CAMERA_ZOOM + lightMargin * 2.0,
-                    viewportHeight / CAMERA_ZOOM + lightMargin * 2.0
-            )) {
-                if (object == null) {
-                    continue;
-                }
-                LightComponent lightComponent = object.getComponent(LightComponent.class);
-                if (lightComponent == null) {
-                    continue;
-                }
-                double screenX = (object.getCenterX() - cameraX) * CAMERA_ZOOM;
-                double screenY = (object.getCenterY() - cameraY) * CAMERA_ZOOM;
-                double radius = lightComponent.getRadius() * CAMERA_ZOOM * 1.12;
-                double alpha = Math.max(0.16, Math.min(0.52, lightComponent.getIntensity() * 0.48));
-                drawRadialLight(screenX, screenY, radius, Color.color(1.0, 0.86, 0.52, alpha));
-            }
-        }
-
-        double bonfireWorldX = 1060;
-        double bonfireWorldY = 520;
-        drawRadialLight((bonfireWorldX - cameraX) * CAMERA_ZOOM, (bonfireWorldY - cameraY) * CAMERA_ZOOM, 210, Color.color(1.0, 0.84, 0.46, 0.36));
-        graphicsContext.restore();
-        graphicsContext.setGlobalBlendMode(BlendMode.SRC_OVER);
+    private void renderNightOverlayAndLights(BuildManager buildManager, double cameraX, double cameraY, double darknessAlpha, long nowNs) {
+        lightManager.render(
+                graphicsContext,
+                buildManager,
+                cameraX,
+                cameraY,
+                CAMERA_ZOOM,
+                getViewportWidth(),
+                getViewportHeight(),
+                darknessAlpha,
+                nowNs
+        );
     }
 
     private Image buildTintedBySourceAlpha(Image source, Color tint) {
@@ -1313,24 +1274,6 @@ public class Renderer {
         }
         tintedBuildImageCache.put(key, tinted);
         return tinted;
-    }
-
-    private void drawRadialLight(double x, double y, double radius, Color centerColor) {
-        RadialGradient gradient = new RadialGradient(
-                0,
-                0,
-                x,
-                y,
-                radius,
-                false,
-                CycleMethod.NO_CYCLE,
-                new Stop(0.0, centerColor),
-                new Stop(0.28, Color.color(centerColor.getRed(), centerColor.getGreen(), centerColor.getBlue(), centerColor.getOpacity() * 0.72)),
-                new Stop(0.62, Color.color(centerColor.getRed(), centerColor.getGreen(), centerColor.getBlue(), centerColor.getOpacity() * 0.30)),
-                new Stop(1.0, Color.color(0, 0, 0, 0.0))
-        );
-        graphicsContext.setFill(gradient);
-        graphicsContext.fillOval(x - radius, y - radius, radius * 2, radius * 2);
     }
 
     private void renderLevelUpEffect(Player player, double cameraX, double cameraY, long now) {

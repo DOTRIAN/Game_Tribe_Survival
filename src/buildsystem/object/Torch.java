@@ -24,7 +24,17 @@ public class Torch extends BuildObject {
                 seed.getSpriteKey(),
                 seed.getRotationDegrees(),
                 seed.getHealth());
-        addComponent(new LightComponent(GameBalance.TORCH_LIGHT_RADIUS, GameBalance.TORCH_LIGHT_INTENSITY));
+        addComponent(new LightComponent(
+                GameBalance.TORCH_LIGHT_CORE_RADIUS,
+                GameBalance.TORCH_LIGHT_INNER_RADIUS,
+                GameBalance.TORCH_LIGHT_OUTER_RADIUS,
+                GameBalance.TORCH_LIGHT_FADE_RADIUS,
+                GameBalance.TORCH_LIGHT_INTENSITY,
+                true,
+                GameBalance.TORCH_LIGHT_RADIUS_FLICKER_PERCENT,
+                GameBalance.TORCH_LIGHT_ALPHA_FLICKER_PERCENT,
+                GameBalance.TORCH_LIGHT_FLICKER_SPEED
+        ));
         addComponent(new HealthComponent(seed.getHealth(), definition.getHealth()));
         addComponent(new RotationComponent(seed.getRotationDegrees()));
     }

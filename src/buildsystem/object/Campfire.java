@@ -22,7 +22,17 @@ public class Campfire extends BuildObject {
                 seed.getSpriteKey(),
                 seed.getRotationDegrees(),
                 seed.getHealth());
-        addComponent(new LightComponent(180, 1.0));
+        addComponent(new LightComponent(
+                core.GameBalance.CAMPFIRE_LIGHT_CORE_RADIUS,
+                core.GameBalance.CAMPFIRE_LIGHT_INNER_RADIUS,
+                core.GameBalance.CAMPFIRE_LIGHT_OUTER_RADIUS,
+                core.GameBalance.CAMPFIRE_LIGHT_FADE_RADIUS,
+                core.GameBalance.CAMPFIRE_LIGHT_INTENSITY,
+                true,
+                core.GameBalance.TORCH_LIGHT_RADIUS_FLICKER_PERCENT,
+                core.GameBalance.TORCH_LIGHT_ALPHA_FLICKER_PERCENT,
+                1.8
+        ));
         addComponent(new HealthComponent(seed.getHealth(), definition.getHealth()));
     }
 }

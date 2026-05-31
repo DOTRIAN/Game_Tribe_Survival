@@ -53,8 +53,19 @@ public final class GameBalance {
     public static final double BOMB_TRAP_WORLD_WIDTH = 18.0;
     public static final double BOMB_TRAP_WORLD_HEIGHT = 24.0;
 
-    public static final double TORCH_LIGHT_RADIUS = 150.0;
-    public static final double TORCH_LIGHT_INTENSITY = 0.90;
+    public static final double TORCH_LIGHT_CORE_RADIUS = 25.0;
+    public static final double TORCH_LIGHT_INNER_RADIUS = 60.0;
+    public static final double TORCH_LIGHT_OUTER_RADIUS = 110.0;
+    public static final double TORCH_LIGHT_FADE_RADIUS = 150.0;
+    public static final double TORCH_LIGHT_INTENSITY = 0.78;
+    public static final double TORCH_LIGHT_RADIUS_FLICKER_PERCENT = 0.03;
+    public static final double TORCH_LIGHT_ALPHA_FLICKER_PERCENT = 0.05;
+    public static final double TORCH_LIGHT_FLICKER_SPEED = 2.6;
+    public static final double CAMPFIRE_LIGHT_CORE_RADIUS = 30.0;
+    public static final double CAMPFIRE_LIGHT_INNER_RADIUS = 72.0;
+    public static final double CAMPFIRE_LIGHT_OUTER_RADIUS = 128.0;
+    public static final double CAMPFIRE_LIGHT_FADE_RADIUS = 176.0;
+    public static final double CAMPFIRE_LIGHT_INTENSITY = 0.82;
     public static final long TORCH_ANIMATION_FRAME_NS = 90_000_000L;
     public static final double TORCH_WORLD_WIDTH = 24.0;
     public static final double TORCH_WORLD_HEIGHT = 36.0;
