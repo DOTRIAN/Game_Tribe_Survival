@@ -609,6 +609,10 @@ public class BuildManager {
         return results;
     }
 
+    public BuildDamageResult damageObject(BuildObject object, int damage, long nowNs) {
+        return applyDamageToObject(object, damage, nowNs, 130_000_000L, Color.rgb(255, 196, 92));
+    }
+
     private BuildDamageResult applyDamageToObject(BuildObject object,
                                                   int damage,
                                                   long nowNs,

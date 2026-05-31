@@ -17,6 +17,7 @@ public class WolfSpawnManager {
     private final EnemyNavigationContext navigationContext;
     private final Random random;
     private final List<WolfEnemy> wolves;
+    private int edgeSpawnCursor;
 
     public WolfSpawnManager(CollisionManager collisionManager,
                             WolfEnemy.MovementValidator movementValidator,
@@ -27,6 +28,7 @@ public class WolfSpawnManager {
         this.navigationContext = navigationContext;
         this.random = random == null ? new Random() : random;
         this.wolves = new ArrayList<>();
+        this.edgeSpawnCursor = 0;
     }
 
     public void spawnAtMapCorners(List<Enemy> masterEnemies, double worldWidth, double worldHeight) {
@@ -59,7 +61,7 @@ public class WolfSpawnManager {
         double renderHeight = defaultWolfSize();
         double margin = Math.max(CORNER_MARGIN, Math.max(renderWidth, renderHeight) * 3.0);
         for (int i = 0; i < count; i++) {
-            double[] point = edgeSpawnPoint(i, renderWidth, renderHeight, margin, worldWidth, worldHeight);
+            double[] point = edgeSpawnPoint(edgeSpawnCursor++, renderWidth, renderHeight, margin, worldWidth, worldHeight);
             WolfEnemy wolf = spawnNearCorner(point[0], point[1], renderWidth, renderHeight, worldWidth, worldHeight);
             if (wolf == null) {
                 continue;
@@ -100,6 +102,7 @@ public class WolfSpawnManager {
 
     public void clear() {
         wolves.clear();
+        edgeSpawnCursor = 0;
     }
 
     public List<WolfEnemy> getWolves() {

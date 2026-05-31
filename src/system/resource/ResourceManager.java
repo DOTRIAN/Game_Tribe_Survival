@@ -28,17 +28,23 @@ import java.util.HashSet;
  * - Trang thai runtime (currentHp, alive) nam trong manager + node
  */
 public class ResourceManager {
+    private static final int COLLISION_CELL_SIZE = 128;
+
     // Luu node theo objectId de truy cap nhanh.
     private final Map<Integer, ResourceNode> resourcesById;
+    private final Map<Long, List<ResourceNode>> blockingResourcesByCell;
     // Registry dinh nghia theo kind (tree_oak, rock_small, ...)
     private final Map<String, ResourceDefinition> definitionsByKind;
     // Random dung de roll drop amount.
     private final Random random;
+    private boolean blockingGridDirty;
 
     public ResourceManager() {
         this.resourcesById = new LinkedHashMap<>();
+        this.blockingResourcesByCell = new HashMap<>();
         this.definitionsByKind = new HashMap<>();
         this.random = new Random();
+        this.blockingGridDirty = true;
         registerDefaultDefinitions();
     }
 
@@ -68,6 +74,7 @@ public class ResourceManager {
      */
     public void loadFromMapObjects(List<MapObjectData> objects) {
         resourcesById.clear();
+        markBlockingGridDirty();
         if (objects == null) {
             return;
         }
@@ -135,6 +142,7 @@ public class ResourceManager {
             );
 
             resourcesById.put(node.getObjectId(), node);
+            markBlockingGridDirty();
         }
     }
 
@@ -221,12 +229,25 @@ public class ResourceManager {
      *   true khi hitbox nhan vat giao voi resource dang con song.
      */
     public boolean isBlockedByAliveResource(double x, double y, double w, double h) {
-        for (ResourceNode node : resourcesById.values()) {
-            if (!node.isAlive() || !node.blocksMovement()) {
-                continue;
-            }
-            if (node.intersects(x, y, w, h)) {
-                return true;
+        rebuildBlockingGridIfNeeded();
+        if (blockingResourcesByCell.isEmpty()) {
+            return false;
+        }
+        int minCellX = toCell(x);
+        int maxCellX = toCell(x + w - 0.001);
+        int minCellY = toCell(y);
+        int maxCellY = toCell(y + h - 0.001);
+        for (int cellY = minCellY; cellY <= maxCellY; cellY++) {
+            for (int cellX = minCellX; cellX <= maxCellX; cellX++) {
+                List<ResourceNode> nodes = blockingResourcesByCell.get(cellKey(cellX, cellY));
+                if (nodes == null || nodes.isEmpty()) {
+                    continue;
+                }
+                for (ResourceNode node : nodes) {
+                    if (node.isAlive() && node.blocksMovement() && node.intersects(x, y, w, h)) {
+                        return true;
+                    }
+                }
             }
         }
         return false;
@@ -297,7 +318,44 @@ public class ResourceManager {
                 Collections.emptySet()
         );
         resourcesById.put(objectId, node);
+        markBlockingGridDirty();
         return node;
+    }
+
+    private void markBlockingGridDirty() {
+        blockingGridDirty = true;
+    }
+
+    private void rebuildBlockingGridIfNeeded() {
+        if (!blockingGridDirty) {
+            return;
+        }
+        blockingResourcesByCell.clear();
+        for (ResourceNode node : resourcesById.values()) {
+            if (node == null || !node.blocksMovement()) {
+                continue;
+            }
+            int minCellX = toCell(node.getCollisionX());
+            int maxCellX = toCell(node.getCollisionX() + node.getCollisionWidth() - 0.001);
+            int minCellY = toCell(node.getCollisionY());
+            int maxCellY = toCell(node.getCollisionY() + node.getCollisionHeight() - 0.001);
+            for (int cellY = minCellY; cellY <= maxCellY; cellY++) {
+                for (int cellX = minCellX; cellX <= maxCellX; cellX++) {
+                    blockingResourcesByCell
+                            .computeIfAbsent(cellKey(cellX, cellY), ignored -> new ArrayList<>())
+                            .add(node);
+                }
+            }
+        }
+        blockingGridDirty = false;
+    }
+
+    private int toCell(double value) {
+        return (int) Math.floor(value / COLLISION_CELL_SIZE);
+    }
+
+    private long cellKey(int cellX, int cellY) {
+        return (((long) cellX) << 32) ^ (cellY & 0xffffffffL);
     }
 
     private int rollDropAmount(int min, int max) {

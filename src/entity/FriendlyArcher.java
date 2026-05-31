@@ -3,6 +3,7 @@ package entity;
 import core.GameBalance;
 
 public class FriendlyArcher extends AllyUnit {
+    private static final boolean DEBUG_ARCHER = false;
     private static final double PLAYER_RENDER_HEIGHT = 58.0;
     private static final double ARCHER_RENDER_SCALE = 0.82;
     private static final double FRAME_BASE_WIDTH = 46.0;
@@ -32,7 +33,9 @@ public class FriendlyArcher extends AllyUnit {
         this.shotReleasedThisCycle = false;
         this.meleeAppliedThisCycle = false;
         this.removeRequested = false;
-        System.out.println("[Archer] spawn renderWidth=" + renderWidth + " renderHeight=" + renderHeight);
+        if (DEBUG_ARCHER) {
+            System.out.println("[Archer] spawn renderWidth=" + renderWidth + " renderHeight=" + renderHeight);
+        }
     }
 
     @Override
@@ -43,9 +46,11 @@ public class FriendlyArcher extends AllyUnit {
         AllyState previousState = this.state;
         this.state = state;
         restartAnimationCycle();
-        System.out.println("[Archer] state " + previousState + " -> " + state
-                + " renderWidth=" + renderWidth
-                + " renderHeight=" + renderHeight);
+        if (DEBUG_ARCHER) {
+            System.out.println("[Archer] state " + previousState + " -> " + state
+                    + " renderWidth=" + renderWidth
+                    + " renderHeight=" + renderHeight);
+        }
     }
 
     public void restartAnimationCycle() {

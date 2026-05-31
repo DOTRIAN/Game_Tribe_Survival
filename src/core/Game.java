@@ -123,10 +123,11 @@ public class Game {
     private static final long GOLEM_SPAWN_MAX_INTERVAL_NS = 11_500_000_000L;
     private static final long AUTOSAVE_INTERVAL_NS = 20_000_000_000L;
     private static final long FLOW_FIELD_REBUILD_DEBOUNCE_NS = 500_000_000L;
-    private static final long FLOW_FIELD_DESTROY_REBUILD_DEBOUNCE_NS = 200_000_000L;
+    private static final long FLOW_FIELD_DESTROY_REBUILD_DEBOUNCE_NS = 300_000_000L;
     private static final int WALL_JUMPER_MAX_ALIVE = 5;
     private static final int GOLEM_MAX_ALIVE = 2;
     private static final int MAX_PATH_REQUESTS_PER_FRAME = 3;
+    private static final int MAX_WAVE_SPAWNS_PER_FRAME = 2;
     private static final BuildType[] ATTACKABLE_WALL_TYPES = {
             BuildType.FENCE,
             BuildType.WOOD_WALL,
@@ -189,6 +190,10 @@ public class Game {
     private long lastEnemySpawnAtNs;
     private long nextWallJumperSpawnAtNs;
     private long nextGolemSpawnAtNs;
+    private int queuedNightWolfSpawns;
+    private int queuedNormalGolemSpawns;
+    private int queuedWallBreakerGolemSpawns;
+    private int queuedWallJumperSpawns;
     private long lastAutoSaveAtNs;
     private long lastUpdateNowNs;
     private long victoryAtNs;
@@ -389,6 +394,10 @@ public class Game {
         this.lastEnemySpawnAtNs = 0L;
         this.nextWallJumperSpawnAtNs = 0L;
         this.nextGolemSpawnAtNs = 0L;
+        this.queuedNightWolfSpawns = 0;
+        this.queuedNormalGolemSpawns = 0;
+        this.queuedWallBreakerGolemSpawns = 0;
+        this.queuedWallJumperSpawns = 0;
         this.lastAutoSaveAtNs = 0L;
         this.lastUpdateNowNs = -1L;
         this.victoryAtNs = -1L;
@@ -1979,17 +1988,17 @@ public class Game {
 
             @Override
             public void spawnNightWolves(int count) {
-                Game.this.spawnWaveWolves(count);
+                Game.this.queueNightWolves(count);
             }
 
             @Override
             public void spawnGolems(int count, GolemEnemy.GolemMode mode) {
-                Game.this.spawnGolemWave(count, mode);
+                Game.this.queueGolems(count, mode);
             }
 
             @Override
             public void spawnWallJumpers(int count) {
-                Game.this.spawnWallJumperWave(count);
+                Game.this.queueWallJumpers(count);
             }
 
             @Override
@@ -2019,9 +2028,12 @@ public class Game {
             flowFieldManager.markDirty(now, FLOW_FIELD_REBUILD_DEBOUNCE_NS);
             lastBuildObjectCount = buildObjectCount;
         }
+        processQueuedWaveSpawns();
         flowFieldManager.update(now, baseCamp);
         pathfindingManager.update(now);
-        enemyAiDebug.flush(now, enemies.size());
+        if (debugCollisionOverlayEnabled) {
+            enemyAiDebug.flush(now, enemies.size());
+        }
         wolfSpawnManager.updateAll(now, dayNightManager.isNight(now), player, baseCamp, debugCollisionOverlayEnabled, worldWidth, worldHeight);
         List<Enemy> dead = new ArrayList<>();
         for (Enemy enemy : enemies) {
@@ -2139,7 +2151,9 @@ public class Game {
                     "archer_arrow"
             ));
             tower.markAttack(now);
-            System.out.println("ArcherTower attack enemy id " + System.identityHashCode(target));
+            if (debugCollisionOverlayEnabled) {
+                System.out.println("ArcherTower attack enemy id " + System.identityHashCode(target));
+            }
         }
     }
 
@@ -2601,16 +2615,7 @@ public class Game {
         if (enemy == null || wall == null || !wall.isAlive()) {
             return false;
         }
-        double attackRangePadding = enemy instanceof GolemEnemy ? 10.0 : 18.0;
-        BuildDamageResult hitResult = buildManager.hitFirstDamageableIntersecting(
-                enemy.getCollisionX() - attackRangePadding,
-                enemy.getCollisionY() - attackRangePadding,
-                enemy.getCollisionWidth() + attackRangePadding * 2.0,
-                enemy.getCollisionHeight() + attackRangePadding * 2.0,
-                enemy.getDamage(),
-                now,
-                object -> object == wall
-        );
+        BuildDamageResult hitResult = buildManager.damageObject(wall, enemy.getDamage(), now);
         if (hitResult == null) {
             return false;
         }
@@ -2994,6 +2999,55 @@ public class Game {
         wolfSpawnManager.spawnAtMapEdges(enemies, count, worldWidth, worldHeight);
     }
 
+    private void queueNightWolves(int count) {
+        queuedNightWolfSpawns += Math.max(0, count);
+    }
+
+    private void queueGolems(int count, GolemEnemy.GolemMode mode) {
+        if (mode == GolemEnemy.GolemMode.WALL_BREAKER) {
+            queuedWallBreakerGolemSpawns += Math.max(0, count);
+            return;
+        }
+        queuedNormalGolemSpawns += Math.max(0, count);
+    }
+
+    private void queueWallJumpers(int count) {
+        queuedWallJumperSpawns += Math.max(0, count);
+    }
+
+    private void processQueuedWaveSpawns() {
+        int spawnedThisFrame = 0;
+        while (spawnedThisFrame < MAX_WAVE_SPAWNS_PER_FRAME && queuedNightWolfSpawns > 0) {
+            spawnWaveWolves(1);
+            queuedNightWolfSpawns--;
+            spawnedThisFrame++;
+        }
+        while (spawnedThisFrame < MAX_WAVE_SPAWNS_PER_FRAME && queuedNormalGolemSpawns > 0) {
+            GolemEnemy spawned = spawnGolemEnemy(GolemEnemy.GolemMode.NORMAL);
+            queuedNormalGolemSpawns--;
+            spawnedThisFrame++;
+            if (spawned != null) {
+                enemies.add(spawned);
+            }
+        }
+        while (spawnedThisFrame < MAX_WAVE_SPAWNS_PER_FRAME && queuedWallBreakerGolemSpawns > 0) {
+            GolemEnemy spawned = spawnGolemEnemy(GolemEnemy.GolemMode.WALL_BREAKER);
+            queuedWallBreakerGolemSpawns--;
+            spawnedThisFrame++;
+            if (spawned != null) {
+                enemies.add(spawned);
+            }
+        }
+        while (spawnedThisFrame < MAX_WAVE_SPAWNS_PER_FRAME && queuedWallJumperSpawns > 0) {
+            WallJumperEnemy spawned = spawnWallJumperEnemy();
+            queuedWallJumperSpawns--;
+            spawnedThisFrame++;
+            if (spawned != null) {
+                enemies.add(spawned);
+            }
+        }
+    }
+
     private void spawnGolemWave(int count, GolemEnemy.GolemMode mode) {
         for (int i = 0; i < count; i++) {
             GolemEnemy spawned = spawnGolemEnemy(mode);
@@ -3015,6 +3069,10 @@ public class Game {
     private void despawnHostileEnemiesForMorning() {
         enemies.removeIf(enemy -> enemy != null && enemy.isHostile());
         wolfSpawnManager.clear();
+        queuedNightWolfSpawns = 0;
+        queuedNormalGolemSpawns = 0;
+        queuedWallBreakerGolemSpawns = 0;
+        queuedWallJumperSpawns = 0;
     }
 
     private GolemEnemy spawnGolemEnemy() {

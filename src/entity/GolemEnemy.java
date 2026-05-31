@@ -8,7 +8,6 @@ import javafx.geometry.Point2D;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.image.Image;
 import javafx.scene.paint.Color;
-import system.DamageSystem;
 import system.resource.ResourceNode;
 
 import java.nio.file.Files;
@@ -86,7 +85,7 @@ public class GolemEnemy extends Enemy {
     private static final double PATH_POINT_REACHED = 8.0;
     private static final int OBSTACLE_RAY_TILES = 30;
     private static final int OBSTACLE_NEARBY_RADIUS_TILES = 5;
-    private static final double MOVE_SPEED = 1.50;
+    private static final double MOVE_SPEED = 2.25;
     private static final int MAX_HP = 20;
     private static final int DAMAGE = 5;
     public static final double RENDER_WIDTH = 56.0;
@@ -139,6 +138,7 @@ public class GolemEnemy extends Enemy {
     private int blockedCount;
     private int blockedDirections;
     private int currentPathIndex;
+    private int pathFailCount;
     private boolean attackDamageAppliedThisCycle;
     private boolean pendingPathRequest;
     private boolean lastPathFailed;
@@ -204,6 +204,7 @@ public class GolemEnemy extends Enemy {
         this.blockedCount = 0;
         this.blockedDirections = 0;
         this.currentPathIndex = 0;
+        this.pathFailCount = 0;
         this.attackDamageAppliedThisCycle = false;
         this.pendingPathRequest = false;
         this.lastPathFailed = false;
@@ -246,48 +247,42 @@ public class GolemEnemy extends Enemy {
             escapeObstacleTarget = null;
             currentResourceTarget = null;
         }
+        if (currentResourceTarget != null) {
+            currentResourceTarget = null;
+        }
         if (escapeObstacleTarget != null) {
             updateEscapeObstacleTarget(nowNs, worldWidth, worldHeight);
             return;
         }
-
-        Entity preferredTarget = choosePreferredTarget(baseCamp, player, friendlies);
-        if (preferredTarget == null) {
+        if (baseCamp == null || !baseCamp.isAlive()) {
             enterIdle(nowNs);
             return;
         }
 
-        if (preferredTarget instanceof Player && isWithinAttackRange(preferredTarget)) {
-            updateEntityTarget(nowNs, preferredTarget, worldWidth, worldHeight);
-            return;
-        }
-
-        if (currentBuildTarget != null && shouldDropBuildTargetForEntity(preferredTarget)) {
-            currentBuildTarget = null;
-            clearPath();
-        }
-
         if (currentBuildTarget != null) {
-            updateBuildTarget(nowNs, preferredTarget, worldWidth, worldHeight);
+            updateBuildTarget(nowNs, baseCamp, worldWidth, worldHeight);
             return;
         }
         if (currentResourceTarget != null) {
-            updateResourceTarget(nowNs, preferredTarget, worldWidth, worldHeight);
+            updateResourceTarget(nowNs, baseCamp, worldWidth, worldHeight);
             return;
         }
 
-        if (baseCamp != null && baseCamp.isAlive()) {
-            BuildObject wall = findBlockingObstacleThrottled(baseCamp.getCenterX(), baseCamp.getCenterY(), nowNs);
-            if (wall != null) {
-                currentBuildTarget = wall;
-                aiState = EnemyAiState.MOVE_TO_OBSTACLE;
-                clearPath();
-                updateBuildTarget(nowNs, preferredTarget, worldWidth, worldHeight);
-                return;
-            }
+        if (isWithinAttackRange(baseCamp)) {
+            updateEntityTarget(nowNs, baseCamp, worldWidth, worldHeight);
+            return;
         }
 
-        updateEntityTarget(nowNs, preferredTarget, worldWidth, worldHeight);
+        BuildObject wall = findBlockingObstacleThrottled(baseCamp.getCenterX(), baseCamp.getCenterY(), nowNs);
+        if (wall != null) {
+            currentBuildTarget = wall;
+            aiState = EnemyAiState.MOVE_TO_OBSTACLE;
+            clearPath();
+            updateBuildTarget(nowNs, baseCamp, worldWidth, worldHeight);
+            return;
+        }
+
+        updateEntityTarget(nowNs, baseCamp, worldWidth, worldHeight);
     }
 
     public boolean applyAttackIfReady(long nowNs) {
@@ -334,17 +329,21 @@ public class GolemEnemy extends Enemy {
             return true;
         }
 
+        if (currentTarget instanceof BaseCamp baseCamp) {
+            if (!isWithinAttackRange(baseCamp)
+                    || navigationContext == null
+                    || !navigationContext.damageBase(this, baseCamp, nowNs)) {
+                return false;
+            }
+            lastAttackAtNs = nowNs;
+            attackDamageAppliedThisCycle = true;
+            return true;
+        }
+
         if (currentTarget == null || currentTarget.isDead() || !isWithinAttackRange(currentTarget)) {
             return false;
         }
-        if (currentTarget instanceof FriendlyArcher friendlyArcher) {
-            friendlyArcher.receiveDamage(damage);
-        } else {
-            DamageSystem.applyDamage(this, currentTarget, damage, nowNs);
-        }
-        lastAttackAtNs = nowNs;
-        attackDamageAppliedThisCycle = true;
-        return true;
+        return false;
     }
 
     @Override
@@ -1013,6 +1012,7 @@ public class GolemEnemy extends Enemy {
         clearPath();
         if (!result.success()) {
             lastPathFailed = true;
+            pathFailCount++;
             nextPathAllowedAtNs = nowNs + PATH_FAIL_RETRY_NS;
             return;
         }
@@ -1020,6 +1020,7 @@ public class GolemEnemy extends Enemy {
         currentPathIndex = 0;
         lastPathTargetX = result.targetX();
         lastPathTargetY = result.targetY();
+        pathFailCount = 0;
         lastPathFailed = false;
     }
 
@@ -1279,6 +1280,11 @@ public class GolemEnemy extends Enemy {
         if (escapeObstacleTarget == null || !escapeObstacleTarget.isAlive()) {
             escapeObstacleTarget = null;
             currentBuildTarget = null;
+            currentResourceTarget = null;
+            return;
+        }
+        if (!escapeObstacleTarget.isBuildObject()) {
+            escapeObstacleTarget = null;
             currentResourceTarget = null;
             return;
         }

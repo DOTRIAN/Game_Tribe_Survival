@@ -18,7 +18,7 @@ public class FriendlyArcherManager {
     }
 
     private static final double ARRIVE_DISTANCE = 4.0;
-    private static final boolean DEBUG_ARCHER = true;
+    private static final boolean DEBUG_ARCHER = false;
 
     private final List<FriendlyArcher> archers;
     private final Random random;
