@@ -19,16 +19,26 @@ import java.util.function.Supplier;
  * - PlacementValidator goi BuildWorldQuery thay vi biet chi tiet map/resource/tile collision.
  */
 public class CollisionManager implements BuildWorldQuery {
-    private final MapData mapData;
-    private final List<MapObjectData> mapCollisions;
-    private final TileCollisionResolver tileCollisionResolver;
-    private final ResourceManager resourceManager;
-    private final double worldWidth;
-    private final double worldHeight;
-    private final TilePropertyCatalog tilePropertyCatalog;
+    private MapData mapData;
+    private List<MapObjectData> mapCollisions;
+    private TileCollisionResolver tileCollisionResolver;
+    private ResourceManager resourceManager;
+    private double worldWidth;
+    private double worldHeight;
+    private TilePropertyCatalog tilePropertyCatalog;
     private Supplier<? extends Collection<? extends Entity>> dynamicEntitySupplier;
 
     public CollisionManager(MapData mapData,
+                            List<MapObjectData> mapCollisions,
+                            TileCollisionResolver tileCollisionResolver,
+                            ResourceManager resourceManager,
+                            double worldWidth,
+                            double worldHeight) {
+        reconfigure(mapData, mapCollisions, tileCollisionResolver, resourceManager, worldWidth, worldHeight);
+        this.dynamicEntitySupplier = List::of;
+    }
+
+    public void reconfigure(MapData mapData,
                             List<MapObjectData> mapCollisions,
                             TileCollisionResolver tileCollisionResolver,
                             ResourceManager resourceManager,
@@ -41,7 +51,6 @@ public class CollisionManager implements BuildWorldQuery {
         this.worldWidth = worldWidth;
         this.worldHeight = worldHeight;
         this.tilePropertyCatalog = mapData == null ? null : new TilePropertyCatalog(mapData);
-        this.dynamicEntitySupplier = List::of;
     }
 
     public void setDynamicEntitySupplier(Supplier<? extends Collection<? extends Entity>> dynamicEntitySupplier) {

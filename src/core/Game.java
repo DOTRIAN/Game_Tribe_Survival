@@ -48,10 +48,15 @@ import input.InputHandler;
 import inventory.Inventory;
 import javafx.application.Platform;
 import javafx.geometry.Point2D;
+import javafx.geometry.Rectangle2D;
+import javafx.scene.image.Image;
 import javafx.scene.input.KeyCode;
 import javafx.stage.Stage;
+import map.GameMapDefinition;
 import map.MapData;
+import map.MapManager;
 import map.MapObjectData;
+import map.MapType;
 import map.TileLayerData;
 import map.TileCollisionResolver;
 import map.TilePropertyCatalog;
@@ -80,6 +85,7 @@ import world.InfiniteWorldManager;
 import world.WorldChunk;
 
 import java.util.ArrayList;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
@@ -158,7 +164,7 @@ public class Game {
 
     private final List<MapObjectData> mapCollisions;
     private final ResourceManager resourceManager;
-    private final TileCollisionResolver tileCollisionResolver;
+    private TileCollisionResolver tileCollisionResolver;
     private final DayNightManager dayNightManager;
     private final EnemyWaveManager enemyWaveManager;
     private final List<FloatingDamageText> floatingDamageTexts;
@@ -175,6 +181,7 @@ public class Game {
     private final GameEventBus eventBus;
     private final WorldSaveService worldSaveService;
     private final InfiniteWorldManager infiniteWorldManager;
+    private final MapManager mapManager;
 
     private GameState gameState;
     private MapData mapData;
@@ -423,6 +430,7 @@ public class Game {
             this.worldWidth = loadedMap.getPixelWidth();
             this.worldHeight = loadedMap.getPixelHeight();
         }
+        this.mapManager = createMapManager(loadedMap);
         List<MapObjectData> runtimeObjects = new ArrayList<>();
         if (loadedMap != null) {
             runtimeObjects.addAll(loadedMap.getCollisionObjects());
@@ -568,6 +576,8 @@ public class Game {
         this.buildController = new BuildController(buildManager);
         this.renderer = new Renderer(stage, inputHandler, wallAssetManager);
         this.renderer.setMapData(loadedMap);
+        this.renderer.setWorldBackgroundImage(null);
+        this.renderer.setShowBaseCamp(true);
         wireUiCallbacks();
 
         validateResourceContracts();
@@ -577,10 +587,14 @@ public class Game {
         if (!loadedFromSave) {
             seedStartingBuildItems();
         }
-        loadMapWoodFences();
+        if (mapManager.getCurrentMapType() == MapType.MAIN_MAP) {
+            loadMapWoodFences();
+        }
         this.lastBuildObjectCount = buildManager.getPlacedObjects().size();
         this.flowFieldManager.markDirty(System.nanoTime(), 0L);
-        spawnAmbientBlackGrouse();
+        if (mapManager.getCurrentMapType() == MapType.MAIN_MAP) {
+            spawnAmbientBlackGrouse();
+        }
         refreshBuildInventoryUi();
         renderer.setContinueAvailable(hasLoadedSaveSnapshot);
         renderer.setSettingsBackAction(this::closeSettingsFromUi);
@@ -726,6 +740,7 @@ public class Game {
                 null,
                 debugCollisionOverlayEnabled,
                 mapCollisions,
+                getCurrentMapDefinition() == null ? null : getCurrentMapDefinition().transitionTrigger(),
                 resourceManager.getAllResources(),
                 inventory.snapshot(),
                 selectedHotbarIndex,
@@ -741,6 +756,7 @@ public class Game {
                 screenShakeX,
                 screenShakeY,
                 screenFlashUntilNs > now ? Math.min(1.0, (screenFlashUntilNs - now) / 180_000_000.0) : 0.0,
+                mapManager.getFadeAlpha(),
                 dayNightManager.getDarknessAlpha(now),
                 dayNightManager.isNight(now),
                 dayNightManager.getScheduleDebugText(now),
@@ -763,24 +779,84 @@ public class Game {
     }
 
     private MapData tryLoadMap() {
-        try {
-            // Uu tien map hien tai team dang su dung.
-            return new TiledMapLoader().load("assets/Map_Game/mapdep.tmx");
-        } catch (Exception firstError) {
-            // Fallback theo thu tu de game van khoi dong khi map chinh dang duoc chinh sua.
-            System.out.println("Cannot load assets/Map_Game/mapdep.tmx: " + firstError.getMessage());
+        String preferredPath = resolveMainMapPath();
+        if (preferredPath != null && !preferredPath.isBlank()) {
             try {
-                return new TiledMapLoader().load("assets/Map_Game/map.tmx");
-            } catch (Exception legacyError) {
-                System.out.println("Cannot load legacy map assets/Map_Game/map.tmx: " + legacyError.getMessage());
-                try {
-                    return new TiledMapLoader().load("assets/maps/mapdemo.tmx");
-                } catch (Exception secondError) {
-                    System.out.println("Cannot load fallback map: " + secondError.getMessage());
-                    return null;
-                }
+                return new TiledMapLoader().load(preferredPath);
+            } catch (Exception error) {
+                System.out.println("Cannot load main map " + preferredPath + ": " + error.getMessage());
             }
         }
+        return null;
+    }
+
+    private String resolveMainMapPath() {
+        List<String> candidates = List.of(
+                "assets/Map_Game/mapdep.tmx",
+                "assets/Map_Game/map.tmx",
+                "assets/maps/mapdemo.tmx"
+        );
+        for (String candidate : candidates) {
+            if (candidate != null && Files.exists(Path.of(candidate))) {
+                return candidate;
+            }
+        }
+        return candidates.get(0);
+    }
+
+    private MapManager createMapManager(MapData loadedMainMap) {
+        int tileWidth = loadedMainMap == null ? 16 : Math.max(1, loadedMainMap.getTileWidth());
+        // Trigger dat truc tiep trong long cua hang theo vi tri da xac dinh tu map render.
+        int triggerX = tileWidth * 112;
+        int triggerY = tileWidth * 8;
+        Rectangle2D bossEntranceTrigger = new Rectangle2D(triggerX, triggerY, tileWidth * 3.0, tileWidth * 6.0);
+        double[] bossSize = readImageSize("assets/Map_Game/Map_Boss.png");
+        double bossSpawnX = Math.max(32.0, bossSize[0] * 0.5 - player.getWidth() * 0.5);
+        double bossSpawnY = Math.max(32.0, bossSize[1] - player.getHeight() - 96.0);
+        return new MapManager(
+                MapType.MAIN_MAP,
+                List.of(
+                        new GameMapDefinition(
+                                MapType.MAIN_MAP,
+                                resolveMainMapPath(),
+                                null,
+                                0,
+                                0,
+                                true,
+                                true,
+                                true,
+                                true,
+                                true,
+                                bossEntranceTrigger,
+                                MapType.BOSS_MAP
+                        ),
+                        new GameMapDefinition(
+                                MapType.BOSS_MAP,
+                                null,
+                                "assets/Map_Game/Map_Boss.png",
+                                bossSpawnX,
+                                bossSpawnY,
+                                false,
+                                false,
+                                false,
+                                false,
+                                false,
+                                null,
+                                null
+                        )
+                )
+        );
+    }
+
+    private double[] readImageSize(String imagePath) {
+        try {
+            Image image = new Image(Path.of(imagePath).toUri().toString(), false);
+            if (!image.isError() && image.getWidth() > 0 && image.getHeight() > 0) {
+                return new double[]{image.getWidth(), image.getHeight()};
+            }
+        } catch (Exception ignored) {
+        }
+        return new double[]{1280.0, 720.0};
     }
 
     private void validateResourceContracts() {
@@ -791,6 +867,126 @@ public class Game {
         System.out.println("=== Resource contract warnings ===");
         for (String error : errors) {
             System.out.println(error);
+        }
+    }
+
+    private GameMapDefinition getCurrentMapDefinition() {
+        return mapManager.getCurrentDefinition();
+    }
+
+    private boolean isBaseCampActive() {
+        GameMapDefinition definition = getCurrentMapDefinition();
+        return definition == null || definition.showBaseCamp();
+    }
+
+    private boolean isEnemySpawningEnabled() {
+        GameMapDefinition definition = getCurrentMapDefinition();
+        return definition == null || definition.allowEnemySpawns();
+    }
+
+    private boolean isChunkResourceEnabled() {
+        GameMapDefinition definition = getCurrentMapDefinition();
+        return definition == null || definition.allowChunkResources();
+    }
+
+    private boolean isBuildingEnabled() {
+        GameMapDefinition definition = getCurrentMapDefinition();
+        return definition == null || definition.allowBuilding();
+    }
+
+    private void updateMapTransition(long now) {
+        mapManager.update(now, definition -> applyMapDefinition(definition, false));
+    }
+
+    private void checkMapTransitionTrigger() {
+        GameMapDefinition definition = getCurrentMapDefinition();
+        if (definition == null || definition.transitionTrigger() == null || definition.triggerTarget() == null) {
+            return;
+        }
+        Rectangle2D trigger = definition.transitionTrigger();
+        if (trigger.getWidth() <= 0 || trigger.getHeight() <= 0) {
+            return;
+        }
+        if (!CollisionSystem.intersects(
+                player.getCollisionX(),
+                player.getCollisionY(),
+                player.getCollisionWidth(),
+                player.getCollisionHeight(),
+                trigger.getMinX(),
+                trigger.getMinY(),
+                trigger.getWidth(),
+                trigger.getHeight())) {
+            return;
+        }
+        MapType currentType = mapManager.getCurrentMapType();
+        if (currentType == MapType.MAIN_MAP) {
+            mapManager.changeMap(MapType.BOSS_MAP);
+        }
+    }
+
+    private void applyMapDefinition(GameMapDefinition definition, boolean resetMainProgress) {
+        if (definition == null) {
+            return;
+        }
+
+        MapData loadedMap = loadMapData(definition.tiledMapPath());
+        mapData = loadedMap;
+        mapCollisions.clear();
+        if (loadedMap != null) {
+            mapCollisions.addAll(loadedMap.getCollisionObjects());
+            mapCollisions.addAll(new TileResourceAdapter().buildResourceObjects(loadedMap));
+            worldWidth = loadedMap.getPixelWidth();
+            worldHeight = loadedMap.getPixelHeight();
+        } else {
+            double[] imageSize = readImageSize(definition.backgroundImagePath());
+            worldWidth = imageSize[0];
+            worldHeight = imageSize[1];
+        }
+
+        resourceManager.loadFromMapObjects(mapCollisions);
+        tileCollisionResolver = loadedMap == null ? null : new TileCollisionResolver(loadedMap, resourceManager);
+        buildCollisionManager.reconfigure(loadedMap, mapCollisions, tileCollisionResolver, resourceManager, worldWidth, worldHeight);
+        buildManager.clearObjects();
+        enemies.clear();
+        wolfSpawnManager.clear();
+        friendlyArcherManager.clear();
+        floatingDamageTexts.clear();
+        droppedItems.clear();
+        arrowProjectiles.clear();
+        thrownBombs.clear();
+        explosionEffects.clear();
+        fireBombBurnZones.clear();
+        openedChest = null;
+        renderer.setChestVisible(false);
+        renderer.setMapData(loadedMap);
+        renderer.setWorldBackgroundImage(definition.backgroundImagePath());
+        renderer.setShowBaseCamp(definition.showBaseCamp());
+        buildManager.cancelBuildMode();
+
+        if (definition.useBaseCampSpawn()) {
+            if (resetMainProgress) {
+                dayNightManager.reset(System.nanoTime());
+                enemyWaveManager.reset();
+            }
+            resetWorldPosition();
+        } else {
+            baseCamp.configure(-10_000, -10_000, 1, 1, DEFAULT_BASE_CAMP_HP);
+            baseCamp.setHpForLoad(baseCamp.getMaxHp());
+            double[] safeSpawn = findNearestSafeSpawn(definition.spawnX(), definition.spawnY());
+            player.reset(safeSpawn[0], safeSpawn[1]);
+            updateCamera();
+        }
+    }
+
+    private MapData loadMapData(String tmxPath) {
+        if (tmxPath == null || tmxPath.isBlank()) {
+            return null;
+        }
+        try {
+            return new TiledMapLoader().load(tmxPath);
+        } catch (Exception error) {
+            System.out.println("Cannot load map " + tmxPath + ": " + error.getMessage());
+            return null;
         }
     }
 
@@ -1189,6 +1385,11 @@ public class Game {
     }
 
     private boolean handlePlayingState(long now) {
+        updateMapTransition(now);
+        if (mapManager.isTransitioning()) {
+            updateCamera();
+            return false;
+        }
         if (inputHandler.isJustPressed(KeyCode.F11)) {
             renderer.toggleFullscreen();
         }
@@ -1238,10 +1439,14 @@ public class Game {
         // - M峄梚 l岷 b岷 Q se doi huong N -> E -> S -> W.
         // - Preview se cap nhat ngay sau do trong cung frame.
         String selectedHotbarItemId = getSelectedHotbarItemId();
-        if ((FIRE_BOMB_ITEM_ID.equals(selectedHotbarItemId) || BOMB_TRAP_ITEM_ID.equals(selectedHotbarItemId))
+        if (!isBuildingEnabled()) {
+            buildManager.cancelBuildMode();
+        }
+        if (isBuildingEnabled()
+                && (FIRE_BOMB_ITEM_ID.equals(selectedHotbarItemId) || BOMB_TRAP_ITEM_ID.equals(selectedHotbarItemId))
                 && inputHandler.isJustPressed(KeyCode.Q)) {
             throwSelectedThrowableBomb(selectedHotbarItemId, now);
-        } else if (inputHandler.isJustPressed(KeyCode.Q)) {
+        } else if (isBuildingEnabled() && inputHandler.isJustPressed(KeyCode.Q)) {
             buildController.onRotatePressed();
         }
         boolean mouseOverUi = renderer.isMouseOverUi(inputHandler.getMouseX(), inputHandler.getMouseY());
@@ -1254,16 +1459,18 @@ public class Game {
         // - Snap ve grid de preview va wall that nam dung tren tile map.
         // - Chuot de len UI thi an preview de khong dat nham vao hotbar/minimap/HUD.
         long previewStartNs = System.nanoTime();
-        buildController.onCursorMoved(
-                inputHandler.getMouseX(),
-                inputHandler.getMouseY(),
-                cameraX,
-                cameraY,
-                CAMERA_ZOOM,
-                mouseOverUi,
-                player,
-                inventory
-        );
+        if (isBuildingEnabled()) {
+            buildController.onCursorMoved(
+                    inputHandler.getMouseX(),
+                    inputHandler.getMouseY(),
+                    cameraX,
+                    cameraY,
+                    CAMERA_ZOOM,
+                    mouseOverUi,
+                    player,
+                    inventory
+            );
+        }
         recordPerfPreview(System.nanoTime() - previewStartNs);
 
         // Update loop chinh:
@@ -1312,7 +1519,7 @@ public class Game {
                 && inputHandler.isMouseLeftJustClicked()
                 && !mouseOverUi) {
             String selectedItemId = getSelectedHotbarItemId();
-            if (buildManager.getBuildMode() == BuildMode.BUILDING) {
+            if (isBuildingEnabled() && buildManager.getBuildMode() == BuildMode.BUILDING) {
                 // Dat wall:
                 // - Chi dat khi click tren world, khong de len UI.
                 // - BuildManager se validate occupied tile/collision truoc khi tao wall.
@@ -1337,8 +1544,10 @@ public class Game {
 
         // Chunk map update:
         // - Moi chunk moi vao tam nhin se sinh them resource de world "vo han".
-        for (WorldChunk chunk : infiniteWorldManager.updateAndGetNewChunks(player.getX(), player.getY())) {
-            injectChunkResources(chunk);
+        if (isChunkResourceEnabled()) {
+            for (WorldChunk chunk : infiniteWorldManager.updateAndGetNewChunks(player.getX(), player.getY())) {
+                injectChunkResources(chunk);
+            }
         }
 
         resourceManager.update(now);
@@ -1349,17 +1558,28 @@ public class Game {
         cleanupExpiredExplosionEffects(now);
         updateScreenImpulse(now);
         long aiStartNs = System.nanoTime();
-        updateEnemySpawning(now);
-        updateEnemies(now);
-        updateFriendlyArchers(now);
-        updateArcherTowers(now);
-        updateBombTraps(now);
+        if (isEnemySpawningEnabled()) {
+            updateEnemySpawning(now);
+            updateEnemies(now);
+            updateFriendlyArchers(now);
+            updateArcherTowers(now);
+            updateBombTraps(now);
+        }
         recordPerfAi(System.nanoTime() - aiStartNs);
-        updateThrownBombs(now);
-        updateFireBombBurnZones(now);
-        updateArrowProjectiles(now);
+        if (isBuildingEnabled()) {
+            updateThrownBombs(now);
+            updateFireBombBurnZones(now);
+            updateArrowProjectiles(now);
+        }
 
-        if (!player.isAlive() || !baseCamp.isAlive()) {
+        checkMapTransitionTrigger();
+        updateMapTransition(now);
+        if (mapManager.isTransitioning()) {
+            updateCamera();
+            return false;
+        }
+
+        if (!player.isAlive() || (isBaseCampActive() && !baseCamp.isAlive())) {
             // Luu ly do thua de UI hien dung thong diep thay vi mac dinh "player chet".
             gameOverReason = !player.isAlive() ? GameOverReason.PLAYER_DIED : GameOverReason.BASE_CAMP_DESTROYED;
             gameState = GameState.GAME_OVER;
@@ -1704,6 +1924,8 @@ public class Game {
         gemRewardGranted = false;
         gemRewardAnimationStartedAtNs = -1L;
         clearPersistentProgressForFreshStart();
+        mapManager.setCurrentMap(MapType.MAIN_MAP);
+        applyMapDefinition(mapManager.getDefinition(MapType.MAIN_MAP), true);
 
         // Reset world moi: clear enemy/resource procedural va inventory.
         enemies.clear();
@@ -1724,7 +1946,6 @@ public class Game {
         screenFlashUntilNs = 0L;
         screenShakeX = 0.0;
         screenShakeY = 0.0;
-        resourceManager.loadFromMapObjects(mapCollisions);
         // Hoi mau day cho player va nha chinh de thoat khoi vong lap GAME_OVER.
         player.setHpForLoad(player.getMaxHp());
         player.setEnergyForLoad(player.getMaxEnergy());
@@ -1738,8 +1959,6 @@ public class Game {
         setSelectedHotbarIndex(selectedHotbarIndex);
         hasLoadedSaveSnapshot = false;
         renderer.setContinueAvailable(false);
-
-        resetWorldPosition();
         loadMapWoodFences();
         spawnAmbientBlackGrouse();
         gameState = GameState.PLAYING;
@@ -2905,6 +3124,21 @@ public class Game {
             return false;
         }
 
+        MapType savedMapType = MapType.MAIN_MAP;
+        Object rawMapType = save.get("mapType");
+        if (rawMapType instanceof String mapTypeName) {
+            try {
+                savedMapType = MapType.valueOf(mapTypeName);
+            } catch (IllegalArgumentException ignored) {
+                savedMapType = MapType.MAIN_MAP;
+            }
+        }
+        GameMapDefinition definition = mapManager.getDefinition(savedMapType);
+        if (definition != null && savedMapType != mapManager.getCurrentMapType()) {
+            mapManager.setCurrentMap(savedMapType);
+            applyMapDefinition(definition, false);
+        }
+
         // Load player/base camp/inventory state de tiep tuc session cu.
         player.setPosition(
                 WorldSaveService.toDouble(save.get("playerX"), player.getX()),
@@ -2930,6 +3164,7 @@ public class Game {
 
     private void saveWorldSnapshot() {
         Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("mapType", mapManager.getCurrentMapType().name());
         snapshot.put("playerX", player.getX());
         snapshot.put("playerY", player.getY());
         snapshot.put("playerHp", player.getHp());
@@ -3094,7 +3329,8 @@ public class Game {
     }
 
     private boolean intersectsBaseCampCollision(double x, double y, double width, double height) {
-        return baseCamp != null
+        return isBaseCampActive()
+                && baseCamp != null
                 && CollisionSystem.intersects(
                 x,
                 y,

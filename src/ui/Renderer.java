@@ -20,6 +20,7 @@ import entity.ArrowProjectile;
 import entity.BaseCamp;
 import entity.ThrownBomb;
 import input.InputHandler;
+import javafx.geometry.Rectangle2D;
 import javafx.scene.Scene;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
@@ -84,6 +85,8 @@ public class Renderer {
     private boolean gemRewardAnimationActive;
     private double gemRewardAnimationProgress;
     private MapRenderer mapRenderer;
+    private Image worldBackgroundImage;
+    private boolean showBaseCamp;
 
     public Renderer(Stage stage, InputHandler inputHandler, AssetManager buildAssetManager) {
         this.stage = stage;
@@ -105,6 +108,8 @@ public class Renderer {
         this.skillUnlockCelebrationType = null;
         this.gemRewardAnimationActive = false;
         this.gemRewardAnimationProgress = 0.0;
+        this.worldBackgroundImage = null;
+        this.showBaseCamp = true;
 
         StackPane root = new StackPane();
         root.setStyle("-fx-background-color: #0f1114;");
@@ -139,6 +144,18 @@ public class Renderer {
         this.mapRenderer = (mapData == null) ? null : new MapRenderer(mapData);
     }
 
+    public void setWorldBackgroundImage(String imagePath) {
+        if (imagePath == null || imagePath.isBlank()) {
+            this.worldBackgroundImage = null;
+            return;
+        }
+        this.worldBackgroundImage = new Image(Path.of(imagePath).toUri().toString(), false);
+    }
+
+    public void setShowBaseCamp(boolean showBaseCamp) {
+        this.showBaseCamp = showBaseCamp;
+    }
+
     public double getViewportWidth() {
         return Math.max(1.0, canvas.getWidth());
     }
@@ -153,6 +170,7 @@ public class Renderer {
                        List<Level> levels, PlayerProgress playerProgress, int selectedLevelIndex,
                        Level currentLevel, String objectiveStatus, LevelResult lastLevelResult,
                        boolean debugCollisionOverlayEnabled, List<MapObjectData> mapCollisions,
+                       Rectangle2D mapTransitionTrigger,
                        List<ResourceNode> allResources, Map<String, Integer> collectedResources,
                        int selectedHotbarIndex, int stoneWallCount,
                        BuildManager buildManager,
@@ -166,6 +184,7 @@ public class Renderer {
                        double cameraShakeX,
                        double cameraShakeY,
                        double screenFlashAlpha,
+                       double mapFadeAlpha,
                        double darknessAlpha, boolean isNight, String dayNightPhase,
                        String timeIcon, String timeTitle, String timeClock, String timeAnnouncement,
                        double worldWidth, double worldHeight) {
@@ -216,14 +235,20 @@ public class Renderer {
 
         if (gameState == GameState.DIALOGUE || gameState == GameState.PLAYING || gameState == GameState.PAUSED || gameState == GameState.GAME_OVER || gameState == GameState.LEVEL_COMPLETE) {
             renderGameplay(player, baseCamp, enemies, friendlyArchers, now, cameraX, cameraY, currentLevel, objectiveStatus,
-                    debugCollisionOverlayEnabled, mapCollisions, allResources, collectedResources, buildManager, arrowProjectiles, thrownBombs, droppedItems, explosionEffects, fireBombBurnZones, floatingDamageTexts,
+                    debugCollisionOverlayEnabled, mapCollisions, mapTransitionTrigger, allResources, collectedResources, buildManager, arrowProjectiles, thrownBombs, droppedItems, explosionEffects, fireBombBurnZones, floatingDamageTexts,
                     cameraShakeX, cameraShakeY, screenFlashAlpha,
                     darknessAlpha, isNight, dayNightPhase, timeIcon, timeTitle, timeClock, timeAnnouncement,
                     worldWidth, worldHeight, viewportWidth, viewportHeight);
-            return;
+        } else {
+            drawBackgroundCover(gameBackgroundImage, viewportWidth, viewportHeight);
         }
 
-        drawBackgroundCover(gameBackgroundImage, viewportWidth, viewportHeight);
+        if (mapFadeAlpha > 0.001) {
+            graphicsContext.save();
+            graphicsContext.setFill(Color.color(0.0, 0.0, 0.0, Math.min(1.0, mapFadeAlpha)));
+            graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
+            graphicsContext.restore();
+        }
     }
 
     public void setContinueAvailable(boolean enabled) {
@@ -397,6 +422,7 @@ public class Renderer {
                                 String objectiveStatus,
                                 boolean debugCollisionOverlayEnabled,
                                 List<MapObjectData> mapCollisions,
+                                Rectangle2D mapTransitionTrigger,
                                 List<ResourceNode> allResources,
                                 Map<String, Integer> collectedResources,
                                 BuildManager buildManager,
@@ -427,6 +453,8 @@ public class Renderer {
         if (mapRenderer != null) {
             mapRenderer.setResources(allResources);
             mapRenderer.renderBelowEntities(graphicsContext, cameraX, cameraY, now);
+        } else if (worldBackgroundImage != null && !worldBackgroundImage.isError()) {
+            graphicsContext.drawImage(worldBackgroundImage, -cameraX, -cameraY);
         } else {
             drawBackgroundCover(gameBackgroundImage, viewportWidth / CAMERA_ZOOM, viewportHeight / CAMERA_ZOOM);
         }
@@ -438,7 +466,9 @@ public class Renderer {
         renderDroppedItems(droppedItems, cameraX, cameraY, now);
         renderExplosionEffects(explosionEffects, cameraX, cameraY, now);
         renderFireBombBurnZones(fireBombBurnZones, cameraX, cameraY, now);
-        renderBaseCampHpBar(baseCamp, cameraX, cameraY);
+        if (showBaseCamp) {
+            renderBaseCampHpBar(baseCamp, cameraX, cameraY);
+        }
 
         player.draw(graphicsContext, cameraX, cameraY);
         renderArcherTowers(archerTowers, cameraX, cameraY, now);
@@ -461,7 +491,7 @@ public class Renderer {
             drawDebugGrid(cameraX, cameraY, viewportWidth / CAMERA_ZOOM, viewportHeight / CAMERA_ZOOM);
         }
         if (debugCollisionOverlayEnabled) {
-            renderCollisionOverlay(player, baseCamp, enemies, friendlyArchers, mapCollisions, allResources, buildManager, cameraX, cameraY);
+            renderCollisionOverlay(player, baseCamp, enemies, friendlyArchers, mapCollisions, mapTransitionTrigger, allResources, buildManager, cameraX, cameraY);
         }
         graphicsContext.restore();
 
@@ -666,6 +696,7 @@ public class Renderer {
                                         List<Enemy> enemies,
                                         List<FriendlyArcher> friendlyArchers,
                                         List<MapObjectData> mapCollisions,
+                                        Rectangle2D mapTransitionTrigger,
                                         List<ResourceNode> resources,
                                         BuildManager buildManager,
                                         double cameraX,
@@ -681,6 +712,32 @@ public class Renderer {
                 }
                 graphicsContext.strokeRect(object.getX() - cameraX, object.getY() - cameraY, object.getWidth(), object.getHeight());
             }
+        }
+
+        if (mapTransitionTrigger != null && mapTransitionTrigger.getWidth() > 0 && mapTransitionTrigger.getHeight() > 0) {
+            graphicsContext.setStroke(Color.color(1.0, 0.78, 0.12, 0.95));
+            graphicsContext.setLineWidth(1.6);
+            graphicsContext.strokeRect(
+                    mapTransitionTrigger.getMinX() - cameraX,
+                    mapTransitionTrigger.getMinY() - cameraY,
+                    mapTransitionTrigger.getWidth(),
+                    mapTransitionTrigger.getHeight()
+            );
+            graphicsContext.setFill(Color.color(1.0, 0.78, 0.12, 0.16));
+            graphicsContext.fillRect(
+                    mapTransitionTrigger.getMinX() - cameraX,
+                    mapTransitionTrigger.getMinY() - cameraY,
+                    mapTransitionTrigger.getWidth(),
+                    mapTransitionTrigger.getHeight()
+            );
+            graphicsContext.setFill(Color.color(1.0, 0.95, 0.72, 0.96));
+            graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 11));
+            graphicsContext.fillText(
+                    "MAP TRIGGER",
+                    mapTransitionTrigger.getMinX() - cameraX,
+                    mapTransitionTrigger.getMinY() - cameraY - 4.0
+            );
+            graphicsContext.setLineWidth(1.0);
         }
 
         if (buildManager != null) {
