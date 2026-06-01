@@ -77,6 +77,10 @@ public class WolfEnemy extends Enemy {
     private static final double DISENGAGE_RANGE = 260.0;
     private static final double HOME_RADIUS = 150.0;
     private static final double CHASE_HOME_RADIUS = 240.0;
+    private static final double DAY_DETECTION_RANGE = DETECTION_RANGE * 0.5;
+    private static final double DAY_DISENGAGE_RANGE = DISENGAGE_RANGE * 0.5;
+    private static final double DAY_HOME_RADIUS = HOME_RADIUS * 0.5;
+    private static final double DAY_CHASE_HOME_RADIUS = CHASE_HOME_RADIUS * 0.5;
     private static final double NIGHT_PLAYER_DEFEND_RADIUS = 220.0;
     private static final double NIGHT_WALL_BREAK_DISTANCE = 92.0;
     private static final double RETURN_TOLERANCE = 10.0;
@@ -1518,13 +1522,13 @@ public class WolfEnemy extends Enemy {
     }
 
     private boolean isPlayerInsideAggroZone(Player player) {
-        return player != null && intersectsDetectionRange(player);
+        return player != null && intersectsRange(player, DAY_DETECTION_RANGE);
     }
 
     private boolean isPlayerStillInsideChaseZone(Player player) {
         return player != null
-                && isInsideDisengageRange(player)
-                && distance(homeX, homeY, player.getCenterX(), player.getCenterY()) <= CHASE_HOME_RADIUS + 80.0;
+                && intersectsRange(player, DAY_DISENGAGE_RANGE)
+                && distance(homeX, homeY, player.getCenterX(), player.getCenterY()) <= DAY_CHASE_HOME_RADIUS + 20.0;
     }
 
     private boolean intersectsAttackHitbox(Entity target, AttackProfile profile) {
@@ -1822,7 +1826,7 @@ public class WolfEnemy extends Enemy {
         graphicsContext.strokeOval(getCenterX() - DETECTION_RANGE - cameraX, getCenterY() - DETECTION_RANGE - cameraY, DETECTION_RANGE * 2.0, DETECTION_RANGE * 2.0);
 
         graphicsContext.setStroke(Color.color(1.0, 0.15, 0.15, 0.70));
-        double chaseLeash = CHASE_HOME_RADIUS + 80.0;
+        double chaseLeash = DAY_CHASE_HOME_RADIUS + 20.0;
         graphicsContext.strokeOval(homeX - chaseLeash - cameraX, homeY - chaseLeash - cameraY, chaseLeash * 2.0, chaseLeash * 2.0);
 
         if (!currentPath.isEmpty()) {
@@ -1956,7 +1960,7 @@ public class WolfEnemy extends Enemy {
     private void pickNextPatrolTarget() {
         for (int attempt = 0; attempt < 12; attempt++) {
             double angle = random.nextDouble() * Math.PI * 2.0;
-            double radius = 20.0 + random.nextDouble() * (HOME_RADIUS - 20.0);
+            double radius = 8.0 + random.nextDouble() * Math.max(8.0, DAY_HOME_RADIUS - 8.0);
             double candidateX = homeX + Math.cos(angle) * radius;
             double candidateY = homeY + Math.sin(angle) * radius;
             if (canStandCenteredAt(candidateX, candidateY)) {
@@ -1973,6 +1977,21 @@ public class WolfEnemy extends Enemy {
 
     private boolean canStandCenteredAt(double centerX, double centerY) {
         return movementValidator == null || movementValidator.canOccupy(this, centerX - width * 0.5, centerY - height * 0.5, width, height);
+    }
+
+    private boolean intersectsRange(Entity target, double radius) {
+        if (target == null || target.isDead() || radius <= 0.0) {
+            return false;
+        }
+        return intersectsCircleAndRect(
+                getCollisionX() + getCollisionWidth() * 0.5,
+                getCollisionY() + getCollisionHeight() * 0.5,
+                radius,
+                target.getCollisionX(),
+                target.getCollisionY(),
+                target.getCollisionWidth(),
+                target.getCollisionHeight()
+        );
     }
 
     private void updateFacingFromMovement(double dx, double dy) {

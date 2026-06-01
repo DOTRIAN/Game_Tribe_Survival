@@ -123,7 +123,7 @@ public class MiniMap {
         if (enemies != null) {
             int rendered = 0;
             for (Enemy enemy : enemies) {
-                if (enemy == null || !enemy.isAlive()) {
+                if (enemy == null || !enemy.isAlive() || !enemy.isHostile()) {
                     continue;
                 }
                 double enemyCenterX = enemy.getX() + enemy.getWidth() / 2.0;

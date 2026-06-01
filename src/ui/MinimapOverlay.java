@@ -95,7 +95,7 @@ public class MinimapOverlay extends StackPane {
         if (enemies != null) {
             int count = 0;
             for (Enemy enemy : enemies) {
-                if (enemy == null || !enemy.isAlive()) {
+                if (enemy == null || !enemy.isAlive() || !enemy.isHostile()) {
                     continue;
                 }
                 drawDot(gc, mapX + (enemy.getX() + enemy.getWidth() * 0.5) * scaleX, 
