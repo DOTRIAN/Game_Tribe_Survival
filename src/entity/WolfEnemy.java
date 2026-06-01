@@ -93,6 +93,9 @@ public class WolfEnemy extends Enemy {
     private static final long STUCK_WAIT_NS = 300_000_000L;
     private static final long STUCK_TRIGGER_NS = 700_000_000L;
     private static final long OBSTACLE_SEARCH_RETRY_NS = 500_000_000L;
+    private static final long ESCAPE_OBSTACLE_SEARCH_RETRY_NS = 420_000_000L;
+    private static final long DIRECT_PATH_SUCCESS_CACHE_NS = 220_000_000L;
+    private static final long DIRECT_PATH_FAIL_CACHE_NS = 650_000_000L;
     private static final int STUCK_REPATH_AFTER_BLOCKS = 2;
     private static final int STUCK_BREAK_AFTER_BLOCKS = 4;
     private static final int STUCK_BREAK_BLOCKED_DIRECTIONS = 3;
@@ -108,6 +111,7 @@ public class WolfEnemy extends Enemy {
     private static final double FACE_MOVE_THRESHOLD = 0.10;
     private static final int OBSTACLE_RAY_TILES = 30;
     private static final int OBSTACLE_NEARBY_RADIUS_TILES = 5;
+    private static final int MAX_DIRECT_PATH_SAMPLES = 6;
 
     private static final AttackProfile ATTACK_TWO = new AttackProfile(AnimationState.ATTACK_2, 2, 0L, ATTACK_2_FRAME_NS, 0.0, 24.0, 26.0, 0.0, DAMAGE, false);
 
@@ -156,6 +160,18 @@ public class WolfEnemy extends Enemy {
     private int pathFailCount;
     private boolean pendingPathRequest;
     private boolean lastPathFailed;
+    private long currentUpdateNowNs;
+    private boolean expensiveNavigationAllowed;
+    private long lastDirectPathCheckAtNs;
+    private double lastDirectPathOriginX;
+    private double lastDirectPathOriginY;
+    private double lastDirectPathProbeTargetX;
+    private double lastDirectPathProbeTargetY;
+    private boolean lastDirectPathResult;
+    private long nextEscapeObstacleSearchAtNs;
+    private BuildObject cachedBlockingObstacle;
+    private EnemyObstacleTarget cachedEscapeObstacle;
+    private boolean siegeMode;
 
     public WolfEnemy(double x,
                      double y,
@@ -231,27 +247,39 @@ public class WolfEnemy extends Enemy {
         this.pathFailCount = 0;
         this.pendingPathRequest = false;
         this.lastPathFailed = false;
+        this.currentUpdateNowNs = 0L;
+        this.expensiveNavigationAllowed = true;
+        this.lastDirectPathCheckAtNs = Long.MIN_VALUE;
+        this.lastDirectPathOriginX = Double.NaN;
+        this.lastDirectPathOriginY = Double.NaN;
+        this.lastDirectPathProbeTargetX = Double.NaN;
+        this.lastDirectPathProbeTargetY = Double.NaN;
+        this.lastDirectPathResult = false;
+        this.nextEscapeObstacleSearchAtNs = 0L;
+        this.cachedBlockingObstacle = null;
+        this.cachedEscapeObstacle = null;
+        this.siegeMode = false;
         pickNextPatrolTarget();
     }
 
     @Override
     protected double collisionInsetLeft(double width, double height) {
-        return width * 0.28;
+        return width * 0.25;
     }
 
     @Override
     protected double collisionInsetRight(double width, double height) {
-        return width * 0.28;
+        return width * 0.25;
     }
 
     @Override
     protected double collisionInsetTop(double width, double height) {
-        return height * 0.58;
+        return height * 0.50;
     }
 
     @Override
     protected double collisionInsetBottom(double width, double height) {
-        return height * 0.08;
+        return 0.0;
     }
 
     public void setDebugEnabled(boolean debugEnabled) {
@@ -271,7 +299,10 @@ public class WolfEnemy extends Enemy {
                                Player player,
                                BaseCamp baseCamp,
                                double worldWidth,
-                               double worldHeight) {
+                               double worldHeight,
+                               boolean allowExpensiveNavigation) {
+        currentUpdateNowNs = nowNs;
+        expensiveNavigationAllowed = allowExpensiveNavigation;
         if (removeFromWorld) {
             return;
         }
@@ -333,8 +364,8 @@ public class WolfEnemy extends Enemy {
             return;
         }
 
-        if (isNight && handleNightRaid(nowNs, baseCamp, worldWidth, worldHeight)) {
-            return;
+        if (isNight) {
+            siegeMode = false;
         }
 
         if (state == BrainState.CHASE) {
@@ -499,10 +530,15 @@ public class WolfEnemy extends Enemy {
         aiState = target instanceof Player ? EnemyAiState.CHASE_PLAYER : EnemyAiState.MOVE_TO_BASE;
         animationState = AnimationState.RUN;
         currentMoveSpeed = RUN_SPEED;
-        Point2D chasePoint = selectEntityChasePoint(target, ATTACK_TWO);
-        boolean moved = followPathToPoint(chasePoint.getX(), chasePoint.getY(), nowNs, worldWidth, worldHeight, aggressive);
-        if (aggressive && target instanceof Player && !moved && lastPathFailed) {
-            focusObstacleTowardTarget(chasePoint.getX(), chasePoint.getY(), nowNs);
+        Point2D chasePoint = aggressive && target instanceof Player
+                ? new Point2D(target.getCenterX(), target.getCenterY())
+                : selectEntityChasePoint(target, ATTACK_TWO);
+        boolean moved;
+        if (aggressive && target instanceof Player) {
+            siegeMode = true;
+            moved = followDirectSiegeToPoint(chasePoint.getX(), chasePoint.getY(), nowNs, worldWidth, worldHeight);
+        } else {
+            moved = followPathToPoint(chasePoint.getX(), chasePoint.getY(), nowNs, worldWidth, worldHeight, aggressive);
         }
         faceTarget(target);
     }
@@ -515,18 +551,28 @@ public class WolfEnemy extends Enemy {
             activeBuildTarget = null;
             return;
         }
+        siegeMode = true;
         activeBuildTarget = target;
         activeResourceTarget = null;
         faceTarget(target.getCenterX(), target.getCenterY());
         state = BrainState.CHASE;
-        aiState = EnemyAiState.MOVE_TO_OBSTACLE;
+        aiState = EnemyAiState.BREAK_FENCE;
         animationState = AnimationState.RUN;
         currentMoveSpeed = RUN_SPEED;
         if (tryStartAttack(null, null, nowNs, true)) {
             return;
         }
         Point2D approachPoint = selectAttackApproachPoint(target, ATTACK_TWO);
-        followPathToPoint(approachPoint.getX(), approachPoint.getY(), nowNs, worldWidth, worldHeight, false);
+        if (siegeMode) {
+            setDesiredMove(approachPoint.getX() - getCenterX(), approachPoint.getY() - getCenterY());
+            if (expensiveNavigationAllowed) {
+                attemptDirectSiegeMovement(approachPoint.getX(), approachPoint.getY(), worldWidth, worldHeight);
+            } else if (canUseCachedDirectStep(nowNs, approachPoint.getX(), approachPoint.getY())) {
+                moveToward(approachPoint.getX(), approachPoint.getY(), worldWidth, worldHeight);
+            }
+        } else {
+            followPathToPoint(approachPoint.getX(), approachPoint.getY(), nowNs, worldWidth, worldHeight, false);
+        }
         faceTarget(target.getCenterX(), target.getCenterY());
     }
 
@@ -543,7 +589,7 @@ public class WolfEnemy extends Enemy {
         activeResourceTarget = target;
         faceTarget(target.getCenterX(), target.getCenterY());
         state = BrainState.CHASE;
-        aiState = EnemyAiState.MOVE_TO_OBSTACLE;
+        aiState = siegeMode ? EnemyAiState.BREAK_FENCE : EnemyAiState.MOVE_TO_OBSTACLE;
         animationState = AnimationState.RUN;
         currentMoveSpeed = RUN_SPEED;
         if (tryStartAttack(null, null, nowNs, true)) {
@@ -552,23 +598,6 @@ public class WolfEnemy extends Enemy {
         Point2D approachPoint = selectAttackApproachPoint(target, ATTACK_TWO);
         followPathToPoint(approachPoint.getX(), approachPoint.getY(), nowNs, worldWidth, worldHeight, false);
         faceTarget(target.getCenterX(), target.getCenterY());
-    }
-
-    private boolean handleNightRaid(long nowNs,
-                                    BaseCamp baseCamp,
-                                    double worldWidth,
-                                    double worldHeight) {
-        if (baseCamp == null || !baseCamp.isAlive()) {
-            return false;
-        }
-
-        activeEntityTarget = baseCamp;
-        activeBuildTarget = null;
-        activeResourceTarget = null;
-        if (tryStartAttack(baseCamp, null, nowNs, true)) {
-            return true;
-        }
-        return runTowardNightEntityTarget(baseCamp, nowNs, worldWidth, worldHeight);
     }
 
     private Player resolveNightVillagePlayerTarget(Player player, BaseCamp baseCamp) {
@@ -606,9 +635,6 @@ public class WolfEnemy extends Enemy {
         if (target == null) {
             return false;
         }
-        if (target instanceof BaseCamp baseCamp) {
-            return followFlowFieldToBase(baseCamp, nowNs, worldWidth, worldHeight);
-        }
         activeEntityTarget = target;
         activeBuildTarget = null;
         activeResourceTarget = null;
@@ -617,41 +643,22 @@ public class WolfEnemy extends Enemy {
         aiState = EnemyAiState.CHASE_PLAYER;
         animationState = AnimationState.RUN;
         currentMoveSpeed = RUN_SPEED;
-        Point2D chasePoint = selectEntityChasePoint(target, ATTACK_TWO);
-        boolean moved = followPathToPoint(chasePoint.getX(), chasePoint.getY(), nowNs, worldWidth, worldHeight, false);
+        Point2D chasePoint = target instanceof Player
+                ? new Point2D(target.getCenterX(), target.getCenterY())
+                : selectEntityChasePoint(target, ATTACK_TWO);
+        boolean moved;
+        if (siegeMode || target instanceof Player) {
+            siegeMode = true;
+            moved = followDirectSiegeToPoint(chasePoint.getX(), chasePoint.getY(), nowNs, worldWidth, worldHeight);
+        } else {
+            moved = followPathToPoint(chasePoint.getX(), chasePoint.getY(), nowNs, worldWidth, worldHeight, false);
+            if (!moved && lastPathFailed) {
+                siegeMode = true;
+                moved = followDirectSiegeToPoint(chasePoint.getX(), chasePoint.getY(), nowNs, worldWidth, worldHeight);
+            }
+        }
         faceTarget(target);
         return moved;
-    }
-
-    private void focusObstacleTowardTarget(double targetX, double targetY, long nowNs) {
-        if (navigationContext == null || escapeObstacleTarget != null) {
-            return;
-        }
-        BuildObject obstacle = findBlockingObstacleThrottled(targetX, targetY, nowNs);
-        if (obstacle != null) {
-            escapeObstacleTarget = EnemyObstacleTarget.forBuild(obstacle);
-            activeEntityTarget = null;
-            activeBuildTarget = obstacle;
-            activeResourceTarget = null;
-            clearPath();
-            waitUntilNs = 0L;
-            return;
-        }
-        EnemyObstacleTarget nearbyObstacle = navigationContext.findEscapeObstacle(this, desiredMoveDirX, desiredMoveDirY, OBSTACLE_NEARBY_RADIUS_TILES);
-        if (nearbyObstacle != null) {
-            escapeObstacleTarget = nearbyObstacle;
-            activeEntityTarget = null;
-            activeBuildTarget = nearbyObstacle.buildObject();
-            activeResourceTarget = nearbyObstacle.resourceNode();
-            clearPath();
-            waitUntilNs = 0L;
-            return;
-        }
-        if (chooseOrderedEscapeWaypoint(targetX, targetY)) {
-            waitUntilNs = 0L;
-            return;
-        }
-        waitUntilNs = Math.max(waitUntilNs, nowNs + STUCK_WAIT_NS);
     }
 
     private boolean tryStartAttack(Entity entityTarget, BaseCamp baseTarget, long nowNs, boolean isNight) {
@@ -695,7 +702,7 @@ public class WolfEnemy extends Enemy {
     }
 
     private AttackProfile chooseAttackProfile(Entity entityTarget, BaseCamp baseTarget, BuildObject buildTarget, ResourceNode resourceTarget, boolean isNight) {
-        if (entityTarget instanceof Player || entityTarget instanceof BaseCamp || baseTarget != null) {
+        if (entityTarget instanceof Player) {
             return ATTACK_TWO;
         }
         if (buildTarget != null || resourceTarget != null) {
@@ -768,11 +775,7 @@ public class WolfEnemy extends Enemy {
             faceTarget(resourceTarget.getCenterX(), resourceTarget.getCenterY());
         }
         if (canApplyDamageOnCurrentFrame(animation)) {
-            if (entityTarget instanceof BaseCamp baseCamp) {
-                if (intersectsAttackHitbox(baseCamp, activeAttackProfile) && navigationContext != null && navigationContext.damageBase(this, baseCamp, nowNs)) {
-                    attackDamageAppliedThisCycle = true;
-                }
-            } else if (entityTarget != null) {
+            if (entityTarget != null) {
                 if (intersectsAttackHitbox(entityTarget, activeAttackProfile)) {
                     DamageSystem.applyDamage(this, entityTarget, activeAttackProfile.damage(), nowNs);
                     attackDamageAppliedThisCycle = true;
@@ -804,7 +807,7 @@ public class WolfEnemy extends Enemy {
             activeBuildTarget = buildTarget;
             activeResourceTarget = null;
             state = BrainState.CHASE;
-            aiState = EnemyAiState.MOVE_TO_OBSTACLE;
+            aiState = siegeMode ? EnemyAiState.BREAK_FENCE : EnemyAiState.MOVE_TO_OBSTACLE;
             animationState = AnimationState.RUN;
             clearPath();
             return;
@@ -813,7 +816,7 @@ public class WolfEnemy extends Enemy {
             activeBuildTarget = null;
             activeResourceTarget = resourceTarget;
             state = BrainState.CHASE;
-            aiState = EnemyAiState.MOVE_TO_OBSTACLE;
+            aiState = siegeMode ? EnemyAiState.BREAK_FENCE : EnemyAiState.MOVE_TO_OBSTACLE;
             animationState = AnimationState.RUN;
             clearPath();
             return;
@@ -977,6 +980,10 @@ public class WolfEnemy extends Enemy {
             return;
         }
 
+        if (activeEntityTarget instanceof Player) {
+            siegeMode = true;
+        }
+
         if (shouldRepathBeforeBreaking(targetX, targetY)) {
             requestPath(targetX, targetY, nowNs);
             waitUntilNs = nowNs + STUCK_WAIT_NS;
@@ -989,31 +996,10 @@ public class WolfEnemy extends Enemy {
         }
 
         boolean canBreakObstacle = shouldBreakObstacle(allowBarrierFallback || shouldAllowObstacleFallback());
-        if (canBreakObstacle && navigationContext != null && (blockedDirections >= 2 || blockedCount >= 3)) {
-            EnemyObstacleTarget escapeTarget = navigationContext.findEscapeObstacle(this, desiredMoveDirX, desiredMoveDirY, 3);
-            if (escapeTarget != null) {
-                escapeObstacleTarget = escapeTarget;
-                activeEntityTarget = null;
-                activeBuildTarget = escapeTarget.buildObject();
-                activeResourceTarget = escapeTarget.resourceNode();
-                waitUntilNs = 0L;
-                return;
-            }
-        }
-        if (canBreakObstacle && navigationContext != null) {
-            EnemyObstacleTarget escapeTarget = navigationContext.findEscapeObstacle(this, desiredMoveDirX, desiredMoveDirY, 3);
-            if (escapeTarget != null) {
-                escapeObstacleTarget = escapeTarget;
-                activeEntityTarget = null;
-                activeBuildTarget = escapeTarget.buildObject();
-                activeResourceTarget = escapeTarget.resourceNode();
-                waitUntilNs = 0L;
-                return;
-            }
-        }
         if (canBreakObstacle) {
             BuildObject obstacle = findBlockingObstacleThrottled(targetX, targetY, nowNs);
             if (obstacle != null) {
+                siegeMode = true;
                 escapeObstacleTarget = EnemyObstacleTarget.forBuild(obstacle);
                 activeBuildTarget = obstacle;
                 activeEntityTarget = null;
@@ -1048,7 +1034,6 @@ public class WolfEnemy extends Enemy {
     private boolean shouldAllowObstacleFallback() {
         return activeBuildTarget != null
                 || activeResourceTarget != null
-                || activeEntityTarget instanceof BaseCamp
                 || lastPathFailed
                 || blockedCount >= STUCK_BREAK_AFTER_BLOCKS
                 || blockedDirections >= STUCK_BREAK_BLOCKED_DIRECTIONS;
@@ -1185,6 +1170,9 @@ public class WolfEnemy extends Enemy {
     }
 
     private boolean shouldRequestPath(double targetX, double targetY, long nowNs) {
+        if (!expensiveNavigationAllowed) {
+            return false;
+        }
         if (pendingPathRequest || navigationContext == null || nowNs < nextPathAllowedAtNs) {
             return false;
         }
@@ -1201,28 +1189,177 @@ public class WolfEnemy extends Enemy {
     }
 
     private boolean canMoveDirectlyTo(double targetX, double targetY) {
-        if (movementValidator == null) {
+        if (movementValidator == null && navigationContext == null) {
             return true;
+        }
+        long nowNs = currentUpdateNowNs > 0L ? currentUpdateNowNs : System.nanoTime();
+        double originX = getCenterX();
+        double originY = getCenterY();
+        boolean sameProbe = !Double.isNaN(lastDirectPathProbeTargetX)
+                && distance(lastDirectPathProbeTargetX, lastDirectPathProbeTargetY, targetX, targetY) <= DIRECT_TARGET_RECALC_DISTANCE * 0.5
+                && distance(lastDirectPathOriginX, lastDirectPathOriginY, originX, originY) <= PATH_POINT_REACHED;
+        long cacheWindowNs = lastDirectPathResult ? DIRECT_PATH_SUCCESS_CACHE_NS : DIRECT_PATH_FAIL_CACHE_NS;
+        if (sameProbe && nowNs - lastDirectPathCheckAtNs <= cacheWindowNs) {
+            return lastDirectPathResult;
+        }
+        if (!expensiveNavigationAllowed && lastDirectPathCheckAtNs != Long.MIN_VALUE) {
+            return sameProbe && lastDirectPathResult;
         }
         double dx = targetX - getCenterX();
         double dy = targetY - getCenterY();
         double distance = Math.sqrt(dx * dx + dy * dy);
         if (distance <= currentMoveSpeed + 0.001) {
+            cacheDirectPathProbe(nowNs, originX, originY, targetX, targetY, true);
             return true;
         }
         double step = Math.max(8.0, Math.min(18.0, Math.max(getCollisionWidth(), getCollisionHeight()) * 0.65));
-        int samples = Math.max(1, (int) Math.ceil(distance / step));
+        int samples = Math.min(MAX_DIRECT_PATH_SAMPLES, Math.max(1, (int) Math.ceil(distance / step)));
         for (int i = 1; i <= samples; i++) {
             double t = i / (double) samples;
             double centerX = getCenterX() + dx * t;
             double centerY = getCenterY() + dy * t;
             double candidateX = centerX - width * 0.5;
             double candidateY = centerY - height * 0.5;
-            if (!movementValidator.canOccupy(this, candidateX, candidateY, width, height)) {
+            boolean canOccupy = navigationContext != null
+                    ? navigationContext.canPathOccupy(this, candidateX, candidateY, width, height)
+                    : movementValidator.canOccupy(this, candidateX, candidateY, width, height);
+            if (!canOccupy) {
+                cacheDirectPathProbe(nowNs, originX, originY, targetX, targetY, false);
                 return false;
             }
         }
+        cacheDirectPathProbe(nowNs, originX, originY, targetX, targetY, true);
         return true;
+    }
+
+    private boolean followDirectSiegeToPoint(double targetX,
+                                             double targetY,
+                                             long nowNs,
+                                             double worldWidth,
+                                             double worldHeight) {
+        activeBuildTarget = null;
+        activeResourceTarget = null;
+        state = BrainState.CHASE;
+        aiState = EnemyAiState.DIRECT_SIEGE_TO_PLAYER;
+        animationState = AnimationState.RUN;
+        currentMoveSpeed = RUN_SPEED;
+        clearPath();
+        setDesiredMove(targetX - getCenterX(), targetY - getCenterY());
+        if (!expensiveNavigationAllowed) {
+            if (canUseCachedDirectStep(nowNs, targetX, targetY)) {
+                return moveToward(targetX, targetY, worldWidth, worldHeight);
+            }
+            currentAnimation().update(nowNs, true);
+            return false;
+        }
+        if (attemptDirectSiegeMovement(targetX, targetY, worldWidth, worldHeight)) {
+            blockedSinceNs = 0L;
+            blockedCount = 0;
+            blockedDirections = 0;
+            stuckTimerNs = 0L;
+            waitUntilNs = 0L;
+            updateStuckSample(nowNs);
+            return true;
+        }
+        if (blockedSinceNs == 0L) {
+            blockedSinceNs = nowNs;
+        }
+        BuildObject obstacle = findBlockingObstacleThrottled(targetX, targetY, nowNs);
+        if (obstacle != null) {
+            siegeMode = true;
+            escapeObstacleTarget = EnemyObstacleTarget.forBuild(obstacle);
+            activeBuildTarget = obstacle;
+            activeEntityTarget = null;
+            waitUntilNs = 0L;
+            return false;
+        }
+        if (chooseOrderedEscapeWaypoint(targetX, targetY)) {
+            waitUntilNs = 0L;
+            return false;
+        }
+        if (moveBackwardStep(worldWidth, worldHeight)) {
+            waitUntilNs = nowNs + 80_000_000L;
+            return true;
+        }
+        if (nowNs - blockedSinceNs >= STUCK_TRIGGER_NS) {
+            BuildObject forcedObstacle = findBlockingObstacleThrottled(targetX, targetY, nowNs);
+            if (forcedObstacle != null) {
+                siegeMode = true;
+                escapeObstacleTarget = EnemyObstacleTarget.forBuild(forcedObstacle);
+                activeBuildTarget = forcedObstacle;
+                activeEntityTarget = null;
+                waitUntilNs = 0L;
+            }
+        }
+        waitUntilNs = nowNs + STUCK_WAIT_NS;
+        return false;
+    }
+
+    private boolean canUseCachedDirectStep(long nowNs, double targetX, double targetY) {
+        return lastDirectPathResult
+                && !Double.isNaN(lastDirectPathProbeTargetX)
+                && nowNs - lastDirectPathCheckAtNs <= DIRECT_PATH_SUCCESS_CACHE_NS
+                && distance(lastDirectPathProbeTargetX, lastDirectPathProbeTargetY, targetX, targetY) <= DIRECT_TARGET_RECALC_DISTANCE;
+    }
+
+    private boolean attemptDirectSiegeMovement(double targetX, double targetY, double worldWidth, double worldHeight) {
+        double dx = targetX - getCenterX();
+        double dy = targetY - getCenterY();
+        double length = Math.sqrt(dx * dx + dy * dy);
+        if (length <= 0.001) {
+            return false;
+        }
+        double dirX = dx / length;
+        double dirY = dy / length;
+        double step = Math.min(currentMoveSpeed, length);
+        if (tryStepInDirection(dirX, dirY, step, worldWidth, worldHeight)) {
+            return true;
+        }
+        double[] angles = {
+                Math.toRadians(30.0),
+                Math.toRadians(-30.0),
+                Math.toRadians(50.0),
+                Math.toRadians(-50.0),
+                Math.toRadians(75.0),
+                Math.toRadians(-75.0)
+        };
+        for (double angle : angles) {
+            double rotatedX = dirX * Math.cos(angle) - dirY * Math.sin(angle);
+            double rotatedY = dirX * Math.sin(angle) + dirY * Math.cos(angle);
+            if (tryStepInDirection(rotatedX, rotatedY, step * 0.92, worldWidth, worldHeight)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean tryStepInDirection(double dirX,
+                                       double dirY,
+                                       double distance,
+                                       double worldWidth,
+                                       double worldHeight) {
+        double length = Math.sqrt(dirX * dirX + dirY * dirY);
+        if (length <= 0.001 || distance <= 0.001) {
+            return false;
+        }
+        double targetX = getCenterX() + (dirX / length) * distance;
+        double targetY = getCenterY() + (dirY / length) * distance;
+        double candidateX = targetX - width * 0.5;
+        double candidateY = targetY - height * 0.5;
+        if (navigationContext != null && !navigationContext.canPathOccupy(this, candidateX, candidateY, width, height)) {
+            return false;
+        }
+        return moveToward(targetX, targetY, worldWidth, worldHeight);
+    }
+
+    private boolean moveBackwardStep(double worldWidth, double worldHeight) {
+        double backX = -desiredMoveDirX;
+        double backY = -desiredMoveDirY;
+        double length = Math.sqrt(backX * backX + backY * backY);
+        if (length <= 0.001) {
+            return false;
+        }
+        return tryStepInDirection(backX / length, backY / length, Math.max(10.0, currentMoveSpeed * 0.85), worldWidth, worldHeight);
     }
 
     private void requestPath(double targetX, double targetY, long nowNs) {
@@ -1270,29 +1407,6 @@ public class WolfEnemy extends Enemy {
         lastPathFailed = false;
     }
 
-    private boolean followFlowFieldToBase(BaseCamp baseCamp, long nowNs, double worldWidth, double worldHeight) {
-        activeEntityTarget = baseCamp;
-        activeBuildTarget = null;
-        faceTarget(baseCamp);
-        state = BrainState.CHASE;
-        aiState = EnemyAiState.MOVE_TO_BASE;
-        animationState = AnimationState.RUN;
-        currentMoveSpeed = RUN_SPEED;
-        Point2D waypoint = navigationContext == null ? null : navigationContext.getFlowFieldWaypoint(getCenterX(), getCenterY());
-        boolean moved = waypoint != null && followPathToPoint(waypoint.getX(), waypoint.getY(), nowNs, worldWidth, worldHeight, true);
-        if (!moved) {
-            BuildObject obstacle = findBlockingObstacleThrottled(baseCamp.getCenterX(), baseCamp.getCenterY(), nowNs);
-            if (obstacle != null) {
-                activeEntityTarget = null;
-                runTowardBuildTarget(obstacle, nowNs, worldWidth, worldHeight);
-                return true;
-            }
-            return followPathToPoint(baseCamp.getCenterX(), baseCamp.getCenterY(), nowNs, worldWidth, worldHeight, true);
-        }
-        faceTarget(baseCamp);
-        return true;
-    }
-
     private long randomizedPathCooldownNs(boolean failed) {
         if (failed) {
             return PATH_FAIL_RETRY_NS;
@@ -1301,11 +1415,20 @@ public class WolfEnemy extends Enemy {
     }
 
     private BuildObject findBlockingObstacleThrottled(double targetX, double targetY, long nowNs) {
-        if (navigationContext == null || nowNs < nextObstacleSearchAtNs) {
+        if (cachedBlockingObstacle != null && (!cachedBlockingObstacle.isAlive() || !isAttackableObstacle(cachedBlockingObstacle))) {
+            cachedBlockingObstacle = null;
+        }
+        if (cachedBlockingObstacle != null
+                && distance(cachedBlockingObstacle.getCenterX(), cachedBlockingObstacle.getCenterY(), getCenterX(), getCenterY())
+                <= Math.max(1, OBSTACLE_NEARBY_RADIUS_TILES) * navigationContext.getTileWidth() * 2.5) {
+            return cachedBlockingObstacle;
+        }
+        if (navigationContext == null || nowNs < nextObstacleSearchAtNs || !expensiveNavigationAllowed) {
             return null;
         }
         nextObstacleSearchAtNs = nowNs + OBSTACLE_SEARCH_RETRY_NS + (long) (random.nextDouble() * 300_000_000L);
-        return navigationContext.findBlockingObstacle(this, targetX, targetY, OBSTACLE_RAY_TILES, OBSTACLE_NEARBY_RADIUS_TILES);
+        cachedBlockingObstacle = navigationContext.findBlockingObstacle(this, targetX, targetY, OBSTACLE_RAY_TILES, OBSTACLE_NEARBY_RADIUS_TILES);
+        return cachedBlockingObstacle;
     }
 
     private boolean moveToward(double targetX, double targetY, double worldWidth, double worldHeight) {
@@ -1765,12 +1888,16 @@ public class WolfEnemy extends Enemy {
         activeBuildTarget = null;
         activeResourceTarget = null;
         escapeObstacleTarget = null;
+        cachedEscapeObstacle = null;
+        cachedBlockingObstacle = null;
+        siegeMode = false;
     }
 
     private void clearObstacleFocus() {
         activeBuildTarget = null;
         activeResourceTarget = null;
         escapeObstacleTarget = null;
+        cachedEscapeObstacle = null;
         clearPath();
     }
 
@@ -1787,6 +1914,7 @@ public class WolfEnemy extends Enemy {
             escapeObstacleTarget = null;
             activeBuildTarget = null;
             activeResourceTarget = null;
+            cachedEscapeObstacle = null;
             return;
         }
         if (escapeObstacleTarget.isBuildObject()) {
@@ -1794,6 +1922,24 @@ public class WolfEnemy extends Enemy {
             return;
         }
         runTowardResourceTarget(escapeObstacleTarget.resourceNode(), nowNs, worldWidth, worldHeight);
+    }
+
+    private void cacheDirectPathProbe(long nowNs,
+                                      double originX,
+                                      double originY,
+                                      double targetX,
+                                      double targetY,
+                                      boolean result) {
+        lastDirectPathCheckAtNs = nowNs;
+        lastDirectPathOriginX = originX;
+        lastDirectPathOriginY = originY;
+        lastDirectPathProbeTargetX = targetX;
+        lastDirectPathProbeTargetY = targetY;
+        lastDirectPathResult = result;
+    }
+
+    private boolean isAttackableObstacle(BuildObject object) {
+        return object != null && object.isAlive();
     }
 
     private void setDesiredMove(double dx, double dy) {

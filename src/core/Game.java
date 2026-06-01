@@ -128,6 +128,7 @@ public class Game {
     private static final int GOLEM_MAX_ALIVE = 2;
     private static final int MAX_PATH_REQUESTS_PER_FRAME = 3;
     private static final int MAX_WAVE_SPAWNS_PER_FRAME = 2;
+    private static final int MAX_FULL_NAV_ENEMIES_PER_FRAME = 3;
     private static final BuildType[] ATTACKABLE_WALL_TYPES = {
             BuildType.FENCE,
             BuildType.WOOD_WALL,
@@ -210,6 +211,7 @@ public class Game {
     private double worldWidth;
     private double worldHeight;
     private int lastBuildObjectCount;
+    private long navigationBatchFrame;
 
     private final Random random;
 
@@ -409,6 +411,7 @@ public class Game {
         this.perfRenderNs = 0L;
         this.gameOverReason = GameOverReason.PLAYER_DIED;
         this.selectedHotbarIndex = 0;
+        this.navigationBatchFrame = 0L;
         this.hasLoadedSaveSnapshot = false;
         this.pendingStartFreshWorld = false;
         this.cameraShakeUntilNs = 0L;
@@ -2034,8 +2037,10 @@ public class Game {
         if (debugCollisionOverlayEnabled) {
             enemyAiDebug.flush(now, enemies.size());
         }
-        wolfSpawnManager.updateAll(now, dayNightManager.isNight(now), player, baseCamp, debugCollisionOverlayEnabled, worldWidth, worldHeight);
         List<Enemy> dead = new ArrayList<>();
+        int hostileIndex = 0;
+        int hostileCount = countHostileEnemiesForNavigation();
+        int navigationStride = Math.max(1, (int) Math.ceil(hostileCount / (double) MAX_FULL_NAV_ENEMIES_PER_FRAME));
         for (Enemy enemy : enemies) {
             if (enemy == null) {
                 continue;
@@ -2045,9 +2050,14 @@ public class Game {
                 dead.add(enemy);
                 continue;
             }
+            boolean allowExpensiveNavigation = !enemy.isHostile()
+                    || shouldRunFullNavigationThisFrame(hostileIndex, navigationStride);
+            if (enemy.isHostile()) {
+                hostileIndex++;
+            }
             if (enemy instanceof GolemEnemy golemEnemy) {
                 golemEnemy.setDebugEnabled(debugCollisionOverlayEnabled);
-                golemEnemy.updateAi(now, baseCamp, player, friendlyArcherManager.getArchers(), worldWidth, worldHeight);
+                golemEnemy.updateAi(now, baseCamp, player, friendlyArcherManager.getArchers(), worldWidth, worldHeight, allowExpensiveNavigation);
                 int baseHpBefore = baseCamp.getHp();
                 if (golemEnemy.applyAttackIfReady(now)) {
                     if (golemEnemy.getCurrentTarget() instanceof BaseCamp) {
@@ -2077,6 +2087,9 @@ public class Game {
                 continue;
             }
             if (enemy instanceof WolfEnemy) {
+                WolfEnemy wolfEnemy = (WolfEnemy) enemy;
+                wolfEnemy.setDebugEnabled(debugCollisionOverlayEnabled);
+                wolfEnemy.updateBehavior(now, dayNightManager.isNight(now), player, baseCamp, worldWidth, worldHeight, allowExpensiveNavigation);
                 if (enemy.shouldRemoveFromWorld()) {
                     handleEnemyDeathDrops(enemy);
                     dead.add(enemy);
@@ -2118,6 +2131,7 @@ public class Game {
             enemies.removeAll(dead);
         }
         wolfSpawnManager.cleanupRemoved();
+        navigationBatchFrame++;
     }
 
     private void updateArcherTowers(long now) {
@@ -2155,6 +2169,24 @@ public class Game {
                 System.out.println("ArcherTower attack enemy id " + System.identityHashCode(target));
             }
         }
+    }
+
+    private int countHostileEnemiesForNavigation() {
+        int count = 0;
+        for (Enemy enemy : enemies) {
+            if (enemy != null && enemy.isHostile() && enemy.isAlive() && !enemy.shouldRemoveFromWorld()) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private boolean shouldRunFullNavigationThisFrame(int hostileIndex, int navigationStride) {
+        if (navigationStride <= 1) {
+            return true;
+        }
+        long offset = Math.floorMod(navigationBatchFrame, navigationStride);
+        return hostileIndex % navigationStride == offset;
     }
 
     private void updateFriendlyArchers(long now) {
@@ -2593,12 +2625,13 @@ public class Game {
             }
         }
 
-        for (ResourceNode resource : resourceManager.getAliveResources()) {
+        for (ResourceNode resource : resourceManager.getAliveResourcesInWorldRect(
+                enemyCenterX - radius,
+                enemyCenterY - radius,
+                radius * 2.0,
+                radius * 2.0
+        )) {
             if (resource == null || !isBreakableEscapeResource(enemy, resource)) {
-                continue;
-            }
-            if (Math.abs(resource.getCenterX() - enemyCenterX) > radius + resource.getCollisionWidth()
-                    || Math.abs(resource.getCenterY() - enemyCenterY) > radius + resource.getCollisionHeight()) {
                 continue;
             }
             double typePenalty = resource.getResourceType() == ResourceType.ROCK && enemy instanceof WolfEnemy ? 28.0 : 0.0;
@@ -3322,15 +3355,6 @@ public class Game {
                 || buildCollisionManager.isBlockedByWater(collisionX, collisionY, collisionWidth, collisionHeight)) {
             return false;
         }
-        for (FriendlyArcher archer : friendlyArcherManager.getArchers()) {
-            if (archer == null || !archer.isAlive()) {
-                continue;
-            }
-            if (CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
-                    archer.getCollisionX(), archer.getCollisionY(), archer.getCollisionWidth(), archer.getCollisionHeight())) {
-                return false;
-            }
-        }
         return true;
     }
 
@@ -3364,24 +3388,6 @@ public class Game {
         }
         if (intersectsPlacedBuildObjectFast(collisionX, collisionY, collisionWidth, collisionHeight)) {
             return false;
-        }
-        for (Enemy enemy : enemies) {
-            if (enemy == null || !enemy.isAlive()) {
-                continue;
-            }
-            if (CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
-                    enemy.getCollisionX(), enemy.getCollisionY(), enemy.getCollisionWidth(), enemy.getCollisionHeight())) {
-                return false;
-            }
-        }
-        for (FriendlyArcher other : friendlyArcherManager.getArchers()) {
-            if (other == null || other == archer || !other.isAlive()) {
-                continue;
-            }
-            if (CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
-                    other.getCollisionX(), other.getCollisionY(), other.getCollisionWidth(), other.getCollisionHeight())) {
-                return false;
-            }
         }
         return true;
     }
@@ -3448,28 +3454,6 @@ public class Game {
                 || buildCollisionManager.isBlockedByWater(collisionX, collisionY, collisionWidth, collisionHeight)) {
             return false;
         }
-        if (CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
-                player.getCollisionX(), player.getCollisionY(), player.getCollisionWidth(), player.getCollisionHeight())) {
-            return false;
-        }
-        for (FriendlyArcher archer : friendlyArcherManager.getArchers()) {
-            if (archer == null || !archer.isAlive()) {
-                continue;
-            }
-            if (CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
-                    archer.getCollisionX(), archer.getCollisionY(), archer.getCollisionWidth(), archer.getCollisionHeight())) {
-                return false;
-            }
-        }
-        for (Enemy other : enemies) {
-            if (other == null || other == enemy || other.shouldRemoveFromWorld() || !other.isAlive()) {
-                continue;
-            }
-            if (CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
-                    other.getCollisionX(), other.getCollisionY(), other.getCollisionWidth(), other.getCollisionHeight())) {
-                return false;
-            }
-        }
         return true;
     }
 
@@ -3518,34 +3502,11 @@ public class Game {
         if (collisionX < 0 || collisionY < 0 || collisionX + collisionWidth > worldWidth || collisionY + collisionHeight > worldHeight) {
             return false;
         }
-        if (player != null && player.isAlive()
-                && CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
-                player.getCollisionX(), player.getCollisionY(), player.getCollisionWidth(), player.getCollisionHeight())) {
-            return false;
-        }
         if (buildCollisionManager.isBlockedByStaticObjects(collisionX, collisionY, collisionWidth, collisionHeight)
                 || buildCollisionManager.isBlockedByTerrain(collisionX, collisionY, collisionWidth, collisionHeight)
                 || buildCollisionManager.isBlockedByWater(collisionX, collisionY, collisionWidth, collisionHeight)
                 || intersectsPlacedBuildObjectFast(collisionX, collisionY, collisionWidth, collisionHeight)) {
             return false;
-        }
-        for (Enemy other : enemies) {
-            if (other == null || other == enemy || !other.isAlive() || other.shouldRemoveFromWorld()) {
-                continue;
-            }
-            if (CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
-                    other.getCollisionX(), other.getCollisionY(), other.getCollisionWidth(), other.getCollisionHeight())) {
-                return false;
-            }
-        }
-        for (FriendlyArcher archer : friendlyArcherManager.getArchers()) {
-            if (archer == null || !archer.isAlive()) {
-                continue;
-            }
-            if (CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
-                    archer.getCollisionX(), archer.getCollisionY(), archer.getCollisionWidth(), archer.getCollisionHeight())) {
-                return false;
-            }
         }
         return true;
     }
@@ -3564,34 +3525,11 @@ public class Game {
         if (intersectsBaseCampCollision(collisionX, collisionY, collisionWidth, collisionHeight)) {
             return false;
         }
-        if (player != null && player.isAlive()
-                && CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
-                player.getCollisionX(), player.getCollisionY(), player.getCollisionWidth(), player.getCollisionHeight())) {
-            return false;
-        }
         if (buildCollisionManager.isBlockedByStaticObjects(collisionX, collisionY, collisionWidth, collisionHeight)
                 || buildCollisionManager.isBlockedByTerrain(collisionX, collisionY, collisionWidth, collisionHeight)
                 || buildCollisionManager.isBlockedByWater(collisionX, collisionY, collisionWidth, collisionHeight)
                 || intersectsPlacedBuildObjectFast(collisionX, collisionY, collisionWidth, collisionHeight)) {
             return false;
-        }
-        for (Enemy other : enemies) {
-            if (other == null || other == enemy || !other.isAlive() || other.shouldRemoveFromWorld()) {
-                continue;
-            }
-            if (CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
-                    other.getCollisionX(), other.getCollisionY(), other.getCollisionWidth(), other.getCollisionHeight())) {
-                return false;
-            }
-        }
-        for (FriendlyArcher archer : friendlyArcherManager.getArchers()) {
-            if (archer == null || !archer.isAlive()) {
-                continue;
-            }
-            if (CollisionSystem.intersects(collisionX, collisionY, collisionWidth, collisionHeight,
-                    archer.getCollisionX(), archer.getCollisionY(), archer.getCollisionWidth(), archer.getCollisionHeight())) {
-                return false;
-            }
         }
         return true;
     }

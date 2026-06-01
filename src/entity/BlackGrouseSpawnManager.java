@@ -4,7 +4,6 @@ import buildsystem.core.BuildManager;
 import buildsystem.core.CollisionManager;
 import buildsystem.object.BuildObject;
 import map.MapData;
-import system.CollisionSystem;
 
 import java.util.Collection;
 import java.util.List;
@@ -107,10 +106,6 @@ public class BlackGrouseSpawnManager {
             return false;
         }
 
-        if (CollisionSystem.intersects(x, y, width, height, player.getX(), player.getY(), player.getWidth(), player.getHeight())) {
-            return false;
-        }
-
         double minDistance = Math.max(tileWidth(), tileHeight()) * MIN_PLAYER_DISTANCE_TILES;
         double dx = (x + width * 0.5) - player.getCenterX();
         double dy = (y + height * 0.5) - player.getCenterY();
@@ -118,14 +113,6 @@ public class BlackGrouseSpawnManager {
             return false;
         }
 
-        for (Enemy other : activeEnemies) {
-            if (other == null || other == enemy || !other.isAlive()) {
-                continue;
-            }
-            if (CollisionSystem.intersects(x, y, width, height, other.getX(), other.getY(), other.getWidth(), other.getHeight())) {
-                return false;
-            }
-        }
         return true;
     }
 
