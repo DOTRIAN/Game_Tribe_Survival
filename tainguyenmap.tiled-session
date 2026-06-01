@@ -1,10 +1,10 @@
 {
     "activeFile": "assets/Map_Game/mapdep.tmx",
     "expandedProjectPaths": [
-        "assets/maps",
-        "assets/Map_Game",
         ".",
-        "assets"
+        "assets",
+        "assets/maps",
+        "assets/Map_Game"
     ],
     "file.lastUsedOpenFilter": "All Files (*)",
     "fileStates": {
@@ -89,11 +89,11 @@
             "scaleInDock": 0.25
         },
         "assets/Map_Game/mapdep.tmx": {
-            "scale": 1.5,
+            "scale": 2,
             "selectedLayer": 1,
             "viewCenter": {
-                "x": 899.9999999999999,
-                "y": 674.6666666666666
+                "x": 1617,
+                "y": 853.5
             }
         },
         "assets/Map_Game/mapdep.tmx#Rocks_source_no_shadow": {

@@ -11,11 +11,6 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 
-/**
- * HudOverlay:
- * - Redesigned survival status overlay in the top-left corner.
- * - Displays character name, compact status bars (HP, Energy, XP), level, and a styled quick Shop button.
- */
 public class HudOverlay extends VBox {
     private final Label nameLabel;
     private final ProgressBar hpBar;
@@ -26,6 +21,8 @@ public class HudOverlay extends VBox {
     private final Label xpLabel;
     private final Label levelLabel;
     private final Button shopButton;
+    private final Label energyIconLabel;
+    private boolean bossMode;
 
     public HudOverlay() {
         getStyleClass().add("hud-panel");
@@ -56,12 +53,12 @@ public class HudOverlay extends VBox {
         xpLabel.setStyle("-fx-font-size: 11px;");
         levelLabel.setStyle("-fx-font-weight: bold; -fx-text-fill: #eecf97; -fx-font-size: 13px;");
 
-        Label hpIcon = createStatIcon("❤");
-        Label energyIcon = createStatIcon("⚡");
-        Label xpIcon = createStatIcon("✦");
+        Label hpIcon = createStatIcon("HP");
+        this.energyIconLabel = createStatIcon("EN");
+        Label xpIcon = createStatIcon("XP");
 
         HBox hpRow = buildBarRow(hpIcon, hpBar, hpLabel, "hp-row");
-        HBox energyRow = buildBarRow(energyIcon, energyBar, energyLabel, "energy-row");
+        HBox energyRow = buildBarRow(energyIconLabel, energyBar, energyLabel, "energy-row");
         HBox xpRow = buildBarRow(xpIcon, xpBar, xpLabel, "xp-row");
 
         HBox footerRow = new HBox(8);
@@ -71,6 +68,7 @@ public class HudOverlay extends VBox {
 
         this.shopButton = new Button("Shop");
         shopButton.getStyleClass().add("overlay-small-button");
+        this.bossMode = false;
 
         footerRow.getChildren().addAll(levelLabel, spacer, shopButton);
         getChildren().addAll(nameLabel, hpRow, energyRow, xpRow, footerRow);
@@ -81,10 +79,9 @@ public class HudOverlay extends VBox {
             return;
         }
 
-        // Live name update
         String playerName = player.getPlayerName();
         if (playerName == null || playerName.isBlank()) {
-            nameLabel.setText("SURVIVOR");
+            nameLabel.setText(bossMode ? "BOSS RAID" : "SURVIVOR");
         } else {
             nameLabel.setText(playerName.toUpperCase());
         }
@@ -98,13 +95,20 @@ public class HudOverlay extends VBox {
         xpBar.setProgress(clamp01(xpProgress));
 
         hpLabel.setText("HP " + player.getHp() + "/" + player.getMaxHp());
-        energyLabel.setText("EN " + (int) player.getEnergy() + "/" + (int) player.getMaxEnergy());
+        energyLabel.setText((bossMode ? "MP " : "EN ") + (int) player.getEnergy() + "/" + (int) player.getMaxEnergy());
         xpLabel.setText("XP " + player.getExperience() + "/" + player.getExperienceToNextLevel());
         levelLabel.setText("LV. " + player.getLevel());
+        energyIconLabel.setText(bossMode ? "MP" : "EN");
+        shopButton.setVisible(!bossMode);
+        shopButton.setManaged(!bossMode);
     }
 
     public Button getShopButton() {
         return shopButton;
+    }
+
+    public void setBossMode(boolean bossMode) {
+        this.bossMode = bossMode;
     }
 
     private ProgressBar createBar(String styleClass) {

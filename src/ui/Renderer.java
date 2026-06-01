@@ -148,7 +148,9 @@ public class Renderer {
         overlayLayer.setPickOnBounds(false);
         root.getChildren().addAll(canvas, overlayLayer);
 
-        Scene scene = new Scene(root, 1280, 720);
+        double initialWidth = 1280;
+        double initialHeight = 720;
+        Scene scene = new Scene(root, initialWidth, initialHeight);
         inputHandler.attach(scene);
 
         canvas.widthProperty().bind(root.widthProperty());
@@ -159,8 +161,11 @@ public class Renderer {
         stage.setScene(scene);
         stage.setMinWidth(960);
         stage.setMinHeight(540);
-        stage.setMaximized(true);
+        stage.setWidth(initialWidth);
+        stage.setHeight(initialHeight);
+        stage.setMaximized(false);
         stage.show();
+        stage.centerOnScreen();
         canvas.setFocusTraversable(true);
         canvas.requestFocus();
         stage.focusedProperty().addListener((obs, oldVal, focused) -> {
@@ -203,6 +208,7 @@ public class Renderer {
                        Rectangle2D mapTransitionTrigger,
                        List<ResourceNode> allResources, Map<String, Integer> collectedResources,
                        int selectedHotbarIndex, int stoneWallCount,
+                       boolean bossMode,
                        BuildManager buildManager,
                        List<HotbarItemStack> hotbarItems,
                        List<ArrowProjectile> arrowProjectiles,
@@ -234,6 +240,7 @@ public class Renderer {
                     collectedResources,
                     selectedHotbarIndex,
                     hotbarItems,
+                    bossMode,
                     worldWidth,
                     worldHeight,
                     cameraX,

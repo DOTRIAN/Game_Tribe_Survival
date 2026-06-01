@@ -248,6 +248,7 @@ public class UIManager {
                           Map<String, Integer> inventorySnapshot,
                           int selectedHotbarIndex,
                           List<HotbarItemStack> hotbarItems,
+                          boolean bossMode,
                           double worldWidth,
                           double worldHeight,
                           double cameraX,
@@ -256,6 +257,7 @@ public class UIManager {
                           double viewportWidth,
                           double viewportHeight,
                           List<Enemy> enemies) {
+        hudOverlay.setBossMode(bossMode);
         hudOverlay.update(player);
         resourcePanel.updateResources(inventorySnapshot, itemMetaMap);
         hotbarOverlay.setSelectedIndex(selectedHotbarIndex);

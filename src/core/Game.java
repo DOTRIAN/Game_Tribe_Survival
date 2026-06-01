@@ -1,5 +1,6 @@
 package core;
 
+import boss.BossManager;
 import buildsystem.core.BuildManager;
 import buildsystem.core.BuildMode;
 import buildsystem.core.BuildController;
@@ -177,6 +178,7 @@ public class Game {
     private final List<FireBombBurnZone> fireBombBurnZones;
     private final BombSystem bombSystem;
     private final List<HotbarItemStack> hotbarItems;
+    private final BossManager bossManager;
 
     // Inventory la state gameplay chinh cho he thu thap/craft.
     private final Inventory inventory;
@@ -375,6 +377,7 @@ public class Game {
         this.fireBombBurnZones = new ArrayList<>();
         this.bombSystem = new BombSystem();
         this.hotbarItems = new ArrayList<>();
+        this.bossManager = new BossManager();
         this.inventory = new Inventory();
         this.eventBus = new GameEventBus();
         this.worldSaveService = new WorldSaveService(SURVIVAL_SAVE_FILE);
@@ -728,7 +731,15 @@ public class Game {
                 activeCelebration == null ? null : "Chúc mừng! Mở khóa kỹ năng \"" + activeCelebration.name() + "\"",
                 activeCelebration == null ? null : activeCelebration.attackType()
         );
+        boolean bossMode = mapManager.getCurrentMapType() == MapType.BOSS_MAP;
         String objectiveStatus = buildObjectiveStatusV2(now);
+        double darknessAlpha = bossMode ? 0.0 : dayNightManager.getDarknessAlpha(now);
+        boolean isNight = !bossMode && dayNightManager.isNight(now);
+        String dayNightPhase = bossMode ? "Boss Chamber" : dayNightManager.getScheduleDebugText(now);
+        String timeIcon = bossMode ? "BOSS" : dayNightManager.getTimeIcon(now);
+        String timeTitle = bossMode ? "Final Boss" : dayNightManager.getTimeTitle(now);
+        String timeClock = bossMode ? "" : dayNightManager.getClockText(now);
+        String timeAnnouncement = bossMode ? null : dayNightManager.getAnnouncement(now);
 
         long renderStartNs = System.nanoTime();
         renderer.render(
@@ -757,6 +768,7 @@ public class Game {
                 inventory.snapshot(),
                 selectedHotbarIndex,
                 inventory.getAmount(WOOD_FENCE_ITEM_ID),
+                bossMode,
                 buildManager,
                 hotbarItems,
                 arrowProjectiles,
@@ -769,13 +781,13 @@ public class Game {
                 screenShakeY,
                 screenFlashUntilNs > now ? Math.min(1.0, (screenFlashUntilNs - now) / 180_000_000.0) : 0.0,
                 mapManager.getFadeAlpha(),
-                dayNightManager.getDarknessAlpha(now),
-                dayNightManager.isNight(now),
-                dayNightManager.getScheduleDebugText(now),
-                dayNightManager.getTimeIcon(now),
-                dayNightManager.getTimeTitle(now),
-                dayNightManager.getClockText(now),
-                dayNightManager.getAnnouncement(now),
+                darknessAlpha,
+                isNight,
+                dayNightPhase,
+                timeIcon,
+                timeTitle,
+                timeClock,
+                timeAnnouncement,
                 worldWidth,
                 worldHeight
         );
@@ -822,7 +834,7 @@ public class Game {
         int triggerX = tileWidth * 112;
         int triggerY = tileWidth * 8;
         Rectangle2D bossEntranceTrigger = new Rectangle2D(triggerX, triggerY, tileWidth * 3.0, tileWidth * 6.0);
-        double[] bossSize = readImageSize("assets/Map_Game/Map_Boss.png");
+        double[] bossSize = readImageSize(BossManager.BOSS_MAP_IMAGE_PATH);
         double bossSpawnX = Math.max(32.0, bossSize[0] * 0.5 - player.getWidth() * 0.5);
         double bossSpawnY = Math.max(32.0, bossSize[1] - player.getHeight() - 96.0);
         return new MapManager(
@@ -845,7 +857,7 @@ public class Game {
                         new GameMapDefinition(
                                 MapType.BOSS_MAP,
                                 null,
-                                "assets/Map_Game/Map_Boss.png",
+                                BossManager.BOSS_MAP_IMAGE_PATH,
                                 bossSpawnX,
                                 bossSpawnY,
                                 false,
@@ -987,6 +999,11 @@ public class Game {
             double[] safeSpawn = findNearestSafeSpawn(definition.spawnX(), definition.spawnY());
             player.reset(safeSpawn[0], safeSpawn[1]);
             updateCamera();
+        }
+        bossManager.onMapChanged(definition.type(), worldWidth, worldHeight, enemies);
+        String bossToast = bossManager.consumePendingToast();
+        if (bossToast != null && !bossToast.isBlank()) {
+            renderer.showToast(bossToast);
         }
     }
 
@@ -1570,6 +1587,9 @@ public class Game {
         cleanupExpiredExplosionEffects(now);
         updateScreenImpulse(now);
         long aiStartNs = System.nanoTime();
+        if (mapManager.getCurrentMapType() == MapType.BOSS_MAP) {
+            bossManager.update(now, player, enemies, worldWidth, worldHeight);
+        }
         if (isEnemySpawningEnabled()) {
             updateEnemySpawning(now);
             updateEnemies(now);
@@ -3267,6 +3287,8 @@ public class Game {
         snapshot.put("droppedItems", exportDroppedItems());
 
         if (worldSaveService.save(snapshot)) {
+            hasLoadedSaveSnapshot = true;
+            renderer.setContinueAvailable(true);
             eventBus.publish(new GameEvent(GameEventType.WORLD_SAVED, Map.of("file", SURVIVAL_SAVE_FILE)));
         }
     }
@@ -3927,6 +3949,9 @@ public class Game {
     }
 
     private String buildObjectiveStatusV2(long now) {
+        if (mapManager.getCurrentMapType() == MapType.BOSS_MAP) {
+            return bossManager.buildObjectiveStatus(player);
+        }
         if (!dayOneObjectiveUnlocked) {
             return "";
         }

@@ -4,6 +4,8 @@ import javafx.scene.image.Image;
 import javafx.scene.image.PixelReader;
 import javafx.scene.image.WritableImage;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -114,6 +116,35 @@ public final class SpriteSheetLoader {
     }
 
     private static Image loadSheet(String imagePath) {
-        return SHEET_CACHE.computeIfAbsent(imagePath, Image::new);
+        return SHEET_CACHE.computeIfAbsent(imagePath, SpriteSheetLoader::createImage);
+    }
+
+    private static Image createImage(String imagePath) {
+        if (imagePath == null || imagePath.isBlank()) {
+            return new WritableImage(1, 1);
+        }
+
+        if (looksLikeExternalUrl(imagePath)) {
+            return new Image(imagePath, false);
+        }
+
+        Path localPath = Path.of(imagePath);
+        if (Files.exists(localPath)) {
+            return new Image(localPath.toUri().toString(), false);
+        }
+
+        var resource = SpriteSheetLoader.class.getClassLoader().getResource(imagePath);
+        if (resource != null) {
+            return new Image(resource.toExternalForm(), false);
+        }
+
+        return new Image(imagePath, false);
+    }
+
+    private static boolean looksLikeExternalUrl(String imagePath) {
+        return imagePath.startsWith("file:")
+                || imagePath.startsWith("jar:")
+                || imagePath.startsWith("http:")
+                || imagePath.startsWith("https:");
     }
 }
