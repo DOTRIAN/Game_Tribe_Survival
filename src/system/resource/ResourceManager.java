@@ -271,6 +271,45 @@ public class ResourceManager {
         return Collections.unmodifiableList(alive);
     }
 
+    public List<ResourceNode> getAliveResourcesInWorldRect(double x, double y, double width, double height) {
+        if (width <= 0.0 || height <= 0.0) {
+            return List.of();
+        }
+        rebuildBlockingGridIfNeeded();
+        int minCellX = toCell(x);
+        int maxCellX = toCell(x + width - 0.001);
+        int minCellY = toCell(y);
+        int maxCellY = toCell(y + height - 0.001);
+        List<ResourceNode> nearby = new ArrayList<>();
+        Set<Integer> seenIds = new HashSet<>();
+        for (int cellY = minCellY; cellY <= maxCellY; cellY++) {
+            for (int cellX = minCellX; cellX <= maxCellX; cellX++) {
+                List<ResourceNode> nodes = blockingResourcesByCell.get(cellKey(cellX, cellY));
+                if (nodes == null || nodes.isEmpty()) {
+                    continue;
+                }
+                for (ResourceNode node : nodes) {
+                    if (node == null || !node.isAlive() || !seenIds.add(node.getObjectId())) {
+                        continue;
+                    }
+                    if (node.intersects(x, y, width, height)
+                            || intersectsRect(
+                            x,
+                            y,
+                            width,
+                            height,
+                            node.getCollisionX(),
+                            node.getCollisionY(),
+                            node.getCollisionWidth(),
+                            node.getCollisionHeight())) {
+                        nearby.add(node);
+                    }
+                }
+            }
+        }
+        return nearby;
+    }
+
     /**
      * addGeneratedResource:
      * - Input: resource procedural sinh tu chunk map vo han.
@@ -348,6 +387,14 @@ public class ResourceManager {
             }
         }
         blockingGridDirty = false;
+    }
+
+    private boolean intersectsRect(double ax, double ay, double aw, double ah,
+                                   double bx, double by, double bw, double bh) {
+        return ax < bx + bw
+                && ax + aw > bx
+                && ay < by + bh
+                && ay + ah > by;
     }
 
     private int toCell(double value) {

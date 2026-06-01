@@ -30,7 +30,7 @@ public class WallJumperEnemy extends Enemy {
     private static final long DEATH_FRAME_NS = 110_000_000L;
     private static final long SPAWN_DELAY_NS = 80_000_000L;
     private static final long ATTACK_COOLDOWN_NS = 1_000_000_000L;
-    private static final double MOVE_SPEED = 1.20;
+    private static final double MOVE_SPEED = 2.40;
     private static final double ATTACK_RANGE_PADDING = 18.0;
     private static final int MAX_HP = 14;
     private static final int BASE_DAMAGE = 2;

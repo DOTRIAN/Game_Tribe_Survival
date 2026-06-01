@@ -8,6 +8,7 @@ import javafx.geometry.Point2D;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.image.Image;
 import javafx.scene.paint.Color;
+import system.MovementSlideSystem;
 import system.resource.ResourceNode;
 
 import java.nio.file.Files;
@@ -71,6 +72,9 @@ public class GolemEnemy extends Enemy {
     private static final long STUCK_WAIT_NS = 300_000_000L;
     private static final long STUCK_TRIGGER_NS = 700_000_000L;
     private static final long OBSTACLE_SEARCH_RETRY_NS = 500_000_000L;
+    private static final long ESCAPE_OBSTACLE_SEARCH_RETRY_NS = 420_000_000L;
+    private static final long DIRECT_PATH_SUCCESS_CACHE_NS = 220_000_000L;
+    private static final long DIRECT_PATH_FAIL_CACHE_NS = 650_000_000L;
     private static final long STUCK_SAMPLE_NS = 700_000_000L;
     private static final double STUCK_MOVE_EPSILON = 1.8;
     private static final double LOCAL_ESCAPE_DISTANCE = 30.0;
@@ -98,6 +102,7 @@ public class GolemEnemy extends Enemy {
     private static final double ATTACK_HITBOX_HEIGHT = 22.0;
     private static final double ATTACK_FORWARD_GAP = 1.0;
     private static final double ATTACK_TARGET_OVERLAP = 4.0;
+    private static final int MAX_DIRECT_PATH_SAMPLES = 6;
 
     private final SpriteAnimation attackingAnimation;
     private final SpriteAnimation dyingAnimation;
@@ -142,6 +147,18 @@ public class GolemEnemy extends Enemy {
     private boolean attackDamageAppliedThisCycle;
     private boolean pendingPathRequest;
     private boolean lastPathFailed;
+    private long currentUpdateNowNs;
+    private boolean expensiveNavigationAllowed;
+    private long lastDirectPathCheckAtNs;
+    private double lastDirectPathOriginX;
+    private double lastDirectPathOriginY;
+    private double lastDirectPathProbeTargetX;
+    private double lastDirectPathProbeTargetY;
+    private boolean lastDirectPathResult;
+    private long nextEscapeObstacleSearchAtNs;
+    private BuildObject cachedBlockingObstacle;
+    private EnemyObstacleTarget cachedEscapeObstacle;
+    private boolean siegeMode;
 
     public GolemEnemy(double x, double y, MovementValidator movementValidator, EnemyNavigationContext navigationContext) {
         this(x, y, movementValidator, navigationContext, GolemMode.NORMAL);
@@ -208,6 +225,18 @@ public class GolemEnemy extends Enemy {
         this.attackDamageAppliedThisCycle = false;
         this.pendingPathRequest = false;
         this.lastPathFailed = false;
+        this.currentUpdateNowNs = 0L;
+        this.expensiveNavigationAllowed = true;
+        this.lastDirectPathCheckAtNs = Long.MIN_VALUE;
+        this.lastDirectPathOriginX = Double.NaN;
+        this.lastDirectPathOriginY = Double.NaN;
+        this.lastDirectPathProbeTargetX = Double.NaN;
+        this.lastDirectPathProbeTargetY = Double.NaN;
+        this.lastDirectPathResult = false;
+        this.nextEscapeObstacleSearchAtNs = 0L;
+        this.cachedBlockingObstacle = null;
+        this.cachedEscapeObstacle = null;
+        this.siegeMode = false;
     }
 
     public static void preloadAssets() {
@@ -221,6 +250,18 @@ public class GolemEnemy extends Enemy {
     }
 
     public void updateAi(long nowNs, BaseCamp baseCamp, Player player, Iterable<FriendlyArcher> friendlies, double worldWidth, double worldHeight) {
+        updateAi(nowNs, baseCamp, player, friendlies, worldWidth, worldHeight, true);
+    }
+
+    public void updateAi(long nowNs,
+                         BaseCamp baseCamp,
+                         Player player,
+                         Iterable<FriendlyArcher> friendlies,
+                         double worldWidth,
+                         double worldHeight,
+                         boolean allowExpensiveNavigation) {
+        currentUpdateNowNs = nowNs;
+        expensiveNavigationAllowed = allowExpensiveNavigation;
         if (removeFromWorld) {
             return;
         }
@@ -275,8 +316,9 @@ public class GolemEnemy extends Enemy {
 
         BuildObject wall = findBlockingObstacleThrottled(baseCamp.getCenterX(), baseCamp.getCenterY(), nowNs);
         if (wall != null) {
+            siegeMode = true;
             currentBuildTarget = wall;
-            aiState = EnemyAiState.MOVE_TO_OBSTACLE;
+            aiState = EnemyAiState.BREAK_FENCE;
             clearPath();
             updateBuildTarget(nowNs, baseCamp, worldWidth, worldHeight);
             return;
@@ -514,7 +556,8 @@ public class GolemEnemy extends Enemy {
         }
         boolean moved;
         if (target instanceof BaseCamp) {
-            moved = followFlowFieldToBase((BaseCamp) target, nowNs, worldWidth, worldHeight);
+            siegeMode = true;
+            moved = followDirectSiegeToBase((BaseCamp) target, nowNs, worldWidth, worldHeight);
         } else {
             Point2D approach = selectEntityApproachPoint(target);
             moved = followPathToPoint(approach.getX(), approach.getY(), nowNs, worldWidth, worldHeight);
@@ -522,7 +565,8 @@ public class GolemEnemy extends Enemy {
         if (!moved && target instanceof BaseCamp && navigationContext != null) {
             currentBuildTarget = findBlockingObstacleThrottled(target.getCenterX(), target.getCenterY(), nowNs);
             if (currentBuildTarget != null) {
-                aiState = EnemyAiState.MOVE_TO_OBSTACLE;
+                siegeMode = true;
+                aiState = EnemyAiState.BREAK_FENCE;
                 clearPath();
                 updateBuildTarget(nowNs, target, worldWidth, worldHeight);
                 return;
@@ -547,10 +591,12 @@ public class GolemEnemy extends Enemy {
         }
 
         state = State.CHASE_TARGET;
-        aiState = EnemyAiState.MOVE_TO_OBSTACLE;
+        aiState = siegeMode ? EnemyAiState.BREAK_FENCE : EnemyAiState.MOVE_TO_OBSTACLE;
         Point2D approach = selectBuildApproachPoint(currentBuildTarget);
-        boolean moved = followPathToPoint(approach.getX(), approach.getY(), nowNs, worldWidth, worldHeight);
-        if (!moved && canMoveDirectlyTo(approach.getX(), approach.getY())) {
+        boolean moved = siegeMode
+                ? attemptDirectSiegeMovement(approach.getX(), approach.getY(), worldWidth, worldHeight)
+                : followPathToPoint(approach.getX(), approach.getY(), nowNs, worldWidth, worldHeight);
+        if (!siegeMode && !moved && canMoveDirectlyTo(approach.getX(), approach.getY())) {
             moveToward(approach.getX(), approach.getY(), worldWidth, worldHeight);
         }
         walkingAnimation.update(nowNs, true);
@@ -571,7 +617,7 @@ public class GolemEnemy extends Enemy {
         }
 
         state = State.CHASE_TARGET;
-        aiState = EnemyAiState.MOVE_TO_OBSTACLE;
+        aiState = siegeMode ? EnemyAiState.BREAK_FENCE : EnemyAiState.MOVE_TO_OBSTACLE;
         Point2D approach = selectResourceApproachPoint(currentResourceTarget);
         boolean moved = followPathToPoint(approach.getX(), approach.getY(), nowNs, worldWidth, worldHeight);
         if (!moved && canMoveDirectlyTo(approach.getX(), approach.getY())) {
@@ -601,6 +647,9 @@ public class GolemEnemy extends Enemy {
         currentBuildTarget = null;
         currentResourceTarget = null;
         escapeObstacleTarget = null;
+        cachedBlockingObstacle = null;
+        cachedEscapeObstacle = null;
+        siegeMode = false;
         clearPath();
         state = State.IDLE;
         aiState = EnemyAiState.IDLE;
@@ -808,30 +857,22 @@ public class GolemEnemy extends Enemy {
             navigationContext.recordStuck(getEnemyType());
         }
         aiState = EnemyAiState.STUCK_RECOVERY;
-        if (navigationContext != null && (blockedDirections >= 2 || blockedCount >= 2)) {
-            EnemyObstacleTarget escapeTarget = navigationContext.findEscapeObstacle(this, desiredMoveDirX, desiredMoveDirY, 3);
-            if (escapeTarget != null) {
-                escapeObstacleTarget = escapeTarget;
-                currentTarget = null;
-                currentBuildTarget = escapeTarget.buildObject();
-                currentResourceTarget = escapeTarget.resourceNode();
-                aiState = EnemyAiState.MOVE_TO_OBSTACLE;
-                waitUntilNs = 0L;
-                return;
-            }
+        if (currentTarget instanceof BaseCamp) {
+            siegeMode = true;
         }
         if (chooseOrderedEscapeWaypoint(targetX, targetY)) {
             waitUntilNs = 0L;
             return;
         }
         if (navigationContext != null) {
-            EnemyObstacleTarget escapeTarget = navigationContext.findEscapeObstacle(this, desiredMoveDirX, desiredMoveDirY, 3);
-            if (escapeTarget != null) {
-                escapeObstacleTarget = escapeTarget;
+            BuildObject obstacle = findBlockingObstacleThrottled(targetX, targetY, nowNs);
+            if (obstacle != null) {
+                siegeMode = true;
+                escapeObstacleTarget = EnemyObstacleTarget.forBuild(obstacle);
                 currentTarget = null;
-                currentBuildTarget = escapeTarget.buildObject();
-                currentResourceTarget = escapeTarget.resourceNode();
-                aiState = EnemyAiState.MOVE_TO_OBSTACLE;
+                currentBuildTarget = obstacle;
+                currentResourceTarget = null;
+                aiState = EnemyAiState.BREAK_FENCE;
                 waitUntilNs = 0L;
                 return;
             }
@@ -964,6 +1005,9 @@ public class GolemEnemy extends Enemy {
     }
 
     private boolean shouldRequestPath(double targetX, double targetY, long nowNs) {
+        if (!expensiveNavigationAllowed) {
+            return false;
+        }
         if (pendingPathRequest || navigationContext == null || nowNs < nextPathAllowedAtNs) {
             return false;
         }
@@ -1013,6 +1057,9 @@ public class GolemEnemy extends Enemy {
         if (!result.success()) {
             lastPathFailed = true;
             pathFailCount++;
+            if (currentTarget instanceof BaseCamp && pathFailCount >= 2) {
+                siegeMode = true;
+            }
             nextPathAllowedAtNs = nowNs + PATH_FAIL_RETRY_NS;
             return;
         }
@@ -1022,6 +1069,9 @@ public class GolemEnemy extends Enemy {
         lastPathTargetY = result.targetY();
         pathFailCount = 0;
         lastPathFailed = false;
+        if (currentTarget instanceof BaseCamp && currentBuildTarget == null && currentResourceTarget == null) {
+            siegeMode = false;
+        }
     }
 
     private boolean followFlowFieldToBase(BaseCamp baseCamp, long nowNs, double worldWidth, double worldHeight) {
@@ -1032,6 +1082,72 @@ public class GolemEnemy extends Enemy {
         return followPathToPoint(baseCamp.getCenterX(), baseCamp.getCenterY(), nowNs, worldWidth, worldHeight);
     }
 
+    private boolean followDirectSiegeToBase(BaseCamp baseCamp, long nowNs, double worldWidth, double worldHeight) {
+        currentTarget = baseCamp;
+        currentBuildTarget = null;
+        currentResourceTarget = null;
+        state = State.WALKING_TO_BASE;
+        aiState = EnemyAiState.DIRECT_SIEGE_TO_BASE;
+        clearPath();
+        setDesiredMove(baseCamp.getCenterX() - getCenterX(), baseCamp.getCenterY() - getCenterY());
+        if (!expensiveNavigationAllowed) {
+            if (canUseCachedDirectStep(nowNs, baseCamp.getCenterX(), baseCamp.getCenterY())) {
+                return moveToward(baseCamp.getCenterX(), baseCamp.getCenterY(), worldWidth, worldHeight);
+            }
+            return false;
+        }
+        if (attemptDirectSiegeMovement(baseCamp.getCenterX(), baseCamp.getCenterY(), worldWidth, worldHeight)) {
+            blockedSinceNs = 0L;
+            blockedCount = 0;
+            blockedDirections = 0;
+            stuckTimerNs = 0L;
+            waitUntilNs = 0L;
+            updateStuckSample(nowNs);
+            return true;
+        }
+        if (blockedSinceNs == 0L) {
+            blockedSinceNs = nowNs;
+        }
+        BuildObject obstacle = findBlockingObstacleThrottled(baseCamp.getCenterX(), baseCamp.getCenterY(), nowNs);
+        if (obstacle != null) {
+            siegeMode = true;
+            currentTarget = null;
+            currentBuildTarget = obstacle;
+            escapeObstacleTarget = EnemyObstacleTarget.forBuild(obstacle);
+            aiState = EnemyAiState.BREAK_FENCE;
+            waitUntilNs = 0L;
+            return false;
+        }
+        if (chooseOrderedEscapeWaypoint(baseCamp.getCenterX(), baseCamp.getCenterY())) {
+            waitUntilNs = 0L;
+            return false;
+        }
+        if (moveBackwardStep(worldWidth, worldHeight)) {
+            waitUntilNs = nowNs + 80_000_000L;
+            return true;
+        }
+        if (nowNs - blockedSinceNs >= STUCK_TRIGGER_NS) {
+            BuildObject forcedObstacle = findBlockingObstacleThrottled(baseCamp.getCenterX(), baseCamp.getCenterY(), nowNs);
+            if (forcedObstacle != null) {
+                siegeMode = true;
+                currentTarget = null;
+                currentBuildTarget = forcedObstacle;
+                escapeObstacleTarget = EnemyObstacleTarget.forBuild(forcedObstacle);
+                aiState = EnemyAiState.BREAK_FENCE;
+                waitUntilNs = 0L;
+            }
+        }
+        waitUntilNs = nowNs + STUCK_WAIT_NS;
+        return false;
+    }
+
+    private boolean canUseCachedDirectStep(long nowNs, double targetX, double targetY) {
+        return lastDirectPathResult
+                && !Double.isNaN(lastDirectPathProbeTargetX)
+                && nowNs - lastDirectPathCheckAtNs <= DIRECT_PATH_SUCCESS_CACHE_NS
+                && distance(lastDirectPathProbeTargetX, lastDirectPathProbeTargetY, targetX, targetY) <= DIRECT_TARGET_RECALC_DISTANCE;
+    }
+
     private long randomizedPathCooldownNs(boolean failed) {
         if (failed) {
             return PATH_FAIL_RETRY_NS;
@@ -1040,32 +1156,124 @@ public class GolemEnemy extends Enemy {
     }
 
     private BuildObject findBlockingObstacleThrottled(double targetX, double targetY, long nowNs) {
-        if (navigationContext == null || nowNs < nextObstacleSearchAtNs) {
+        if (cachedBlockingObstacle != null && (!cachedBlockingObstacle.isAlive())) {
+            cachedBlockingObstacle = null;
+        }
+        if (cachedBlockingObstacle != null
+                && distance(cachedBlockingObstacle.getCenterX(), cachedBlockingObstacle.getCenterY(), getCenterX(), getCenterY())
+                <= Math.max(1, OBSTACLE_NEARBY_RADIUS_TILES) * navigationContext.getTileWidth() * 2.5) {
+            return cachedBlockingObstacle;
+        }
+        if (navigationContext == null || nowNs < nextObstacleSearchAtNs || !expensiveNavigationAllowed) {
             return null;
         }
         nextObstacleSearchAtNs = nowNs + OBSTACLE_SEARCH_RETRY_NS + (long) (Math.random() * 300_000_000L);
-        return navigationContext.findBlockingObstacle(this, targetX, targetY, OBSTACLE_RAY_TILES, OBSTACLE_NEARBY_RADIUS_TILES);
+        cachedBlockingObstacle = navigationContext.findBlockingObstacle(this, targetX, targetY, OBSTACLE_RAY_TILES, OBSTACLE_NEARBY_RADIUS_TILES);
+        return cachedBlockingObstacle;
     }
 
     private boolean canMoveDirectlyTo(double targetX, double targetY) {
-        if (movementValidator == null) {
+        if (movementValidator == null && navigationContext == null) {
             return true;
+        }
+        long nowNs = currentUpdateNowNs > 0L ? currentUpdateNowNs : System.nanoTime();
+        double originX = getCenterX();
+        double originY = getCenterY();
+        boolean sameProbe = !Double.isNaN(lastDirectPathProbeTargetX)
+                && distance(lastDirectPathProbeTargetX, lastDirectPathProbeTargetY, targetX, targetY) <= DIRECT_TARGET_RECALC_DISTANCE * 0.5
+                && distance(lastDirectPathOriginX, lastDirectPathOriginY, originX, originY) <= PATH_POINT_REACHED;
+        long cacheWindowNs = lastDirectPathResult ? DIRECT_PATH_SUCCESS_CACHE_NS : DIRECT_PATH_FAIL_CACHE_NS;
+        if (sameProbe && nowNs - lastDirectPathCheckAtNs <= cacheWindowNs) {
+            return lastDirectPathResult;
+        }
+        if (!expensiveNavigationAllowed && lastDirectPathCheckAtNs != Long.MIN_VALUE) {
+            return sameProbe && lastDirectPathResult;
         }
         double dx = targetX - getCenterX();
         double dy = targetY - getCenterY();
         double distance = Math.sqrt(dx * dx + dy * dy);
         if (distance <= speed + 0.001) {
+            cacheDirectPathProbe(nowNs, originX, originY, targetX, targetY, true);
             return true;
         }
         double step = Math.max(8.0, Math.min(18.0, Math.max(getCollisionWidth(), getCollisionHeight()) * 0.8));
-        int samples = Math.max(1, (int) Math.ceil(distance / step));
+        int samples = Math.min(MAX_DIRECT_PATH_SAMPLES, Math.max(1, (int) Math.ceil(distance / step)));
         for (int i = 1; i <= samples; i++) {
             double t = i / (double) samples;
-            if (!canStandCenteredAt(getCenterX() + dx * t, getCenterY() + dy * t)) {
+            double centerX = getCenterX() + dx * t;
+            double centerY = getCenterY() + dy * t;
+            double candidateX = centerX - width * 0.5;
+            double candidateY = centerY - height * 0.5;
+            boolean canOccupy = navigationContext != null
+                    ? navigationContext.canPathOccupy(this, candidateX, candidateY, width, height)
+                    : canStandCenteredAt(centerX, centerY);
+            if (!canOccupy) {
+                cacheDirectPathProbe(nowNs, originX, originY, targetX, targetY, false);
                 return false;
             }
         }
+        cacheDirectPathProbe(nowNs, originX, originY, targetX, targetY, true);
         return true;
+    }
+
+    private boolean attemptDirectSiegeMovement(double targetX, double targetY, double worldWidth, double worldHeight) {
+        double dx = targetX - getCenterX();
+        double dy = targetY - getCenterY();
+        double length = Math.sqrt(dx * dx + dy * dy);
+        if (length <= 0.001) {
+            return false;
+        }
+        double dirX = dx / length;
+        double dirY = dy / length;
+        double step = Math.min(speed, length);
+        if (tryStepInDirection(dirX, dirY, step, worldWidth, worldHeight)) {
+            return true;
+        }
+        double[] angles = {
+                Math.toRadians(30.0),
+                Math.toRadians(-30.0),
+                Math.toRadians(50.0),
+                Math.toRadians(-50.0),
+                Math.toRadians(75.0),
+                Math.toRadians(-75.0)
+        };
+        for (double angle : angles) {
+            double rotatedX = dirX * Math.cos(angle) - dirY * Math.sin(angle);
+            double rotatedY = dirX * Math.sin(angle) + dirY * Math.cos(angle);
+            if (tryStepInDirection(rotatedX, rotatedY, step * 0.92, worldWidth, worldHeight)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean tryStepInDirection(double dirX,
+                                       double dirY,
+                                       double distance,
+                                       double worldWidth,
+                                       double worldHeight) {
+        double length = Math.sqrt(dirX * dirX + dirY * dirY);
+        if (length <= 0.001 || distance <= 0.001) {
+            return false;
+        }
+        double targetX = getCenterX() + (dirX / length) * distance;
+        double targetY = getCenterY() + (dirY / length) * distance;
+        double candidateX = targetX - width * 0.5;
+        double candidateY = targetY - height * 0.5;
+        if (navigationContext != null && !navigationContext.canPathOccupy(this, candidateX, candidateY, width, height)) {
+            return false;
+        }
+        return moveToward(targetX, targetY, worldWidth, worldHeight);
+    }
+
+    private boolean moveBackwardStep(double worldWidth, double worldHeight) {
+        double backX = -desiredMoveDirX;
+        double backY = -desiredMoveDirY;
+        double length = Math.sqrt(backX * backX + backY * backY);
+        if (length <= 0.001) {
+            return false;
+        }
+        return tryStepInDirection(backX / length, backY / length, Math.max(10.0, speed * 0.85), worldWidth, worldHeight);
     }
 
     private boolean canStandCenteredAt(double centerX, double centerY) {
@@ -1084,19 +1292,33 @@ public class GolemEnemy extends Enemy {
         double step = Math.min(speed, distance);
         double moveX = dx / distance * step;
         double moveY = dy / distance * step;
-        if (moveWithCollision(moveX, moveY)) {
+        if (movementValidator == null) {
+            if (!moveWithCollision(moveX, moveY)) {
+                return false;
+            }
             clampPosition(0, 0, worldWidth, worldHeight);
             return true;
         }
-        if (moveWithCollision(moveX, 0.0)) {
-            clampPosition(0, 0, worldWidth, worldHeight);
-            return true;
+
+        MovementSlideSystem.MoveResult result = MovementSlideSystem.steerToward(
+                x,
+                y,
+                width,
+                height,
+                moveX,
+                moveY,
+                (nextX, nextY, nextWidth, nextHeight) -> movementValidator.canOccupy(this, nextX, nextY, nextWidth, nextHeight)
+        );
+        double movedX = result.x() - x;
+        double movedY = result.y() - y;
+        if (Math.abs(movedX) < 0.0001 && Math.abs(movedY) < 0.0001) {
+            return false;
         }
-        if (moveWithCollision(0.0, moveY)) {
-            clampPosition(0, 0, worldWidth, worldHeight);
-            return true;
-        }
-        return false;
+        x = result.x();
+        y = result.y();
+        updateFacingFromMovement(movedX, movedY);
+        clampPosition(0, 0, worldWidth, worldHeight);
+        return true;
     }
 
     private boolean moveWithCollision(double moveX, double moveY) {
@@ -1281,6 +1503,7 @@ public class GolemEnemy extends Enemy {
             escapeObstacleTarget = null;
             currentBuildTarget = null;
             currentResourceTarget = null;
+            cachedEscapeObstacle = null;
             return;
         }
         if (!escapeObstacleTarget.isBuildObject()) {
@@ -1295,6 +1518,38 @@ public class GolemEnemy extends Enemy {
         }
         currentResourceTarget = escapeObstacleTarget.resourceNode();
         updateResourceTarget(nowNs, null, worldWidth, worldHeight);
+    }
+
+    private EnemyObstacleTarget findEscapeObstacleThrottled(long nowNs, int searchRadiusTiles) {
+        if (cachedEscapeObstacle != null && !cachedEscapeObstacle.isAlive()) {
+            cachedEscapeObstacle = null;
+        }
+        if (cachedEscapeObstacle != null) {
+            return cachedEscapeObstacle;
+        }
+        if (navigationContext == null || nowNs < nextEscapeObstacleSearchAtNs || !expensiveNavigationAllowed) {
+            return null;
+        }
+        nextEscapeObstacleSearchAtNs = nowNs + ESCAPE_OBSTACLE_SEARCH_RETRY_NS + (long) (Math.random() * 180_000_000L);
+        cachedEscapeObstacle = navigationContext.findEscapeObstacle(this, desiredMoveDirX, desiredMoveDirY, searchRadiusTiles);
+        return cachedEscapeObstacle;
+    }
+
+    private void cacheDirectPathProbe(long nowNs,
+                                      double originX,
+                                      double originY,
+                                      double targetX,
+                                      double targetY,
+                                      boolean result) {
+        lastDirectPathCheckAtNs = nowNs;
+        lastDirectPathOriginX = originX;
+        lastDirectPathOriginY = originY;
+        lastDirectPathProbeTargetX = targetX;
+        lastDirectPathProbeTargetY = targetY;
+        lastDirectPathResult = result;
+        if (!result && currentTarget instanceof BaseCamp) {
+            siegeMode = true;
+        }
     }
 
     private void setDesiredMove(double dx, double dy) {

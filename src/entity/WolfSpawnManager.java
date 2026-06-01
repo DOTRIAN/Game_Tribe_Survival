@@ -83,7 +83,7 @@ public class WolfSpawnManager {
                 continue;
             }
             wolf.setDebugEnabled(debugEnabled);
-            wolf.updateBehavior(nowNs, isNight, player, baseCamp, worldWidth, worldHeight);
+            wolf.updateBehavior(nowNs, isNight, player, baseCamp, worldWidth, worldHeight, true);
         }
     }
 
