@@ -59,6 +59,39 @@ public class Renderer {
     private static final double CAMERA_ZOOM = 1.5;
     private static final boolean DEBUG_DRAW_WALL_BOUNDS = false;
     private static final boolean DEBUG_DRAW_WALL_INFO = true;
+    private static final double NIGHT_OVERLAY_ALPHA_SCALE = 0.94;
+    private static final LightRenderProfile PLAYER_NIGHT_LIGHT = new LightRenderProfile(
+            0.48,
+            0.46,
+            Color.color(1.0, 0.98, 0.93, 0.25),
+            0.20,
+            0.82,
+            Color.color(1.0, 0.96, 0.88, 0.07)
+    );
+    private static final LightRenderProfile PLAYER_DAY_LIGHT = new LightRenderProfile(
+            0.42,
+            0.28,
+            Color.color(1.0, 0.98, 0.93, 0.18),
+            0.16,
+            0.76,
+            Color.color(1.0, 0.96, 0.90, 0.05)
+    );
+    private static final LightRenderProfile TORCH_LIGHT_PROFILE = new LightRenderProfile(
+            0.36,
+            0.34,
+            Color.color(1.0, 0.89, 0.62, 0.20),
+            0.18,
+            0.72,
+            Color.color(1.0, 0.78, 0.42, 0.06)
+    );
+    private static final LightRenderProfile BONFIRE_LIGHT_PROFILE = new LightRenderProfile(
+            0.44,
+            0.40,
+            Color.color(1.0, 0.88, 0.60, 0.22),
+            0.22,
+            0.82,
+            Color.color(1.0, 0.76, 0.38, 0.08)
+    );
 
     private final Stage stage;
     private final Canvas canvas;
@@ -1348,6 +1381,36 @@ public class Renderer {
 
         private int getLastFps() {
             return lastFps;
+        }
+    }
+
+    private record LightRenderProfile(double innerRadiusScale,
+                                      double innerMidAlphaScale,
+                                      Color innerColor,
+                                      double outerRadiusScale,
+                                      double outerMidAlphaScale,
+                                      Color outerColor) {
+        private LightRenderProfile scale(double factor) {
+            return new LightRenderProfile(
+                    innerRadiusScale,
+                    innerMidAlphaScale,
+                    scaleColor(innerColor, factor),
+                    outerRadiusScale,
+                    outerMidAlphaScale,
+                    scaleColor(outerColor, factor)
+            );
+        }
+
+        private static Color scaleColor(Color color, double factor) {
+            if (color == null) {
+                return Color.TRANSPARENT;
+            }
+            return Color.color(
+                    color.getRed(),
+                    color.getGreen(),
+                    color.getBlue(),
+                    Math.max(0.0, Math.min(1.0, color.getOpacity() * factor))
+            );
         }
     }
 }
