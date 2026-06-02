@@ -1618,9 +1618,9 @@ public class Game {
             updateBombTraps(now);
         }
         recordPerfAi(System.nanoTime() - aiStartNs);
+        updateThrownBombs(now);
+        updateFireBombBurnZones(now);
         if (isBuildingEnabled()) {
-            updateThrownBombs(now);
-            updateFireBombBurnZones(now);
             updateArrowProjectiles(now);
         }
 
