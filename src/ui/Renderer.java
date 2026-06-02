@@ -1,5 +1,6 @@
 package ui;
 
+import boss.entity.FinalBoss;
 import buildsystem.core.BuildManager;
 import buildsystem.object.BuildObject;
 import buildsystem.fence.FenceEntity;
@@ -45,6 +46,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.IntConsumer;
@@ -111,6 +113,8 @@ public class Renderer {
     private String skillUnlockCelebrationTitle;
     private String skillUnlockCelebrationText;
     private Player.AttackAnimationType skillUnlockCelebrationType;
+    private String actionCountdownLabel;
+    private double actionCountdownSeconds;
     private boolean gemRewardAnimationActive;
     private double gemRewardAnimationProgress;
     private MapRenderer mapRenderer;
@@ -136,6 +140,8 @@ public class Renderer {
         this.skillUnlockCelebrationTitle = null;
         this.skillUnlockCelebrationText = null;
         this.skillUnlockCelebrationType = null;
+        this.actionCountdownLabel = null;
+        this.actionCountdownSeconds = 0.0;
         this.gemRewardAnimationActive = false;
         this.gemRewardAnimationProgress = 0.0;
         this.worldBackgroundImage = null;
@@ -286,6 +292,8 @@ public class Renderer {
             graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
             graphicsContext.restore();
         }
+
+        drawActionCountdown(viewportWidth, viewportHeight);
     }
 
     public void setContinueAvailable(boolean enabled) {
@@ -310,6 +318,16 @@ public class Renderer {
         this.skillUnlockCelebrationTitle = skillUnlockCelebrationTitle;
         this.skillUnlockCelebrationText = skillUnlockCelebrationText;
         this.skillUnlockCelebrationType = skillUnlockCelebrationType;
+    }
+
+    public void setActionCountdown(String label, double remainingSeconds) {
+        if (label == null || label.isBlank() || remainingSeconds <= 0.0) {
+            this.actionCountdownLabel = null;
+            this.actionCountdownSeconds = 0.0;
+            return;
+        }
+        this.actionCountdownLabel = label;
+        this.actionCountdownSeconds = remainingSeconds;
     }
 
     public void setGemRewardAnimation(boolean active, double progress) {
@@ -446,6 +464,24 @@ public class Renderer {
 
     public ItemUiMeta getItemMeta(String itemId) {
         return uiManager.getItemMeta(itemId);
+    }
+
+    private void drawActionCountdown(double viewportWidth, double viewportHeight) {
+        if (actionCountdownLabel == null || actionCountdownSeconds <= 0.0) {
+            return;
+        }
+        graphicsContext.save();
+        graphicsContext.setTextAlign(javafx.scene.text.TextAlignment.CENTER);
+        graphicsContext.setFill(Color.color(0.0, 0.0, 0.0, 0.45));
+        graphicsContext.fillRoundRect(viewportWidth * 0.5 - 92.0, viewportHeight - 168.0, 184.0, 48.0, 16.0, 16.0);
+        graphicsContext.setFill(Color.color(1.0, 0.95, 0.82, 0.98));
+        graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 18));
+        graphicsContext.fillText(
+                actionCountdownLabel + " " + String.format(Locale.US, "%.1fs", actionCountdownSeconds),
+                viewportWidth * 0.5,
+                viewportHeight - 138.0
+        );
+        graphicsContext.restore();
     }
 
     private void renderGameplay(Player player,
@@ -811,6 +847,36 @@ public class Renderer {
             graphicsContext.setStroke(Color.color(1.0, 0.15, 0.15, 0.95));
             for (Enemy enemy : enemies) {
                 if (enemy == null || !enemy.isAlive() || enemy.shouldRemoveFromWorld()) {
+                    continue;
+                }
+                if (enemy instanceof FinalBoss boss) {
+                    graphicsContext.setStroke(Color.color(0.2, 0.85, 1.0, 0.98));
+                    graphicsContext.setLineWidth(1.4);
+                    strokeWorldRect(enemy.getCollisionX(), enemy.getCollisionY(), enemy.getCollisionWidth(), enemy.getCollisionHeight(), cameraX, cameraY);
+                    graphicsContext.setFill(Color.color(1.0, 0.12, 0.12, 0.18));
+                    graphicsContext.fillOval(
+                            boss.getDebugAttackHitboxCenterX() - boss.getDebugAttackRadiusX() - cameraX,
+                            boss.getDebugAttackHitboxCenterY() - boss.getDebugAttackRadiusY() - cameraY,
+                            boss.getDebugAttackRadiusX() * 2.0,
+                            boss.getDebugAttackRadiusY() * 2.0
+                    );
+                    graphicsContext.setStroke(Color.color(1.0, 0.0, 0.0, 1.0));
+                    graphicsContext.setLineWidth(2.0);
+                    graphicsContext.strokeOval(
+                            boss.getDebugAttackHitboxCenterX() - boss.getDebugAttackRadiusX() - cameraX,
+                            boss.getDebugAttackHitboxCenterY() - boss.getDebugAttackRadiusY() - cameraY,
+                            boss.getDebugAttackRadiusX() * 2.0,
+                            boss.getDebugAttackRadiusY() * 2.0
+                    );
+                    graphicsContext.setFill(Color.color(1.0, 1.0, 0.15, 1.0));
+                    graphicsContext.fillOval(
+                            boss.getDebugFootCenterX() - 3.0 - cameraX,
+                            boss.getDebugFootCenterY() - 3.0 - cameraY,
+                            6.0,
+                            6.0
+                    );
+                    graphicsContext.setLineWidth(1.0);
+                    graphicsContext.setStroke(Color.color(1.0, 0.15, 0.15, 0.95));
                     continue;
                 }
                 strokeWorldRect(enemy.getCollisionX(), enemy.getCollisionY(), enemy.getCollisionWidth(), enemy.getCollisionHeight(), cameraX, cameraY);

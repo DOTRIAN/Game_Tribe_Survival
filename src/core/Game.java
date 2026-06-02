@@ -1,6 +1,7 @@
 package core;
 
 import boss.BossManager;
+import boss.entity.FinalBoss;
 import buildsystem.core.BuildManager;
 import buildsystem.core.BuildMode;
 import buildsystem.core.BuildController;
@@ -199,6 +200,8 @@ public class Game {
     private int queuedWallJumperSpawns;
     private long lastAutoSaveAtNs;
     private long lastUpdateNowNs;
+    private long eatingNikuUntilNs;
+    private long nextEmptyEnergyDamageAtNs;
     private long victoryAtNs;
     private long perfLastReportNs;
     private long perfFrames;
@@ -232,9 +235,11 @@ public class Game {
 
     // Stats energy cho loop di chuyen/sinh ton.
     private static final double MOVE_ENERGY_DRAIN_PER_SECOND = 2.2;
-    private static final double IDLE_ENERGY_REGEN_PER_SECOND = 0.9;
     private static final double SKILL_F_ENERGY_COST = 3.0;
     private static final double FOOD_ENERGY_BONUS = 15.0;
+    private static final long NIKU_EAT_DURATION_NS = 2_000_000_000L;
+    private static final long EMPTY_ENERGY_DAMAGE_INTERVAL_NS = 800_000_000L;
+    private static final int EMPTY_ENERGY_DAMAGE = 1;
     private static final long DAMAGE_TEXT_LIFETIME_NS = 650_000_000L;
     // Hotbar hien tai de mo rong dan:
     // - Slot dau tien thuong la Wood Fence neu inventory dang co item nay.
@@ -283,6 +288,7 @@ public class Game {
             BASIC_SWORD_ITEM_ID,
             PICKAXE_ITEM_ID,
             POTION_ITEM_ID,
+            NIKU_ITEM_ID,
             CARROT_ITEM_ID,
             WOOD_WALL_ITEM_ID
     };
@@ -405,6 +411,8 @@ public class Game {
         this.queuedWallJumperSpawns = 0;
         this.lastAutoSaveAtNs = 0L;
         this.lastUpdateNowNs = -1L;
+        this.eatingNikuUntilNs = -1L;
+        this.nextEmptyEnergyDamageAtNs = -1L;
         this.victoryAtNs = -1L;
         this.perfLastReportNs = 0L;
         this.perfFrames = 0L;
@@ -740,6 +748,10 @@ public class Game {
         String timeTitle = bossMode ? "Final Boss" : dayNightManager.getTimeTitle(now);
         String timeClock = bossMode ? "" : dayNightManager.getClockText(now);
         String timeAnnouncement = bossMode ? null : dayNightManager.getAnnouncement(now);
+        renderer.setActionCountdown(
+                eatingNikuUntilNs > now ? "Eating Niku" : null,
+                eatingNikuUntilNs > now ? Math.max(0.0, (eatingNikuUntilNs - now) / 1_000_000_000.0) : 0.0
+        );
 
         long renderStartNs = System.nanoTime();
         renderer.render(
@@ -1467,19 +1479,23 @@ public class Game {
         // Q rotate:
         // - M峄梚 l岷 b岷 Q se doi huong N -> E -> S -> W.
         // - Preview se cap nhat ngay sau do trong cung frame.
-        String selectedHotbarItemId = getSelectedHotbarItemId();
         if (!isBuildingEnabled()) {
             buildManager.cancelBuildMode();
         }
-        if (isBuildingEnabled()
-                && (FIRE_BOMB_ITEM_ID.equals(selectedHotbarItemId) || BOMB_TRAP_ITEM_ID.equals(selectedHotbarItemId))
-                && inputHandler.isJustPressed(KeyCode.Q)) {
-            throwSelectedThrowableBomb(selectedHotbarItemId, now);
-        } else if (isBuildingEnabled() && inputHandler.isJustPressed(KeyCode.Q)) {
-            buildController.onRotatePressed();
-        }
+        boolean qJustPressed = inputHandler.isJustPressed(KeyCode.Q);
+        boolean qPressed = inputHandler.isPressed(KeyCode.Q);
+        String selectedHotbarItemId = getSelectedHotbarItemId();
         boolean mouseOverUi = renderer.isMouseOverUi(inputHandler.getMouseX(), inputHandler.getMouseY());
         boolean blockingOverlayVisible = renderer.isBlockingOverlayVisible();
+        if (!blockingOverlayVisible && NIKU_ITEM_ID.equals(selectedHotbarItemId) && qJustPressed) {
+            startEatingNiku(now);
+        } else if (qJustPressed && !blockingOverlayVisible) {
+            if (FIRE_BOMB_ITEM_ID.equals(selectedHotbarItemId) || BOMB_TRAP_ITEM_ID.equals(selectedHotbarItemId)) {
+                throwSelectedThrowableBomb(selectedHotbarItemId, now);
+            } else if (isBuildingEnabled() && isBuildItemId(selectedHotbarItemId)) {
+                buildController.onRotatePressed();
+            }
+        }
         if (renderer.isChestVisible() && findNearestUsableChest(player.getCenterX(), player.getCenterY(), CHEST_INTERACT_RANGE) == null) {
             closeChestOverlay();
         }
@@ -1518,8 +1534,11 @@ public class Game {
         boolean moveUp = !blockingOverlayVisible && !player.isAttacking() && inputHandler.isPressed(KeyCode.W);
         boolean moveDown = !blockingOverlayVisible && !player.isAttacking() && inputHandler.isPressed(KeyCode.S);
         boolean movingByInput = moveLeft || moveRight || moveUp || moveDown;
+        updateNikuEating(now, qPressed, selectedHotbarItemId, blockingOverlayVisible);
         // SPACE + WASD => Running, con WASD thuong => Walking.
-        boolean sprinting = movingByInput && inputHandler.isPressed(KeyCode.SPACE);
+        boolean sprinting = movingByInput
+                && inputHandler.isPressed(KeyCode.SPACE)
+                && player.getEnergy() > 0.01;
         player.setSprinting(sprinting);
 
         double playerDx = 0.0;
@@ -1554,6 +1573,7 @@ public class Game {
                 // - BuildManager se validate occupied tile/collision truoc khi tao wall.
                 // - Dat thanh cong moi tru 1 Wood Fence trong inventory.
                 if (buildController.onPrimaryClickPlace(player, inventory)) {
+                    refreshBuildInventoryUi();
                     logPlacedBuild(buildManager.getLastPlacedObject());
                 }
             } else {
@@ -1987,6 +2007,8 @@ public class Game {
         nextWallJumperSpawnAtNs = 0L;
         nextGolemSpawnAtNs = 0L;
         lastUpdateNowNs = -1L;
+        eatingNikuUntilNs = -1L;
+        nextEmptyEnergyDamageAtNs = -1L;
         selectedHotbarIndex = 0;
         setSelectedHotbarIndex(selectedHotbarIndex);
         hasLoadedSaveSnapshot = false;
@@ -2110,6 +2132,14 @@ public class Game {
                 WolfEnemy wolfEnemy = (WolfEnemy) enemy;
                 wolfEnemy.setDebugEnabled(debugCollisionOverlayEnabled);
                 wolfEnemy.updateBehavior(now, dayNightManager.isNight(now), player, baseCamp, worldWidth, worldHeight, allowExpensiveNavigation);
+                if (enemy.shouldRemoveFromWorld()) {
+                    handleEnemyDeathDrops(enemy);
+                    dead.add(enemy);
+                }
+                continue;
+            }
+            if (enemy instanceof FinalBoss finalBoss) {
+                finalBoss.setDebugEnabled(debugCollisionOverlayEnabled);
                 if (enemy.shouldRemoveFromWorld()) {
                     handleEnemyDeathDrops(enemy);
                     dead.add(enemy);
@@ -2557,11 +2587,7 @@ public class Game {
         if (enemy == null) {
             return null;
         }
-        BuildObject byRaycast = raycastBlockingObstacle(enemy, targetX, targetY, maxRayTiles);
-        if (byRaycast != null) {
-            return byRaycast;
-        }
-        return findNearbyBlockingObstacle(enemy, maxNearbyRadiusTiles);
+        return raycastBlockingObstacle(enemy, targetX, targetY, maxRayTiles);
     }
 
     private BuildObject raycastBlockingObstacle(Enemy enemy, double targetX, double targetY, int maxRayTiles) {
@@ -2575,18 +2601,50 @@ public class Game {
         if (distance < 0.001) {
             return null;
         }
-        double step = Math.max(tileWidth, tileHeight);
+        double step = Math.max(6.0, Math.min(Math.max(tileWidth, tileHeight), Math.max(enemy.getCollisionWidth(), enemy.getCollisionHeight()) * 0.5));
         int maxSteps = Math.min(Math.max(1, maxRayTiles), Math.max(1, (int) Math.ceil(distance / step)));
         for (int i = 1; i <= maxSteps; i++) {
             double t = i / (double) maxSteps;
-            int tileX = (int) Math.floor((startX + dx * t) / tileWidth);
-            int tileY = (int) Math.floor((startY + dy * t) / tileHeight);
-            BuildObject object = buildManager.getPlacedObjectAt(tileX, tileY);
-            if (object != null && object.isAlive() && isAttackableWallType(object.getType())) {
+            double centerX = startX + dx * t;
+            double centerY = startY + dy * t;
+            double collisionX = centerX - enemy.getCollisionWidth() * 0.5;
+            double collisionY = centerY - enemy.getCollisionHeight() * 0.5;
+            BuildObject object = findIntersectingAttackableWall(collisionX, collisionY, enemy.getCollisionWidth(), enemy.getCollisionHeight());
+            if (object != null) {
                 return object;
             }
         }
         return null;
+    }
+
+    private BuildObject findIntersectingAttackableWall(double x, double y, double width, double height) {
+        BuildObject nearest = null;
+        double bestDistance = Double.POSITIVE_INFINITY;
+        double centerX = x + width * 0.5;
+        double centerY = y + height * 0.5;
+        for (BuildObject object : buildManager.getPlacedObjectsInWorldRect(x, y, width, height)) {
+            if (object == null || !object.isAlive() || !isAttackableWallType(object.getType())) {
+                continue;
+            }
+            if (!CollisionSystem.intersects(
+                    x,
+                    y,
+                    width,
+                    height,
+                    object.getCollisionX(),
+                    object.getCollisionY(),
+                    object.getCollisionWidth(),
+                    object.getCollisionHeight()
+            )) {
+                continue;
+            }
+            double distance = distance(centerX, centerY, object.getCenterX(), object.getCenterY());
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                nearest = object;
+            }
+        }
+        return nearest;
     }
 
     private BuildObject findNearbyBlockingObstacle(Enemy enemy, int maxNearbyRadiusTiles) {
@@ -2955,9 +3013,6 @@ public class Game {
         } else {
             inventory.addItem(drop.getItemId(), drop.getAmount());
             refreshBuildInventoryUi();
-            if (isFoodItem(drop.getItemId())) {
-                player.recoverEnergy(FOOD_ENERGY_BONUS);
-            }
         }
 
         eventBus.publish(new GameEvent(GameEventType.RESOURCE_COLLECTED,
@@ -3011,6 +3066,41 @@ public class Game {
         refreshBuildInventoryUi();
         renderer.showToast(prettifyItemName(itemId) + " thrown");
         return true;
+    }
+
+    private boolean startEatingNiku(long now) {
+        if (eatingNikuUntilNs > now) {
+            return false;
+        }
+        if (inventory.getAmount(NIKU_ITEM_ID) <= 0) {
+            renderer.showToast("No niku");
+            return false;
+        }
+        eatingNikuUntilNs = now + NIKU_EAT_DURATION_NS;
+        renderer.showToast("Eating Niku...");
+        return true;
+    }
+
+    private void updateNikuEating(long now, boolean qPressed, String selectedHotbarItemId, boolean blockingOverlayVisible) {
+        if (eatingNikuUntilNs <= 0L) {
+            return;
+        }
+        if (!qPressed || blockingOverlayVisible || !NIKU_ITEM_ID.equals(selectedHotbarItemId)) {
+            eatingNikuUntilNs = -1L;
+            renderer.showToast("Eating canceled");
+            return;
+        }
+        if (now < eatingNikuUntilNs) {
+            return;
+        }
+        eatingNikuUntilNs = -1L;
+        if (!inventory.consumeItem(NIKU_ITEM_ID, 1)) {
+            renderer.showToast("Cannot eat niku");
+            return;
+        }
+        player.recoverEnergy(FOOD_ENERGY_BONUS);
+        refreshBuildInventoryUi();
+        renderer.showToast("Ate Niku +" + (int) FOOD_ENERGY_BONUS + " EN");
     }
 
     private void updateWallJumperSpawning(long now) {
@@ -3210,8 +3300,17 @@ public class Game {
         if (moving) {
             double drainRate = sprinting ? MOVE_ENERGY_DRAIN_PER_SECOND * 2.0 : MOVE_ENERGY_DRAIN_PER_SECOND;
             player.consumeEnergy(drainRate * deltaSeconds);
+        }
+
+        if (player.getEnergy() <= 0.01 && player.isAlive()) {
+            if (nextEmptyEnergyDamageAtNs <= 0L) {
+                nextEmptyEnergyDamageAtNs = now + EMPTY_ENERGY_DAMAGE_INTERVAL_NS;
+            } else if (now >= nextEmptyEnergyDamageAtNs) {
+                DamageSystem.applyDamage(null, player, EMPTY_ENERGY_DAMAGE, now);
+                nextEmptyEnergyDamageAtNs = now + EMPTY_ENERGY_DAMAGE_INTERVAL_NS;
+            }
         } else {
-            player.recoverEnergy(IDLE_ENERGY_REGEN_PER_SECOND * deltaSeconds);
+            nextEmptyEnergyDamageAtNs = -1L;
         }
     }
 
@@ -4210,9 +4309,6 @@ public class Game {
                 onResourceDestroyed(hitResult.getResourceNode());
             } else {
                 inventory.addItem(drop.getItemId(), drop.getAmount());
-                if (isFoodItem(drop.getItemId())) {
-                    player.recoverEnergy(FOOD_ENERGY_BONUS);
-                }
             }
             eventBus.publish(new GameEvent(GameEventType.RESOURCE_COLLECTED,
                     Map.of("item", drop.getItemId(), "amount", drop.getAmount())));
@@ -4551,7 +4647,6 @@ public class Game {
             return false;
         }
         if (type.isExperienceDrop()) {
-            player.addExperience(droppedItem.getAmount());
             return false;
         }
         String inventoryItemId = type.getInventoryItemId();
@@ -4563,6 +4658,7 @@ public class Game {
     }
 
     private void refreshBuildInventoryUi() {
+        int previousSelectedIndex = selectedHotbarIndex;
         String previouslySelectedItemId = getSelectedHotbarItemId();
         buildManager.syncToolbar(inventory.snapshot());
         rebuildHotbarItems();
@@ -4570,13 +4666,17 @@ public class Game {
             int matchedIndex = findHotbarIndexByItemId(previouslySelectedItemId);
             if (matchedIndex >= 0) {
                 selectedHotbarIndex = matchedIndex;
+            } else {
+                selectedHotbarIndex = previousSelectedIndex;
             }
-        }
-        if (selectedHotbarIndex >= hotbarItems.size()) {
-            selectedHotbarIndex = Math.max(0, hotbarItems.size() - 1);
+        } else {
+            selectedHotbarIndex = previousSelectedIndex;
         }
         if (selectedHotbarIndex < 0) {
             selectedHotbarIndex = 0;
+        }
+        if (selectedHotbarIndex >= 9) {
+            selectedHotbarIndex = 8;
         }
         syncSelectedHotbarMode();
     }

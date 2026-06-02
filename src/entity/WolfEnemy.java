@@ -569,10 +569,21 @@ public class WolfEnemy extends Enemy {
         Point2D approachPoint = selectAttackApproachPoint(target, ATTACK_TWO);
         if (siegeMode) {
             setDesiredMove(approachPoint.getX() - getCenterX(), approachPoint.getY() - getCenterY());
-            if (expensiveNavigationAllowed) {
-                attemptDirectSiegeMovement(approachPoint.getX(), approachPoint.getY(), worldWidth, worldHeight);
+            if (attemptDirectSiegeMovement(approachPoint.getX(), approachPoint.getY(), worldWidth, worldHeight)) {
+                blockedSinceNs = 0L;
+                blockedCount = 0;
+                blockedDirections = 0;
+                stuckTimerNs = 0L;
+                waitUntilNs = 0L;
             } else if (canUseCachedDirectStep(nowNs, approachPoint.getX(), approachPoint.getY())) {
                 moveToward(approachPoint.getX(), approachPoint.getY(), worldWidth, worldHeight);
+            } else {
+                BuildObject obstacle = findBlockingObstacleThrottled(approachPoint.getX(), approachPoint.getY(), nowNs);
+                if (obstacle != null) {
+                    activeBuildTarget = obstacle;
+                    escapeObstacleTarget = EnemyObstacleTarget.forBuild(obstacle);
+                    activeEntityTarget = null;
+                }
             }
         } else {
             followPathToPoint(approachPoint.getX(), approachPoint.getY(), nowNs, worldWidth, worldHeight, false);
@@ -1249,13 +1260,6 @@ public class WolfEnemy extends Enemy {
         currentMoveSpeed = RUN_SPEED;
         clearPath();
         setDesiredMove(targetX - getCenterX(), targetY - getCenterY());
-        if (!expensiveNavigationAllowed) {
-            if (canUseCachedDirectStep(nowNs, targetX, targetY)) {
-                return moveToward(targetX, targetY, worldWidth, worldHeight);
-            }
-            currentAnimation().update(nowNs, true);
-            return false;
-        }
         if (attemptDirectSiegeMovement(targetX, targetY, worldWidth, worldHeight)) {
             blockedSinceNs = 0L;
             blockedCount = 0;
@@ -1427,7 +1431,7 @@ public class WolfEnemy extends Enemy {
                 <= Math.max(1, OBSTACLE_NEARBY_RADIUS_TILES) * navigationContext.getTileWidth() * 2.5) {
             return cachedBlockingObstacle;
         }
-        if (navigationContext == null || nowNs < nextObstacleSearchAtNs || !expensiveNavigationAllowed) {
+        if (navigationContext == null || nowNs < nextObstacleSearchAtNs) {
             return null;
         }
         nextObstacleSearchAtNs = nowNs + OBSTACLE_SEARCH_RETRY_NS + (long) (random.nextDouble() * 300_000_000L);

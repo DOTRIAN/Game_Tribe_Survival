@@ -15,10 +15,8 @@ public class HudOverlay extends VBox {
     private final Label nameLabel;
     private final ProgressBar hpBar;
     private final ProgressBar energyBar;
-    private final ProgressBar xpBar;
     private final Label hpLabel;
     private final Label energyLabel;
-    private final Label xpLabel;
     private final Label levelLabel;
     private final Button shopButton;
     private final Label energyIconLabel;
@@ -36,30 +34,24 @@ public class HudOverlay extends VBox {
 
         this.hpBar = createBar("hp-bar");
         this.energyBar = createBar("energy-bar");
-        this.xpBar = createBar("xp-bar");
 
         this.hpLabel = new Label("HP 0/0");
         this.energyLabel = new Label("EN 0/0");
-        this.xpLabel = new Label("XP 0/0");
         this.levelLabel = new Label("LV. 1");
 
         hpLabel.getStyleClass().add("hud-value");
         energyLabel.getStyleClass().add("hud-value");
-        xpLabel.getStyleClass().add("hud-value");
         levelLabel.getStyleClass().add("hud-value");
 
         hpLabel.setStyle("-fx-font-size: 11px;");
         energyLabel.setStyle("-fx-font-size: 11px;");
-        xpLabel.setStyle("-fx-font-size: 11px;");
         levelLabel.setStyle("-fx-font-weight: bold; -fx-text-fill: #eecf97; -fx-font-size: 13px;");
 
         Label hpIcon = createStatIcon("HP");
         this.energyIconLabel = createStatIcon("EN");
-        Label xpIcon = createStatIcon("XP");
 
         HBox hpRow = buildBarRow(hpIcon, hpBar, hpLabel, "hp-row");
         HBox energyRow = buildBarRow(energyIconLabel, energyBar, energyLabel, "energy-row");
-        HBox xpRow = buildBarRow(xpIcon, xpBar, xpLabel, "xp-row");
 
         HBox footerRow = new HBox(8);
         footerRow.setAlignment(Pos.CENTER_LEFT);
@@ -71,7 +63,7 @@ public class HudOverlay extends VBox {
         this.bossMode = false;
 
         footerRow.getChildren().addAll(levelLabel, spacer, shopButton);
-        getChildren().addAll(nameLabel, hpRow, energyRow, xpRow, footerRow);
+        getChildren().addAll(nameLabel, hpRow, energyRow, footerRow);
     }
 
     public void update(Player player) {
@@ -88,15 +80,12 @@ public class HudOverlay extends VBox {
 
         double hpProgress = player.getMaxHp() <= 0 ? 0.0 : (double) player.getHp() / player.getMaxHp();
         double energyProgress = player.getMaxEnergy() <= 0 ? 0.0 : player.getEnergy() / player.getMaxEnergy();
-        double xpProgress = player.getExperienceToNextLevel() <= 0 ? 0.0 : (double) player.getExperience() / player.getExperienceToNextLevel();
 
         hpBar.setProgress(clamp01(hpProgress));
         energyBar.setProgress(clamp01(energyProgress));
-        xpBar.setProgress(clamp01(xpProgress));
 
         hpLabel.setText("HP " + player.getHp() + "/" + player.getMaxHp());
         energyLabel.setText((bossMode ? "MP " : "EN ") + (int) player.getEnergy() + "/" + (int) player.getMaxEnergy());
-        xpLabel.setText("XP " + player.getExperience() + "/" + player.getExperienceToNextLevel());
         levelLabel.setText("LV. " + player.getLevel());
         energyIconLabel.setText(bossMode ? "MP" : "EN");
         shopButton.setVisible(!bossMode);

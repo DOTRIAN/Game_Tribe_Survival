@@ -6,9 +6,9 @@ import boss.BossState;
 import entity.Enemy;
 import entity.Player;
 import javafx.scene.canvas.GraphicsContext;
+import javafx.geometry.Point2D;
 import javafx.scene.image.Image;
 import javafx.scene.paint.Color;
-import system.CollisionSystem;
 import system.DamageSystem;
 
 import java.util.EnumMap;
@@ -31,11 +31,14 @@ public final class FinalBoss extends Enemy {
     private static final long TAKE_HIT_FRAME_NS = 85_000_000L;
     private static final long DEATH_FRAME_NS = 95_000_000L;
     private static final long ATTACK_COOLDOWN_NS = 1_600_000_000L;
-    private static final double ATTACK_RANGE = 132.0;
-    private static final double APPROACH_STOP_DISTANCE = 104.0;
-    private static final double FACE_FLIP_THRESHOLD_X = 4.0;
+    private static final double FACE_FLIP_THRESHOLD_X = 18.0;
     private static final double HP_BAR_WIDTH = 180.0;
     private static final double HP_BAR_HEIGHT = 12.0;
+    private static final double FOOT_CENTER_Y_RATIO = 0.88;
+    private static final double ATTACK_OFFSET = 14.0;
+    private static final double ATTACK_RADIUS_X = 14.0;
+    private static final double ATTACK_RADIUS_Y = 8.0;
+    private static final double APPROACH_SNAP_DISTANCE = 3.0;
     private static final int MAX_HP = 140;
     private static final int CLEAVE_DAMAGE = 14;
     private static final Map<BossState, Image[]> RAW_FRAMES = loadRawFrames();
@@ -48,6 +51,9 @@ public final class FinalBoss extends Enemy {
     private long lastAttackAtNs;
     private boolean cleaveDamageApplied;
     private boolean deathAnimationFinished;
+    private boolean debugEnabled;
+    private double lastAttackDirX;
+    private double lastAttackDirY;
 
     public FinalBoss(double x, double y) {
         super(
@@ -76,6 +82,9 @@ public final class FinalBoss extends Enemy {
         this.lastAttackAtNs = -ATTACK_COOLDOWN_NS;
         this.cleaveDamageApplied = false;
         this.deathAnimationFinished = false;
+        this.debugEnabled = false;
+        this.lastAttackDirX = 0.0;
+        this.lastAttackDirY = 1.0;
     }
 
     @Override
@@ -177,6 +186,15 @@ public final class FinalBoss extends Enemy {
         return "final_boss";
     }
 
+    @Override
+    public void tryAttackPlayer(Player player, long now) {
+        // Boss dung he thong cleave rieng, khong dung logic tan cong mac dinh theo va cham than.
+    }
+
+    public void setDebugEnabled(boolean debugEnabled) {
+        this.debugEnabled = debugEnabled;
+    }
+
     public boolean isEncounterFinished() {
         return deathAnimationFinished;
     }
@@ -185,30 +203,56 @@ public final class FinalBoss extends Enemy {
         return state;
     }
 
+    public double getDebugFootCenterX() {
+        return footCenterX();
+    }
+
+    public double getDebugFootCenterY() {
+        return footCenterY();
+    }
+
+    public double getDebugAttackHitboxCenterX() {
+        return attackHitboxCenterX();
+    }
+
+    public double getDebugAttackHitboxCenterY() {
+        return attackHitboxCenterY();
+    }
+
+    public double getDebugAttackRadiusX() {
+        return ATTACK_RADIUS_X;
+    }
+
+    public double getDebugAttackRadiusY() {
+        return ATTACK_RADIUS_Y;
+    }
+
     private void updateMovementState(long now, Player player, double worldWidth, double worldHeight) {
         double dx = player.getCenterX() - getCenterX();
         double dy = player.getCenterY() - getCenterY();
-        double distance = Math.hypot(dx, dy);
         updateAttackDirection(dx, dy);
-        if (attackDirection == AttackDirection.LEFT) {
-            facingRight = true;
-        } else if (attackDirection == AttackDirection.RIGHT) {
-            facingRight = false;
-        } else if (Math.abs(dx) >= FACE_FLIP_THRESHOLD_X) {
-            // Asset hien chi co 2 huong ngang, nen khi player dung tren/duoi
-            // ta giu huong ngang gan nhat theo truc X.
-            facingRight = dx < 0;
-        }
+        updateFacingDirection(dx);
 
-        if (distance <= ATTACK_RANGE && now - lastAttackAtNs >= ATTACK_COOLDOWN_NS) {
+        updateAttackVector(player);
+        Point2D desiredPosition = desiredBossPositionForCleave(player);
+        boolean playerInsidePrimaryHitbox = intersectsCleaveHitbox(player);
+        if (playerInsidePrimaryHitbox && now - lastAttackAtNs >= ATTACK_COOLDOWN_NS) {
             transitionTo(BossState.CLEAVE);
             return;
         }
 
-        boolean moving = distance > APPROACH_STOP_DISTANCE;
-        if (moving && distance > 0.001) {
-            x += (dx / distance) * speed;
-            y += (dy / distance) * speed;
+        double moveDx = desiredPosition.getX() - x;
+        double moveDy = desiredPosition.getY() - y;
+        double moveDistance = Math.hypot(moveDx, moveDy);
+        boolean moving = !playerInsidePrimaryHitbox && moveDistance > APPROACH_SNAP_DISTANCE;
+        if (moving && moveDistance > 0.001) {
+            double step = Math.min(speed, moveDistance);
+            x += (moveDx / moveDistance) * step;
+            y += (moveDy / moveDistance) * step;
+            clampPosition(0, 0, worldWidth, worldHeight);
+        } else if (!playerInsidePrimaryHitbox) {
+            x = desiredPosition.getX();
+            y = desiredPosition.getY();
             clampPosition(0, 0, worldWidth, worldHeight);
         }
 
@@ -232,36 +276,13 @@ public final class FinalBoss extends Enemy {
         boolean finished = animation.updateOnce(now);
         currentFrame = animation.getCurrentFrame();
 
-        if (!cleaveDamageApplied && animation.getCurrentFrameIndex() >= Math.max(1, animation.getFrameCount() / 2)) {
+        updateAttackVector(player);
+        int impactFrameStart = Math.max(0, animation.getFrameCount() - 2);
+        int impactFrameEnd = Math.max(impactFrameStart, animation.getFrameCount() - 1);
+        int currentFrameIndex = animation.getCurrentFrameIndex();
+        if (!cleaveDamageApplied && currentFrameIndex >= impactFrameStart && currentFrameIndex <= impactFrameEnd) {
             cleaveDamageApplied = true;
-            double attackWidth;
-            double attackHeight;
-            double attackX;
-            double attackY;
-            if (attackDirection == AttackDirection.UP || attackDirection == AttackDirection.DOWN) {
-                attackWidth = getCollisionWidth() + 32.0;
-                attackHeight = getCollisionHeight() + 68.0;
-                attackX = getCenterX() - attackWidth * 0.5;
-                attackY = attackDirection == AttackDirection.UP
-                        ? getCenterY() - attackHeight + 12.0
-                        : getCenterY() - 12.0;
-            } else {
-                attackWidth = getCollisionWidth() + 64.0;
-                attackHeight = getCollisionHeight() + 32.0;
-                attackX = attackDirection == AttackDirection.LEFT
-                        ? getCenterX() - attackWidth + 12.0
-                        : getCenterX() - 12.0;
-                attackY = getCollisionY() + 4.0;
-            }
-            if (CollisionSystem.intersects(
-                    player.getCollisionX(),
-                    player.getCollisionY(),
-                    player.getCollisionWidth(),
-                    player.getCollisionHeight(),
-                    attackX,
-                    attackY,
-                    attackWidth,
-                    attackHeight)) {
+            if (intersectsCleaveHitbox(player)) {
                 DamageSystem.applyDamage(this, player, damage, now);
             }
         }
@@ -312,6 +333,126 @@ public final class FinalBoss extends Enemy {
             return;
         }
         attackDirection = dy < 0 ? AttackDirection.UP : AttackDirection.DOWN;
+    }
+
+    private void updateFacingDirection(double dx) {
+        if (dx <= -FACE_FLIP_THRESHOLD_X) {
+            facingRight = true;
+            return;
+        }
+        if (dx >= FACE_FLIP_THRESHOLD_X) {
+            facingRight = false;
+        }
+    }
+
+    private void updateAttackVector(Player player) {
+        double footX = footCenterX();
+        double dirX = player == null ? 0.0 : player.getCenterX() - footX;
+        if (Math.abs(dirX) < 0.0001) {
+            return;
+        }
+        lastAttackDirX = dirX < 0 ? -1.0 : 1.0;
+        lastAttackDirY = 0.0;
+    }
+
+    private double footCenterX() {
+        return x + width * 0.5;
+    }
+
+    private double footCenterY() {
+        return y + height * FOOT_CENTER_Y_RATIO;
+    }
+
+    private double attackHitboxCenterX() {
+        return footCenterX() + lastAttackDirX * ATTACK_OFFSET;
+    }
+
+    private double attackHitboxCenterY() {
+        return footCenterY();
+    }
+
+    private Point2D desiredBossPositionForCleave(Player player) {
+        if (player == null) {
+            return new Point2D(x, y);
+        }
+        double desiredX = player.getCenterX() - width * 0.5 - lastAttackDirX * ATTACK_OFFSET;
+        double desiredY = player.getCenterY() - height * FOOT_CENTER_Y_RATIO - lastAttackDirY * ATTACK_OFFSET;
+        return new Point2D(desiredX, desiredY);
+    }
+
+    private boolean intersectsCleaveHitbox(Player player) {
+        if (player == null) {
+            return false;
+        }
+        return intersectsEllipseAndRect(
+                attackHitboxCenterX(),
+                attackHitboxCenterY(),
+                ATTACK_RADIUS_X,
+                ATTACK_RADIUS_Y,
+                player.getCollisionX(),
+                player.getCollisionY(),
+                player.getCollisionWidth(),
+                player.getCollisionHeight()
+        );
+    }
+
+    private boolean intersectsEllipseAndRect(double ellipseCenterX,
+                                             double ellipseCenterY,
+                                             double radiusX,
+                                             double radiusY,
+                                             double rectX,
+                                             double rectY,
+                                             double rectWidth,
+                                             double rectHeight) {
+        double nearestX = clamp(ellipseCenterX, rectX, rectX + rectWidth);
+        double nearestY = clamp(ellipseCenterY, rectY, rectY + rectHeight);
+        double dx = (nearestX - ellipseCenterX) / Math.max(0.0001, radiusX);
+        double dy = (nearestY - ellipseCenterY) / Math.max(0.0001, radiusY);
+        return dx * dx + dy * dy <= 1.0;
+    }
+
+    private double clamp(double value, double min, double max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private void drawDebug(GraphicsContext graphicsContext, double cameraX, double cameraY) {
+        graphicsContext.save();
+        graphicsContext.setLineWidth(1.2);
+        graphicsContext.setStroke(Color.color(0.3, 0.8, 1.0, 0.95));
+        graphicsContext.strokeRect(
+                getCollisionX() - cameraX,
+                getCollisionY() - cameraY,
+                getCollisionWidth(),
+                getCollisionHeight()
+        );
+        graphicsContext.setFill(Color.color(1.0, 0.15, 0.15, 0.16));
+        graphicsContext.fillOval(
+                attackHitboxCenterX() - ATTACK_RADIUS_X - cameraX,
+                attackHitboxCenterY() - ATTACK_RADIUS_Y - cameraY,
+                ATTACK_RADIUS_X * 2.0,
+                ATTACK_RADIUS_Y * 2.0
+        );
+        graphicsContext.setStroke(Color.color(1.0, 0.1, 0.1, 0.98));
+        graphicsContext.strokeOval(
+                attackHitboxCenterX() - ATTACK_RADIUS_X - cameraX,
+                attackHitboxCenterY() - ATTACK_RADIUS_Y - cameraY,
+                ATTACK_RADIUS_X * 2.0,
+                ATTACK_RADIUS_Y * 2.0
+        );
+        graphicsContext.setFill(Color.color(1.0, 0.95, 0.2, 0.95));
+        graphicsContext.fillOval(
+                footCenterX() - 3.0 - cameraX,
+                footCenterY() - 3.0 - cameraY,
+                6.0,
+                6.0
+        );
+        graphicsContext.setFill(Color.color(1.0, 0.98, 0.78, 0.95));
+        graphicsContext.fillText(
+                state.name() + " dir=" + attackDirection + " face=" + (facingRight ? "R" : "L"),
+                x - cameraX,
+                y - cameraY - 6.0
+        );
+        graphicsContext.restore();
     }
 
     private Map<BossState, SpriteAnimation> buildAnimations() {

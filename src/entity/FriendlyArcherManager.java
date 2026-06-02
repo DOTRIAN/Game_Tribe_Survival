@@ -199,7 +199,14 @@ public class FriendlyArcherManager {
 
         archer.setState(AllyUnit.AllyState.WALK);
         archer.faceTargetX(archer.getWanderTargetX() + archer.getWidth() * 0.5);
-        moveToward(archer, archer.getWanderTargetX(), archer.getWanderTargetY(), deltaSeconds, worldQuery);
+        boolean moved = moveToward(archer, archer.getWanderTargetX(), archer.getWanderTargetY(), deltaSeconds, worldQuery);
+        if (!moved) {
+            archer.clearWanderTarget();
+            archer.resetIdleTimer();
+            archer.setIdleDuration(randomIdleDuration());
+            archer.setState(AllyUnit.AllyState.IDLE);
+            return;
+        }
         if (archer.distanceTo(archer.getWanderTargetX(), archer.getWanderTargetY()) < ARRIVE_DISTANCE) {
             archer.clearWanderTarget();
             archer.resetIdleTimer();
@@ -211,7 +218,14 @@ public class FriendlyArcherManager {
     private void returnHome(FriendlyArcher archer, double deltaSeconds, WorldQuery worldQuery) {
         archer.setState(AllyUnit.AllyState.RETURN_HOME);
         archer.faceTargetX(archer.getHomeX() + archer.getWidth() * 0.5);
-        moveToward(archer, archer.getHomeX(), archer.getHomeY(), deltaSeconds, worldQuery);
+        boolean moved = moveToward(archer, archer.getHomeX(), archer.getHomeY(), deltaSeconds, worldQuery);
+        if (!moved) {
+            archer.clearWanderTarget();
+            archer.resetIdleTimer();
+            archer.setIdleDuration(randomIdleDuration());
+            archer.setState(AllyUnit.AllyState.IDLE);
+            return;
+        }
         if (archer.distanceToHome() < ARRIVE_DISTANCE) {
             archer.setPosition(archer.getHomeX(), archer.getHomeY());
             archer.resetIdleTimer();
@@ -238,54 +252,57 @@ public class FriendlyArcherManager {
         return false;
     }
 
-    private void moveToward(FriendlyArcher archer,
-                            double targetX,
-                            double targetY,
-                            double deltaSeconds,
-                            WorldQuery worldQuery) {
+    private boolean moveToward(FriendlyArcher archer,
+                               double targetX,
+                               double targetY,
+                               double deltaSeconds,
+                               WorldQuery worldQuery) {
         double dx = targetX - archer.getX();
         double dy = targetY - archer.getY();
         double distance = Math.sqrt(dx * dx + dy * dy);
         if (distance <= 0.001) {
-            return;
+            return false;
         }
         double step = archer.getSpeed() * Math.max(0.0, deltaSeconds) * 60.0;
         double moveX = archer.getX() + (dx / distance) * Math.min(step, distance);
         double moveY = archer.getY() + (dy / distance) * Math.min(step, distance);
-        moveArcher(archer, moveX, moveY, worldQuery);
+        return moveArcher(archer, moveX, moveY, worldQuery);
     }
 
-    private void moveAwayFromEnemy(FriendlyArcher archer,
-                                   Enemy enemy,
-                                   double deltaSeconds,
-                                   WorldQuery worldQuery) {
+    private boolean moveAwayFromEnemy(FriendlyArcher archer,
+                                      Enemy enemy,
+                                      double deltaSeconds,
+                                      WorldQuery worldQuery) {
         double dx = archer.getX() - enemy.getX();
         double dy = archer.getY() - enemy.getY();
         double distance = Math.sqrt(dx * dx + dy * dy);
         if (distance <= 0.001) {
-            return;
+            return false;
         }
         double step = archer.getSpeed() * 0.70 * Math.max(0.0, deltaSeconds) * 60.0;
         double moveX = archer.getX() + (dx / distance) * step;
         double moveY = archer.getY() + (dy / distance) * step;
-        moveArcher(archer, moveX, moveY, worldQuery);
+        return moveArcher(archer, moveX, moveY, worldQuery);
     }
 
-    private void moveArcher(FriendlyArcher archer, double targetX, double targetY, WorldQuery worldQuery) {
+    private boolean moveArcher(FriendlyArcher archer, double targetX, double targetY, WorldQuery worldQuery) {
+        double startX = archer.getX();
+        double startY = archer.getY();
         double maxX = Math.max(0.0, worldQuery.getWorldWidth() - archer.getWidth());
         double maxY = Math.max(0.0, worldQuery.getWorldHeight() - archer.getHeight());
         double newX = clamp(targetX, 0.0, maxX);
         double newY = clamp(targetY, 0.0, maxY);
         MovementSlideSystem.MoveResult result = MovementSlideSystem.steerToward(
-                archer.getX(),
-                archer.getY(),
+                startX,
+                startY,
                 archer.getWidth(),
                 archer.getHeight(),
-                newX - archer.getX(),
-                newY - archer.getY(),
+                newX - startX,
+                newY - startY,
                 (x, y, width, height) -> worldQuery.canOccupy(archer, x, y, width, height)
         );
         archer.setPosition(result.x(), result.y());
+        return Math.abs(result.x() - startX) > 0.05 || Math.abs(result.y() - startY) > 0.05;
     }
 
     private Enemy findNearestEnemy(FriendlyArcher archer, List<Enemy> enemies) {

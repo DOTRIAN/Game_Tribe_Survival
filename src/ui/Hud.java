@@ -170,10 +170,10 @@ public class Hud {
                 ENERGY_BAR_X,
                 ENERGY_BAR_Y + 22);
 
-        // ===== 9) Level / XP =====
+        // ===== 9) Level =====
         graphicsContext.setFill(Color.web("#ffe9b0"));
         graphicsContext.fillText(
-                "LV " + player.getLevel() + "  XP " + player.getExperience() + "/" + player.getExperienceToNextLevel(),
+                "LV " + player.getLevel(),
                 ENERGY_BAR_X + 86,
                 ENERGY_BAR_Y + 22);
     }

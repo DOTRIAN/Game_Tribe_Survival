@@ -213,11 +213,11 @@ public class Player extends Entity {
     }
 
     public int getExperience() {
-        return experience;
+        return 0;
     }
 
     public int getExperienceToNextLevel() {
-        return experienceToNextLevel;
+        return 0;
     }
 
     public boolean isLevelUpEffectActive(long nowNs) {
@@ -434,15 +434,7 @@ public class Player extends Entity {
     }
 
     public void addExperience(int amount) {
-        if (amount <= 0) {
-            return;
-        }
-        experience += amount;
-        while (experience >= experienceToNextLevel) {
-            experience -= experienceToNextLevel;
-            level++;
-            growOnLevelUp();
-        }
+        // XP da bi loai khoi gameplay.
     }
 
     private void growOnLevelUp() {
