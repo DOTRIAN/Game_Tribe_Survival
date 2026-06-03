@@ -1,0 +1,43 @@
+[BOSS FIGHT START]
+
+[Hiện ảnh QUỶ ĐỎ]
+
+QUỶ ĐỎ:
+“Thật không ngờ...”
+“Ngươi lại có thể sống sót tới tận đây.”
+
+“Bao kẻ đã đặt chân lên hòn đảo này.”
+“Nhưng chẳng ai vượt qua nổi 3 đêm.”
+
+[Hiện ảnh PLAYER]
+
+PLAYER:
+“Bớt nói nhiều đi.”
+“Trả vợ ta đây!”
+
+[Hiện ảnh QUỶ ĐỎ]
+
+QUỶ ĐỎ:
+“Ha ha ha!”
+
+“Ngươi vượt qua vài con quái yếu ớt...”
+“Mà đã nghĩ mình là nhân vật chính sao?”
+
+[Hiện ảnh PLAYER]
+
+PLAYER:
+“Ta không cần làm nhân vật chính.”
+
+“Ta chỉ cần đưa vợ về nhà.”
+
+[Hiện ảnh QUỶ ĐỎ]
+
+QUỶ ĐỎ:
+“Được thôi.”
+
+“Nếu muốn cứu nàng...”
+“Hãy chứng minh rằng ngươi mạnh hơn ta!”
+
+“Chuẩn bị đi!”
+
+[BẮT ĐẦU TRẬN ĐẤU]

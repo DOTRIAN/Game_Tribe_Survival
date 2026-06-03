@@ -8,6 +8,7 @@ package entity;
  */
 public class ThrownBomb {
     private static final String BOMB_TRAP_ITEM_ID = "bomb_trap";
+    private static final String SAMURAI_THROW_ITEM_ID = "samurai_throw";
 
     private enum State {
         FLYING,
@@ -118,6 +119,9 @@ public class ThrownBomb {
     }
 
     public double getArcHeight() {
+        if (SAMURAI_THROW_ITEM_ID.equalsIgnoreCase(bombItemId)) {
+            return 0.0;
+        }
         if (state != State.FLYING) {
             return 0.0;
         }
@@ -143,6 +147,10 @@ public class ThrownBomb {
 
     public double getRenderSize() {
         return renderSize;
+    }
+
+    public double getRotationDegrees() {
+        return Math.toDegrees(Math.atan2(targetY - startY, targetX - startX));
     }
 
     public int resolveBombTrapFrameIndex(long nowNs, int totalFrames) {

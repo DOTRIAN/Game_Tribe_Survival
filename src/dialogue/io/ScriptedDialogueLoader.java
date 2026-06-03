@@ -12,10 +12,24 @@ import java.util.ArrayList;
 import java.util.List;
 
 public final class ScriptedDialogueLoader {
+    private static final String DAY_ONE_SCRIPT_ID = "day1_dialogue";
+    private static final String BOSS_SCRIPT_ID = "boss_intro";
+
     private ScriptedDialogueLoader() {
     }
 
     public static DialogueScript loadDayOneScript(Path path, String playerName) {
+        return loadScript(path, playerName, DAY_ONE_SCRIPT_ID, false);
+    }
+
+    public static DialogueScript loadBossScript(Path path, String playerName) {
+        return loadScript(path, playerName, BOSS_SCRIPT_ID, true);
+    }
+
+    private static DialogueScript loadScript(Path path,
+                                             String playerName,
+                                             String scriptId,
+                                             boolean ignoreBracketDirectives) {
         if (path == null) {
             throw new IllegalArgumentException("Script path must not be null.");
         }
@@ -39,6 +53,9 @@ public final class ScriptedDialogueLoader {
             }
 
             if (line.startsWith("[") && line.endsWith("]")) {
+                if (ignoreBracketDirectives) {
+                    continue;
+                }
                 String normalizedBracket = canonicalToken(line);
                 if (normalizedBracket.contains("HIEN ANH")) {
                     pendingPortrait = resolvePortraitPath(extractImageSpeakerToken(line));
@@ -52,7 +69,7 @@ public final class ScriptedDialogueLoader {
 
                 String token = line.substring(0, line.length() - 1).trim();
                 currentSpeaker = resolveSpeakerName(token, playerName);
-                currentPortrait = resolveSpeakerPortrait(token, pendingPortrait);
+                currentPortrait = ignoreBracketDirectives ? "" : resolveSpeakerPortrait(token, pendingPortrait);
                 pendingPortrait = "";
                 continue;
             }
@@ -67,7 +84,7 @@ public final class ScriptedDialogueLoader {
         if (pages.isEmpty()) {
             throw new IllegalStateException("Dialogue script contains no pages: " + path);
         }
-        return new DialogueScript("day1_dialogue", pages);
+        return new DialogueScript(scriptId, pages);
     }
 
     private static void flushPage(List<DialoguePage> pages, String speaker, String portrait, List<String> lines) {
@@ -121,7 +138,7 @@ public final class ScriptedDialogueLoader {
         if (value.length() >= 2) {
             char first = value.charAt(0);
             char last = value.charAt(value.length() - 1);
-            if ((first == '"' && last == '"') || (first == '“' && last == '”')) {
+            if ((first == '"' && last == '"') || (first == '\u201C' && last == '\u201D')) {
                 return value.substring(1, value.length() - 1).trim();
             }
         }
@@ -134,9 +151,9 @@ public final class ScriptedDialogueLoader {
         }
         String normalized = Normalizer.normalize(value, Normalizer.Form.NFD)
                 .replaceAll("\\p{M}+", "")
-                .replace('đ', 'd')
-                .replace('Đ', 'D');
-        normalized = normalized.replaceAll("[\\[\\]:\"“”]", " ");
+                .replace('\u0111', 'd')
+                .replace('\u0110', 'D');
+        normalized = normalized.replaceAll("[\\[\\]:\"\u201C\u201D]", " ");
         normalized = normalized.replaceAll("\\s+", " ").trim();
         return normalized.toUpperCase();
     }

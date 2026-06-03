@@ -28,6 +28,9 @@ public final class DamageSystem {
         if (target == null || target.isDead()) {
             return new DamageResult(0, false);
         }
+        if (target instanceof Player player && player.isInvulnerable(nowNs)) {
+            return new DamageResult(0, false);
+        }
 
         boolean critical = shouldCritical(attacker);
         int finalDamage = calculateDamage(attacker, target, damage, critical);
@@ -45,6 +48,9 @@ public final class DamageSystem {
     private static int calculateDamage(Entity attacker, Entity target, int damage, boolean critical) {
         // attacker/target duoc truyen vao de sau nay co the doc stat tu chinh entity.
         int base = Math.max(0, damage);
+        if (target instanceof Player player && player.isDefending()) {
+            base = Math.max(0, (int) Math.round(base * 0.35));
+        }
         if (!critical) {
             return base;
         }

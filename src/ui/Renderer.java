@@ -21,6 +21,7 @@ import entity.ArrowProjectile;
 import entity.BaseCamp;
 import entity.ThrownBomb;
 import input.InputHandler;
+import javafx.application.Platform;
 import javafx.geometry.Rectangle2D;
 import javafx.scene.Scene;
 import javafx.scene.canvas.Canvas;
@@ -110,12 +111,15 @@ public class Renderer {
     private final LabelFpsTracker fpsTracker;
     private final Map<String, Image> tintedBuildImageCache;
     private final Image sealGemImage;
+    private final Image samuraiShurikenImage;
     private DialogueRunner introDialogueRunner;
     private String skillUnlockCelebrationTitle;
     private String skillUnlockCelebrationText;
     private Player.AttackAnimationType skillUnlockCelebrationType;
     private String actionCountdownLabel;
     private double actionCountdownSeconds;
+    private boolean fightBannerVisible;
+    private double fightBannerProgress;
     private boolean gemRewardAnimationActive;
     private double gemRewardAnimationProgress;
     private MapRenderer mapRenderer;
@@ -137,12 +141,21 @@ public class Renderer {
         this.fpsTracker = new LabelFpsTracker();
         this.tintedBuildImageCache = new LinkedHashMap<>();
         this.sealGemImage = new Image(Path.of("assets", "vien ngoc.png").toUri().toString(), false);
+        this.samuraiShurikenImage = new Image(Path.of(
+                "assets",
+                "Samurai #3 2D Pixel Art v1.2",
+                "Samurai #3 2D Pixel Art v1.2",
+                "Samurai #3 2D Pixel Art v1.2",
+                "shuriken.png"
+        ).toUri().toString(), false);
         this.introDialogueRunner = null;
         this.skillUnlockCelebrationTitle = null;
         this.skillUnlockCelebrationText = null;
         this.skillUnlockCelebrationType = null;
         this.actionCountdownLabel = null;
         this.actionCountdownSeconds = 0.0;
+        this.fightBannerVisible = false;
+        this.fightBannerProgress = 0.0;
         this.gemRewardAnimationActive = false;
         this.gemRewardAnimationProgress = 0.0;
         this.worldBackgroundImage = null;
@@ -173,6 +186,7 @@ public class Renderer {
         stage.setMaximized(false);
         stage.show();
         stage.centerOnScreen();
+        Platform.runLater(() -> applyFullscreen(settings.isFullscreen()));
         canvas.setFocusTraversable(true);
         canvas.requestFocus();
         stage.focusedProperty().addListener((obs, oldVal, focused) -> {
@@ -206,6 +220,16 @@ public class Renderer {
         return Math.max(1.0, canvas.getHeight());
     }
 
+    public double getGameplayZoom(double worldWidth, double worldHeight) {
+        double zoom = CAMERA_ZOOM;
+        if (worldWidth > 1.0 && worldHeight > 1.0) {
+            double widthFitZoom = getViewportWidth() / worldWidth;
+            double heightFitZoom = getViewportHeight() / worldHeight;
+            zoom = Math.max(zoom, Math.min(widthFitZoom, heightFitZoom));
+        }
+        return zoom;
+    }
+
     public void render(GameState gameState, Player player, BaseCamp baseCamp, List<Enemy> enemies, List<FriendlyArcher> friendlyArchers, long now,
                        double cameraX, double cameraY, int menuIndex, boolean welcomeFlashing,
                        String playerNameDraft, int maxNameLength,
@@ -235,6 +259,7 @@ public class Renderer {
                        double worldWidth, double worldHeight) {
         double viewportWidth = getViewportWidth();
         double viewportHeight = getViewportHeight();
+        double gameplayZoom = getGameplayZoom(worldWidth, worldHeight);
 
         uiManager.applyGameState(gameState);
         if (gameState == GameState.NAME_INPUT) {
@@ -254,7 +279,7 @@ public class Renderer {
                     worldHeight,
                     cameraX,
                     cameraY,
-                    CAMERA_ZOOM,
+                    gameplayZoom,
                     viewportWidth,
                     viewportHeight,
                     enemies
@@ -284,7 +309,7 @@ public class Renderer {
                     debugCollisionOverlayEnabled, mapCollisions, mapTransitionTrigger, allResources, collectedResources, buildManager, arrowProjectiles, fireOrbs, fireOrbFrames, thrownBombs, droppedItems, explosionEffects, fireBombBurnZones, floatingDamageTexts,
                     cameraShakeX, cameraShakeY, screenFlashAlpha,
                     darknessAlpha, isNight, dayNightPhase, timeIcon, timeTitle, timeClock, timeAnnouncement,
-                    worldWidth, worldHeight, viewportWidth, viewportHeight);
+                    worldWidth, worldHeight, viewportWidth, viewportHeight, gameplayZoom, bossMode);
         } else {
             drawBackgroundCover(gameBackgroundImage, viewportWidth, viewportHeight);
         }
@@ -296,6 +321,7 @@ public class Renderer {
             graphicsContext.restore();
         }
 
+        drawFightBanner(viewportWidth, viewportHeight);
         drawActionCountdown(viewportWidth, viewportHeight);
     }
 
@@ -331,6 +357,11 @@ public class Renderer {
         }
         this.actionCountdownLabel = label;
         this.actionCountdownSeconds = remainingSeconds;
+    }
+
+    public void setFightBanner(boolean visible, double progress) {
+        this.fightBannerVisible = visible;
+        this.fightBannerProgress = Math.max(0.0, Math.min(1.0, progress));
     }
 
     public void setGemRewardAnimation(boolean active, double progress) {
@@ -437,7 +468,7 @@ public class Renderer {
     }
 
     public void toggleFullscreen() {
-        stage.setFullScreen(!stage.isFullScreen());
+        applyFullscreen(!stage.isFullScreen());
         GameSettings current = uiManager.getSettings();
         current.setFullscreen(stage.isFullScreen());
         settingsManager.save(current);
@@ -445,9 +476,7 @@ public class Renderer {
 
     public void saveSettings() {
         GameSettings current = uiManager.getSettings();
-        if (stage.isFullScreen() != current.isFullscreen()) {
-            stage.setFullScreen(current.isFullscreen());
-        }
+        applyFullscreen(current.isFullscreen());
         settingsManager.save(current);
     }
 
@@ -469,6 +498,18 @@ public class Renderer {
         return uiManager.getItemMeta(itemId);
     }
 
+    private void applyFullscreen(boolean fullscreen) {
+        if (fullscreen) {
+            stage.setMaximized(true);
+            stage.setFullScreenExitHint("");
+            stage.setFullScreen(true);
+            return;
+        }
+        stage.setFullScreen(false);
+        stage.setMaximized(false);
+        stage.centerOnScreen();
+    }
+
     private void drawActionCountdown(double viewportWidth, double viewportHeight) {
         if (actionCountdownLabel == null || actionCountdownSeconds <= 0.0) {
             return;
@@ -484,6 +525,30 @@ public class Renderer {
                 viewportWidth * 0.5,
                 viewportHeight - 138.0
         );
+        graphicsContext.restore();
+    }
+
+    private void drawFightBanner(double viewportWidth, double viewportHeight) {
+        if (!fightBannerVisible) {
+            return;
+        }
+        double progress = Math.max(0.0, Math.min(1.0, fightBannerProgress));
+        double pulse = Math.sin(progress * Math.PI);
+        double alpha = 0.20 + 0.80 * pulse;
+        double scale = 1.30 - 0.26 * progress;
+
+        graphicsContext.save();
+        graphicsContext.setFill(Color.color(0.0, 0.0, 0.0, 0.24 * alpha));
+        graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
+        graphicsContext.translate(viewportWidth * 0.5, viewportHeight * 0.40);
+        graphicsContext.scale(scale, scale);
+        graphicsContext.setTextAlign(javafx.scene.text.TextAlignment.CENTER);
+        graphicsContext.setFont(Font.font("Georgia", FontWeight.BLACK, 58));
+        graphicsContext.setStroke(Color.color(0.12, 0.02, 0.02, 0.96 * alpha));
+        graphicsContext.setLineWidth(6.0);
+        graphicsContext.strokeText("FIGHT", 0.0, 0.0);
+        graphicsContext.setFill(Color.color(1.0, 0.90, 0.66, alpha));
+        graphicsContext.fillText("FIGHT", 0.0, 0.0);
         graphicsContext.restore();
     }
 
@@ -523,10 +588,13 @@ public class Renderer {
                                 double worldWidth,
                                 double worldHeight,
                                 double viewportWidth,
-                                double viewportHeight) {
+                                double viewportHeight,
+                                double cameraZoom,
+                                boolean bossMode) {
+        drawGameplayBackdrop(viewportWidth, viewportHeight, worldWidth, worldHeight, cameraZoom);
         graphicsContext.save();
         graphicsContext.translate(cameraShakeX, cameraShakeY);
-        graphicsContext.scale(CAMERA_ZOOM, CAMERA_ZOOM);
+        graphicsContext.scale(cameraZoom, cameraZoom);
 
         if (mapRenderer != null) {
             mapRenderer.setResources(allResources);
@@ -534,7 +602,7 @@ public class Renderer {
         } else if (worldBackgroundImage != null && !worldBackgroundImage.isError()) {
             graphicsContext.drawImage(worldBackgroundImage, -cameraX, -cameraY);
         } else {
-            drawBackgroundCover(gameBackgroundImage, viewportWidth / CAMERA_ZOOM, viewportHeight / CAMERA_ZOOM);
+            drawBackgroundCover(gameBackgroundImage, viewportWidth / cameraZoom, viewportHeight / cameraZoom);
         }
 
         renderBuildPreview(buildManager, cameraX, cameraY);
@@ -567,7 +635,7 @@ public class Renderer {
 
         renderFloatingDamageTexts(floatingDamageTexts, cameraX, cameraY, now);
         if (settings.isDebugGrid()) {
-            drawDebugGrid(cameraX, cameraY, viewportWidth / CAMERA_ZOOM, viewportHeight / CAMERA_ZOOM);
+            drawDebugGrid(cameraX, cameraY, viewportWidth / cameraZoom, viewportHeight / cameraZoom);
         }
         if (debugCollisionOverlayEnabled) {
             renderCollisionOverlay(player, baseCamp, enemies, friendlyArchers, mapCollisions, mapTransitionTrigger, allResources, buildManager, cameraX, cameraY);
@@ -591,6 +659,9 @@ public class Renderer {
         if (objectiveStatus != null && !objectiveStatus.isBlank()) {
             renderObjectivePanel(currentLevel, objectiveStatus);
         }
+        if (bossMode) {
+            renderBossControlsHint(viewportWidth, viewportHeight);
+        }
         renderSealGemBadge(collectedResources, viewportWidth);
         renderGemRewardAnimation(collectedResources, viewportWidth);
         renderSkillUnlockCelebration(player, now, viewportWidth);
@@ -606,6 +677,24 @@ public class Renderer {
             graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 12));
             graphicsContext.fillText("Collision Debug [F3]", 16, viewportHeight - 36);
         }
+    }
+
+    private void drawGameplayBackdrop(double viewportWidth, double viewportHeight, double worldWidth, double worldHeight, double cameraZoom) {
+        Image backdrop = (worldBackgroundImage != null && !worldBackgroundImage.isError())
+                ? worldBackgroundImage
+                : gameBackgroundImage;
+        if (backdrop == null || backdrop.isError()) {
+            graphicsContext.setFill(Color.web("#121416"));
+            graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
+            return;
+        }
+
+        double visibleWorldWidth = viewportWidth / cameraZoom;
+        double visibleWorldHeight = viewportHeight / cameraZoom;
+        if (worldWidth >= visibleWorldWidth && worldHeight >= visibleWorldHeight) {
+            return;
+        }
+        drawBackgroundCover(backdrop, viewportWidth, viewportHeight);
     }
 
     private void renderNightAnnouncement(double viewportWidth, String announcement) {
@@ -633,7 +722,7 @@ public class Renderer {
     private void renderObjectivePanel(Level currentLevel, String objectiveStatus) {
         String title = currentLevel != null
                 ? "L" + currentLevel.getId() + " " + currentLevel.getName()
-                : "Nhiệm vụ hiện tại";
+                : "Nhiem vu hien tai";
         String[] lines = objectiveStatus.split("\\R");
         int lineCount = Math.max(1, lines.length);
 
@@ -668,6 +757,39 @@ public class Renderer {
         }
     }
 
+
+    private void renderBossControlsHint(double viewportWidth, double viewportHeight) {
+        String[] lines = {
+                "J  Attack",
+                "I  Dash",
+                "K  Defend",
+                "L  Throw",
+                "U  Strong",
+                "Space  Jump"
+        };
+
+        double panelWidth = 158.0;
+        double lineHeight = 20.0;
+        double panelHeight = 18.0 + lines.length * lineHeight;
+        double panelX = viewportWidth - panelWidth - 18.0;
+        double panelY = Math.min(viewportHeight - panelHeight - 146.0, 176.0);
+
+        graphicsContext.save();
+        graphicsContext.setFill(Color.color(0.03, 0.03, 0.03, 0.46));
+        graphicsContext.fillRoundRect(panelX, panelY, panelWidth, panelHeight, 12, 12);
+        graphicsContext.setStroke(Color.color(0.92, 0.80, 0.56, 0.38));
+        graphicsContext.setLineWidth(1.0);
+        graphicsContext.strokeRoundRect(panelX, panelY, panelWidth, panelHeight, 12, 12);
+        graphicsContext.setFill(Color.color(1.0, 0.95, 0.83, 0.92));
+        graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 12));
+
+        double textY = panelY + 20.0;
+        for (String line : lines) {
+            graphicsContext.fillText(line, panelX + 12.0, textY);
+            textY += lineHeight;
+        }
+        graphicsContext.restore();
+    }
     private void renderSkillUnlockCelebration(Player player, long now, double viewportWidth) {
         if (skillUnlockCelebrationText == null || skillUnlockCelebrationText.isBlank() || player == null) {
             return;
@@ -701,12 +823,13 @@ public class Renderer {
         graphicsContext.fillText(skillUnlockCelebrationText, panelX + 104, panelY + 58);
         String keyHint;
         if (skillUnlockCelebrationType == null) {
-            keyHint = "Nhấn F để dùng kỹ năng.";
+            keyHint = "Press F to use the skill.";
         } else {
             keyHint = switch (skillUnlockCelebrationType) {
-                case CRUSH -> "Nhấn J để dùng kỹ năng.";
-                case PIERCE -> "Nhấn K để dùng kỹ năng.";
-                case HIT, SLICE -> "Nhấn F để dùng kỹ năng.";
+                case CRUSH -> "Press J to use the skill.";
+                case PIERCE -> "Press K to use the skill.";
+                case HIT, SLICE -> "Press F to use the skill.";
+                default -> "Press F to use the skill.";
             };
         }
         graphicsContext.fillText(keyHint, panelX + 104, panelY + 80);
@@ -735,9 +858,9 @@ public class Renderer {
         graphicsContext.drawImage(sealGemImage, badgeX + 12.0, badgeY + 9.0, 36.0, 36.0);
         graphicsContext.setFill(Color.web("#f6edc7"));
         graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 13));
-        graphicsContext.fillText("NGỌC PHONG ẤN", badgeX + 58.0, badgeY + 22.0);
+        graphicsContext.fillText("NGÃƒÂ¡Ã‚Â»Ã…â€™C PHONG ÃƒÂ¡Ã‚ÂºÃ‚Â¤N", badgeX + 58.0, badgeY + 22.0);
         graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 12));
-        graphicsContext.fillText("Số lượng: " + gemCount, badgeX + 58.0, badgeY + 40.0);
+        graphicsContext.fillText("SÃƒÂ¡Ã‚Â»Ã¢â‚¬Ëœ lÃƒâ€ Ã‚Â°ÃƒÂ¡Ã‚Â»Ã‚Â£ng: " + gemCount, badgeX + 58.0, badgeY + 40.0);
         graphicsContext.restore();
     }
 
@@ -766,7 +889,7 @@ public class Renderer {
         graphicsContext.drawImage(sealGemImage, x, y, size, size);
         graphicsContext.setFill(Color.web("#f6edc7"));
         graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 14));
-        graphicsContext.fillText("Ngọc Phong Ấn", startX - 28.0, startY - 14.0);
+        graphicsContext.fillText("NgÃƒÂ¡Ã‚Â»Ã‚Âc Phong ÃƒÂ¡Ã‚ÂºÃ‚Â¤n", startX - 28.0, startY - 14.0);
         graphicsContext.restore();
     }
 
@@ -1173,10 +1296,26 @@ public class Renderer {
             double screenY = bomb.getY() - cameraY - bomb.getArcHeight();
             Image bombSprite = resolveThrownBombSprite(bomb, nowNs);
             if (bombSprite != null && !bombSprite.isError()) {
-                graphicsContext.drawImage(bombSprite, screenX - size * 0.5, screenY - size * 0.5, size, size);
+                if ("samurai_throw".equalsIgnoreCase(bomb.getBombItemId())) {
+                    drawRotatedImage(bombSprite, screenX - size * 0.5, screenY - size * 0.5, size, size, bomb.getRotationDegrees() + nowNs / 4_500_000.0);
+                } else {
+                    graphicsContext.drawImage(bombSprite, screenX - size * 0.5, screenY - size * 0.5, size, size);
+                }
             } else {
-                graphicsContext.setFill(Color.web("#ffb74d"));
-                graphicsContext.fillOval(screenX - size * 0.5, screenY - size * 0.5, size, size);
+                if ("samurai_throw".equalsIgnoreCase(bomb.getBombItemId())) {
+                    graphicsContext.save();
+                    graphicsContext.translate(screenX, screenY);
+                    graphicsContext.rotate(18.0);
+                    graphicsContext.setFill(Color.web("#f7e3b5"));
+                    graphicsContext.fillRoundRect(-size * 0.55, -size * 0.18, size * 1.1, size * 0.36, 4, 4);
+                    graphicsContext.setStroke(Color.web("#7f5a2b"));
+                    graphicsContext.setLineWidth(1.0);
+                    graphicsContext.strokeRoundRect(-size * 0.55, -size * 0.18, size * 1.1, size * 0.36, 4, 4);
+                    graphicsContext.restore();
+                } else {
+                    graphicsContext.setFill(Color.web("#ffb74d"));
+                    graphicsContext.fillOval(screenX - size * 0.5, screenY - size * 0.5, size, size);
+                }
             }
         }
     }
@@ -1216,6 +1355,9 @@ public class Renderer {
                 return frames[0];
             }
             return buildAssetManager.getSprite("bomb_trap_icon");
+        }
+        if ("samurai_throw".equalsIgnoreCase(bomb.getBombItemId())) {
+            return samuraiShurikenImage;
         }
 
         Image[] bombFrames = buildAssetManager.getAnimationFrames("fire_bomb_throw");

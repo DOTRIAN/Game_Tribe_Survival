@@ -12,6 +12,7 @@ import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import javafx.scene.text.Text;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -25,6 +26,24 @@ public class Player extends Entity {
     private static final long CRUSH_FRAME_NS = 80_000_000L;
     private static final long PIERCE_FRAME_NS = 80_000_000L;
     private static final long DEATH_FRAME_NS = 110_000_000L;
+    private static final String BOSS_PLAYER_ASSET_ROOT = Path.of(
+            "assets",
+            "Samurai #3 2D Pixel Art v1.2",
+            "Samurai #3 2D Pixel Art v1.2",
+            "Samurai #3 2D Pixel Art v1.2",
+            "samurai"
+    ).toString();
+    private static final long BOSS_IDLE_FRAME_NS = 110_000_000L;
+    private static final long BOSS_RUN_FRAME_NS = 85_000_000L;
+    private static final long BOSS_ATTACK_FRAME_NS = 75_000_000L;
+    private static final long BOSS_DASH_ATTACK_FRAME_NS = 65_000_000L;
+    private static final long BOSS_DEFEND_FRAME_NS = 85_000_000L;
+    private static final long BOSS_THROW_FRAME_NS = 80_000_000L;
+    private static final long BOSS_JUMP_FRAME_NS = 95_000_000L;
+    private static final long BOSS_HURT_FRAME_NS = 95_000_000L;
+    private static final long BOSS_DEATH_FRAME_NS = 100_000_000L;
+    private static final double BOSS_MODE_WIDTH = 112.0;
+    private static final double BOSS_MODE_HEIGHT = 112.0;
 
     private enum FacingDirection {
         DOWN,
@@ -36,7 +55,13 @@ public class Player extends Entity {
         HIT,
         SLICE,
         CRUSH,
-        PIERCE
+        PIERCE,
+        ATTACK_TWO,
+        DASH_ATTACK,
+        DEFEND,
+        THROW,
+        STRONG_ATTACK,
+        JUMP
     }
 
     public enum EquipmentMode {
@@ -77,6 +102,16 @@ public class Player extends Entity {
     private final SpriteAnimation deathDownAnimation;
     private final SpriteAnimation deathSideAnimation;
     private final SpriteAnimation deathUpAnimation;
+    private final SpriteAnimation bossIdleAnimation;
+    private final SpriteAnimation bossRunAnimation;
+    private final SpriteAnimation bossAttackTwoAnimation;
+    private final SpriteAnimation bossDashAttackAnimation;
+    private final SpriteAnimation bossDefendAnimation;
+    private final SpriteAnimation bossThrowAnimation;
+    private final SpriteAnimation bossStrongAttackAnimation;
+    private final SpriteAnimation bossJumpAnimation;
+    private final SpriteAnimation bossHurtAnimation;
+    private final SpriteAnimation bossDeathAnimation;
 
     private FacingDirection facingDirection;
     private boolean facingRight;
@@ -88,6 +123,11 @@ public class Player extends Entity {
     private AttackAnimationType currentAttackType;
     private boolean sprinting;
     private EquipmentMode equipmentMode;
+    private boolean bossCombatMode;
+    private boolean takingHit;
+    private long invulnerableUntilNs;
+    private final double defaultWidth;
+    private final double defaultHeight;
     private static final double SPRINT_SPEED_MULTIPLIER = 1.8;
 
     public Player(double x, double y, double width, double height, double speed, int maxHp) {
@@ -171,6 +211,16 @@ public class Player extends Entity {
         this.deathDownAnimation = new SpriteAnimation(normalizeFrames(deathDownFrames, canvasWidth, canvasHeight), DEATH_FRAME_NS);
         this.deathSideAnimation = new SpriteAnimation(normalizeFrames(deathSideFrames, canvasWidth, canvasHeight), DEATH_FRAME_NS);
         this.deathUpAnimation = new SpriteAnimation(normalizeFrames(deathUpFrames, canvasWidth, canvasHeight), DEATH_FRAME_NS);
+        this.bossIdleAnimation = new SpriteAnimation(loadBossStrip("IDLE.png", 14), BOSS_IDLE_FRAME_NS);
+        this.bossRunAnimation = new SpriteAnimation(loadBossStrip("RUN.png", 8), BOSS_RUN_FRAME_NS);
+        this.bossAttackTwoAnimation = new SpriteAnimation(loadBossStrip("ATTACK 2.png", 5), BOSS_ATTACK_FRAME_NS);
+        this.bossDashAttackAnimation = new SpriteAnimation(loadBossStrip("DASH ATTACK.png", 9), BOSS_DASH_ATTACK_FRAME_NS);
+        this.bossDefendAnimation = new SpriteAnimation(loadBossStrip("DEFEND.png", 6), BOSS_DEFEND_FRAME_NS);
+        this.bossThrowAnimation = new SpriteAnimation(loadBossStrip("THROW.png", 7), BOSS_THROW_FRAME_NS);
+        this.bossStrongAttackAnimation = new SpriteAnimation(loadBossStrip("STRONG ATTACK.png", 11), BOSS_ATTACK_FRAME_NS);
+        this.bossJumpAnimation = new SpriteAnimation(loadBossStrip("JUMP.png", 3), BOSS_JUMP_FRAME_NS);
+        this.bossHurtAnimation = new SpriteAnimation(loadBossStrip("HURT.png", 4), BOSS_HURT_FRAME_NS);
+        this.bossDeathAnimation = new SpriteAnimation(loadBossStrip("DEATH.png", 10), BOSS_DEATH_FRAME_NS);
 
         this.facingDirection = FacingDirection.DOWN;
         this.facingRight = true;
@@ -182,6 +232,11 @@ public class Player extends Entity {
         this.currentAttackType = AttackAnimationType.HIT;
         this.sprinting = false;
         this.equipmentMode = EquipmentMode.HAND_MODE;
+        this.bossCombatMode = false;
+        this.takingHit = false;
+        this.invulnerableUntilNs = -1L;
+        this.defaultWidth = width;
+        this.defaultHeight = height;
     }
 
     public void moveLeft() {
@@ -240,12 +295,14 @@ public class Player extends Entity {
             case PIERCE -> pierceDownAnimation;
             case HIT -> hitDownAnimation;
             case SLICE -> sliceDownAnimation;
+            default -> sliceDownAnimation;
         };
         long frameDurationNs = switch (resolvedType) {
             case CRUSH -> CRUSH_FRAME_NS;
             case PIERCE -> PIERCE_FRAME_NS;
             case HIT -> HIT_FRAME_NS;
             case SLICE -> SLICE_FRAME_NS;
+            default -> SLICE_FRAME_NS;
         };
         int frameCount = Math.max(1, previewAnimation.getFrameCount());
         int frameIndex = (int) ((nowNs / frameDurationNs) % frameCount);
@@ -262,9 +319,12 @@ public class Player extends Entity {
         this.hp = maxHp;
         this.energy = maxEnergy;
         this.attacking = false;
+        this.takingHit = false;
+        this.invulnerableUntilNs = -1L;
         resetAllAttackAnimations();
+        resetHitAnimations();
         resetDeathAnimations();
-        this.currentFrame = idleDownAnimation.getCurrentFrame();
+        this.currentFrame = bossCombatMode ? bossIdleAnimation.getCurrentFrame() : idleDownAnimation.getCurrentFrame();
     }
 
     public String getPlayerName() {
@@ -280,6 +340,10 @@ public class Player extends Entity {
     }
 
     public void updateAnimation(long now, boolean moving, boolean moveUp, boolean moveDown, boolean moveLeft, boolean moveRight) {
+        if (bossCombatMode) {
+            updateBossAnimation(now, moving, moveLeft, moveRight);
+            return;
+        }
         if (moveLeft || moveRight) {
             facingDirection = FacingDirection.SIDE;
             if (moveLeft) {
@@ -297,6 +361,17 @@ public class Player extends Entity {
             SpriteAnimation deathAnimation = currentDeathAnimation();
             deathAnimation.updateOnce(now);
             currentFrame = deathAnimation.getCurrentFrame();
+            return;
+        }
+
+        if (takingHit) {
+            SpriteAnimation hitAnimation = currentHitAnimation();
+            boolean finished = hitAnimation.updateOnce(now);
+            currentFrame = hitAnimation.getCurrentFrame();
+            if (finished) {
+                takingHit = false;
+                resetHitAnimations();
+            }
             return;
         }
 
@@ -353,6 +428,12 @@ public class Player extends Entity {
                     case CRUSH -> CRUSH_FRAME_NS;
                     case PIERCE -> PIERCE_FRAME_NS;
                     case HIT -> HIT_FRAME_NS;
+                    case ATTACK_TWO -> BOSS_ATTACK_FRAME_NS;
+                    case DASH_ATTACK -> BOSS_DASH_ATTACK_FRAME_NS;
+                    case DEFEND -> BOSS_DEFEND_FRAME_NS;
+                    case THROW -> BOSS_THROW_FRAME_NS;
+                    case STRONG_ATTACK -> BOSS_ATTACK_FRAME_NS;
+                    case JUMP -> BOSS_JUMP_FRAME_NS;
                 };
         return true;
     }
@@ -363,6 +444,50 @@ public class Player extends Entity {
 
     public boolean isAttacking() {
         return attacking;
+    }
+
+    public boolean isBossCombatMode() {
+        return bossCombatMode;
+    }
+
+    public void setBossCombatMode(boolean bossCombatMode) {
+        if (this.bossCombatMode == bossCombatMode) {
+            return;
+        }
+        double centerX = getCenterX();
+        double feetY = y + height;
+        this.bossCombatMode = bossCombatMode;
+        this.width = bossCombatMode ? BOSS_MODE_WIDTH : defaultWidth;
+        this.height = bossCombatMode ? BOSS_MODE_HEIGHT : defaultHeight;
+        this.x = centerX - width / 2.0;
+        this.y = feetY - height;
+        this.attacking = false;
+        this.takingHit = false;
+        this.sprinting = false;
+        this.invulnerableUntilNs = -1L;
+        resetAllAttackAnimations();
+        resetHitAnimations();
+        resetDeathAnimations();
+        currentFrame = bossCombatMode ? bossIdleAnimation.getCurrentFrame() : idleDownAnimation.getCurrentFrame();
+    }
+
+    public boolean isDefending() {
+        return bossCombatMode
+                && attacking
+                && currentAttackType == AttackAnimationType.DEFEND
+                && isAlive();
+    }
+
+    public void grantInvulnerability(long untilNs) {
+        invulnerableUntilNs = Math.max(invulnerableUntilNs, untilNs);
+    }
+
+    public boolean isInvulnerable(long nowNs) {
+        return nowNs <= invulnerableUntilNs;
+    }
+
+    public boolean isFacingRight() {
+        return facingRight;
     }
 
     public void setSprinting(boolean sprinting) {
@@ -386,6 +511,9 @@ public class Player extends Entity {
     }
 
     public AttackAnimationType getAttackAnimationTypeForCurrentMode() {
+        if (bossCombatMode) {
+            return AttackAnimationType.ATTACK_TWO;
+        }
         return isAxeEquipped() ? AttackAnimationType.SLICE : AttackAnimationType.HIT;
     }
 
@@ -464,6 +592,9 @@ public class Player extends Entity {
     }
 
     public double[] buildAttackHitbox() {
+        if (bossCombatMode) {
+            return buildBossAttackHitbox();
+        }
         double hitboxWidth = width * 0.90;
         double hitboxHeight = height * 0.90;
         double range = 26;
@@ -482,6 +613,21 @@ public class Player extends Entity {
         }
 
         return new double[]{attackX, attackY, hitboxWidth, hitboxHeight};
+    }
+
+    @Override
+    public void takeDamage(int amount) {
+        boolean aliveBefore = isAlive();
+        super.takeDamage(amount);
+        if (!aliveBefore || hp <= 0) {
+            takingHit = false;
+            return;
+        }
+        takingHit = true;
+        attacking = false;
+        resetAllAttackAnimations();
+        resetHitAnimations();
+        currentFrame = currentHitAnimation().getCurrentFrame();
     }
 
     public void draw(GraphicsContext graphicsContext, double cameraX, double cameraY) {
@@ -537,6 +683,10 @@ public class Player extends Entity {
 
     private Image[] loadStrip(String relativePath, int columns) {
         return SpriteSheetLoader.loadGrid(PLAYER_ASSET_ROOT + relativePath, columns, 1);
+    }
+
+    private Image[] loadBossStrip(String fileName, int frameCount) {
+        return SpriteSheetLoader.loadHorizontalStrip(Path.of(BOSS_PLAYER_ASSET_ROOT, fileName).toString(), frameCount);
     }
 
     private int findMaxFrameWidth(Image[]... frameGroups) {
@@ -602,6 +752,16 @@ public class Player extends Entity {
     }
 
     private SpriteAnimation currentAttackAnimation() {
+        if (bossCombatMode) {
+            return switch (currentAttackType) {
+                case DASH_ATTACK -> bossDashAttackAnimation;
+                case DEFEND -> bossDefendAnimation;
+                case THROW -> bossThrowAnimation;
+                case STRONG_ATTACK -> bossStrongAttackAnimation;
+                case JUMP -> bossJumpAnimation;
+                case ATTACK_TWO, HIT, SLICE, CRUSH, PIERCE -> bossAttackTwoAnimation;
+            };
+        }
         return switch (currentAttackType) {
             case SLICE -> switch (facingDirection) {
                 case UP -> sliceUpAnimation;
@@ -623,14 +783,29 @@ public class Player extends Entity {
                 case SIDE -> hitSideAnimation;
                 case DOWN -> hitDownAnimation;
             };
+            case ATTACK_TWO, DASH_ATTACK, DEFEND, THROW, STRONG_ATTACK, JUMP -> hitSideAnimation;
         };
     }
 
     private SpriteAnimation currentDeathAnimation() {
+        if (bossCombatMode) {
+            return bossDeathAnimation;
+        }
         return switch (facingDirection) {
             case UP -> deathUpAnimation;
             case SIDE -> deathSideAnimation;
             case DOWN -> deathDownAnimation;
+        };
+    }
+
+    private SpriteAnimation currentHitAnimation() {
+        if (bossCombatMode) {
+            return bossHurtAnimation;
+        }
+        return switch (facingDirection) {
+            case UP -> hitUpAnimation;
+            case SIDE -> hitSideAnimation;
+            case DOWN -> hitDownAnimation;
         };
     }
 
@@ -647,11 +822,110 @@ public class Player extends Entity {
         hitDownAnimation.reset();
         hitSideAnimation.reset();
         hitUpAnimation.reset();
+        bossAttackTwoAnimation.reset();
+        bossDashAttackAnimation.reset();
+        bossDefendAnimation.reset();
+        bossThrowAnimation.reset();
+        bossStrongAttackAnimation.reset();
+        bossJumpAnimation.reset();
     }
 
     private void resetDeathAnimations() {
         deathDownAnimation.reset();
         deathSideAnimation.reset();
         deathUpAnimation.reset();
+        bossDeathAnimation.reset();
+    }
+
+    private void resetHitAnimations() {
+        hitDownAnimation.reset();
+        hitSideAnimation.reset();
+        hitUpAnimation.reset();
+        bossHurtAnimation.reset();
+    }
+
+    private void updateBossAnimation(long now, boolean moving, boolean moveLeft, boolean moveRight) {
+        facingDirection = FacingDirection.SIDE;
+        if (moveLeft) {
+            facingRight = false;
+        } else if (moveRight) {
+            facingRight = true;
+        }
+
+        if (!isAlive()) {
+            boolean finished = bossDeathAnimation.updateOnce(now);
+            currentFrame = bossDeathAnimation.getCurrentFrame();
+            if (finished) {
+                bossDeathAnimation.updateOnce(now);
+            }
+            return;
+        }
+
+        if (takingHit) {
+            boolean finished = bossHurtAnimation.updateOnce(now);
+            currentFrame = bossHurtAnimation.getCurrentFrame();
+            if (finished) {
+                takingHit = false;
+                bossHurtAnimation.reset();
+            }
+            return;
+        }
+
+        if (attacking) {
+            SpriteAnimation attackAnimation = currentAttackAnimation();
+            boolean finished = attackAnimation.updateOnce(now);
+            currentFrame = attackAnimation.getCurrentFrame();
+            if (finished || now - attackStartedAtNs >= attackDurationNs) {
+                attacking = false;
+                resetAllAttackAnimations();
+            }
+            return;
+        }
+
+        SpriteAnimation activeAnimation = moving ? bossRunAnimation : bossIdleAnimation;
+        activeAnimation.update(now, true);
+        currentFrame = activeAnimation.getCurrentFrame();
+    }
+
+    private double[] buildBossAttackHitbox() {
+        double hitboxWidth;
+        double hitboxHeight;
+        double range;
+        switch (currentAttackType) {
+            case DASH_ATTACK -> {
+                hitboxWidth = width * 1.15;
+                hitboxHeight = height * 0.88;
+                range = 72.0;
+            }
+            case THROW -> {
+                hitboxWidth = width * 0.95;
+                hitboxHeight = height * 0.70;
+                range = 140.0;
+            }
+            case STRONG_ATTACK -> {
+                hitboxWidth = width * 1.35;
+                hitboxHeight = height * 0.96;
+                range = 92.0;
+            }
+            case JUMP -> {
+                hitboxWidth = width * 0.80;
+                hitboxHeight = height * 0.70;
+                range = 18.0;
+            }
+            case DEFEND -> {
+                hitboxWidth = width * 0.72;
+                hitboxHeight = height * 0.76;
+                range = 0.0;
+            }
+            default -> {
+                hitboxWidth = width * 1.02;
+                hitboxHeight = height * 0.86;
+                range = 40.0;
+            }
+        }
+
+        double attackX = x + (width - hitboxWidth) / 2.0 + (facingRight ? range : -range);
+        double attackY = y + height * 0.18;
+        return new double[]{attackX, attackY, hitboxWidth, hitboxHeight};
     }
 }

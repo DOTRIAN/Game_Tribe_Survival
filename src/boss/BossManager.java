@@ -34,7 +34,7 @@ public final class BossManager {
         fireOrbManager.clear();
         activeFight = new BossFightController(arena, fireOrbManager);
         activeFight.ensureSpawned(enemies);
-        pendingToast = "Boss room: Chuot trai de danh, F/J/K de dung ky nang da mo khoa, tranh cleave va Fire Orb Barrage.";
+        pendingToast = "Boss room: Tieu diet Boss.";
     }
 
     public void update(long now,
@@ -63,33 +63,13 @@ public final class BossManager {
             return "";
         }
         if (activeFight.getResult() == BossFightResult.VICTORY) {
-            return "Final Boss da guc!\n"
-                    + "• Hoan tat man boss hien tai\n"
-                    + "• Co the noi them cutscene / phan thuong sau";
+            return "Nhiem vu hoan thanh";
         }
-        if (activeFight.getResult() == BossFightResult.PLAYER_DEFEATED) {
-            return "Final Boss:\n"
-                    + "• Nhan vat da guc nga\n"
-                    + "• Thu lai va canh don cleave";
-        }
+        return "Tieu diet Boss";
+    }
 
-        var boss = activeFight.getBoss();
-        if (boss == null) {
-            return "Final Boss:\n• Dang trieu hoi...";
-        }
-
-        String skillHint = player != null && player.getLevel() >= 4
-                ? "F/J/K: dung combo ky nang"
-                : player != null && player.getLevel() >= 3
-                ? "F/J: ky nang da san sang, K mo o level 4"
-                : player != null && player.getLevel() >= 2
-                ? "F: ky nang da san sang, J/K mo o level cao hon"
-                : "Chuot trai danh thuong, F/J/K mo khoa theo level";
-
-        return "Final Boss:\n"
-                + "• HP " + boss.getHp() + "/" + boss.getMaxHp() + "\n"
-                + "• " + skillHint + "\n"
-                + "• Lui ra khi boss chuan bi vung cleave";
+    public boolean isVictory() {
+        return activeFight != null && activeFight.getResult() == BossFightResult.VICTORY;
     }
 
     public String consumePendingToast() {
