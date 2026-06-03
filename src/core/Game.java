@@ -1,6 +1,7 @@
 package core;
 
 import boss.BossManager;
+import boss.projectile.FireOrb;
 import boss.entity.FinalBoss;
 import buildsystem.core.BuildManager;
 import buildsystem.core.BuildMode;
@@ -784,6 +785,8 @@ public class Game {
                 buildManager,
                 hotbarItems,
                 arrowProjectiles,
+                bossManager.getActiveFireOrbs(),
+                bossManager.getFireOrbManager().getFrames(),
                 thrownBombs,
                 droppedItems,
                 explosionEffects,
@@ -1608,7 +1611,7 @@ public class Game {
         updateScreenImpulse(now);
         long aiStartNs = System.nanoTime();
         if (mapManager.getCurrentMapType() == MapType.BOSS_MAP) {
-            bossManager.update(now, player, enemies, worldWidth, worldHeight);
+            bossManager.update(now, player, enemies, worldWidth, worldHeight, this::blocksFireOrb);
         }
         if (isEnemySpawningEnabled()) {
             updateEnemySpawning(now);
@@ -2311,6 +2314,16 @@ public class Game {
         if (!expired.isEmpty()) {
             arrowProjectiles.removeAll(expired);
         }
+    }
+
+    private boolean blocksFireOrb(double centerX, double centerY, double radius) {
+        double diameter = radius * 2.0;
+        double collisionX = centerX - radius;
+        double collisionY = centerY - radius;
+        return buildCollisionManager.isBlockedByStaticObjects(collisionX, collisionY, diameter, diameter)
+                || buildCollisionManager.isBlockedByTerrain(collisionX, collisionY, diameter, diameter)
+                || buildCollisionManager.isBlockedByWater(collisionX, collisionY, diameter, diameter)
+                || intersectsPlacedBuildObjectFast(collisionX, collisionY, diameter, diameter);
     }
 
     private void updateThrownBombs(long now) {

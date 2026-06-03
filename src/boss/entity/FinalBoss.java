@@ -14,8 +14,14 @@ import system.DamageSystem;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 
 public final class FinalBoss extends Enemy {
+    @FunctionalInterface
+    public interface BarrageEmitter {
+        void emit(double originX, double originY, double dirX, double dirY, int orbCount, long nowNs);
+    }
+
     private enum AttackDirection {
         LEFT,
         RIGHT,
@@ -28,6 +34,8 @@ public final class FinalBoss extends Enemy {
     private static final long IDLE_FRAME_NS = 170_000_000L;
     private static final long WALK_FRAME_NS = 90_000_000L;
     private static final long CLEAVE_FRAME_NS = 75_000_000L;
+    private static final long BARRAGE_CHARGE_NS = 800_000_000L;
+    private static final long BARRAGE_INTERVAL_NS = 10_000_000_000L;
     private static final long TAKE_HIT_FRAME_NS = 85_000_000L;
     private static final long DEATH_FRAME_NS = 95_000_000L;
     private static final long ATTACK_COOLDOWN_NS = 1_600_000_000L;
@@ -41,6 +49,7 @@ public final class FinalBoss extends Enemy {
     private static final double APPROACH_SNAP_DISTANCE = 3.0;
     private static final int MAX_HP = 140;
     private static final int CLEAVE_DAMAGE = 14;
+    private static final long BARRAGE_FLASH_NS = 220_000_000L;
     private static final Map<BossState, Image[]> RAW_FRAMES = loadRawFrames();
 
     private final Map<BossState, SpriteAnimation> animations;
@@ -49,11 +58,16 @@ public final class FinalBoss extends Enemy {
     private boolean facingRight;
     private AttackDirection attackDirection;
     private long lastAttackAtNs;
+    private long nextBarrageAtNs;
+    private long barrageStartedAtNs;
+    private long encounterStartedAtNs;
+    private long barrageFlashUntilNs;
     private boolean cleaveDamageApplied;
     private boolean deathAnimationFinished;
     private boolean debugEnabled;
     private double lastAttackDirX;
     private double lastAttackDirY;
+    private BarrageEmitter barrageEmitter;
 
     public FinalBoss(double x, double y) {
         super(
@@ -80,11 +94,16 @@ public final class FinalBoss extends Enemy {
         this.facingRight = true;
         this.attackDirection = AttackDirection.LEFT;
         this.lastAttackAtNs = -ATTACK_COOLDOWN_NS;
+        this.nextBarrageAtNs = -1L;
+        this.barrageStartedAtNs = -1L;
+        this.encounterStartedAtNs = -1L;
+        this.barrageFlashUntilNs = -1L;
         this.cleaveDamageApplied = false;
         this.deathAnimationFinished = false;
         this.debugEnabled = false;
         this.lastAttackDirX = 0.0;
         this.lastAttackDirY = 1.0;
+        this.barrageEmitter = null;
     }
 
     @Override
@@ -112,6 +131,10 @@ public final class FinalBoss extends Enemy {
         if (player == null) {
             return;
         }
+        if (encounterStartedAtNs < 0L) {
+            encounterStartedAtNs = now;
+            nextBarrageAtNs = now + BARRAGE_INTERVAL_NS;
+        }
 
         if (hp <= 0 && state != BossState.DEATH) {
             transitionTo(BossState.DEATH);
@@ -121,6 +144,7 @@ public final class FinalBoss extends Enemy {
             case DEATH -> updateDeath(now);
             case TAKE_HIT -> updateTakeHit(now);
             case CLEAVE -> updateCleave(now, player);
+            case BARRAGE -> updateBarrage(now, player);
             case IDLE, WALK -> updateMovementState(now, player, worldWidth, worldHeight);
         }
     }
@@ -168,7 +192,25 @@ public final class FinalBoss extends Enemy {
             graphicsContext.restore();
         }
 
+        if (nowNs <= barrageFlashUntilNs) {
+            double progress = 1.0 - Math.max(0.0, (double) (barrageFlashUntilNs - nowNs) / BARRAGE_FLASH_NS);
+            double flashRadius = 28.0 + progress * 38.0;
+            graphicsContext.save();
+            graphicsContext.setGlobalBlendMode(javafx.scene.effect.BlendMode.SCREEN);
+            graphicsContext.setFill(Color.color(1.0, 0.52, 0.12, 0.34));
+            graphicsContext.fillOval(
+                    getCenterX() - cameraX - flashRadius,
+                    getCenterY() - cameraY - flashRadius,
+                    flashRadius * 2.0,
+                    flashRadius * 2.0
+            );
+            graphicsContext.restore();
+        }
+
         drawBossHealthBar(graphicsContext, screenX, screenY);
+        if (debugEnabled) {
+            drawDebug(graphicsContext, cameraX, cameraY);
+        }
     }
 
     @Override
@@ -203,6 +245,10 @@ public final class FinalBoss extends Enemy {
         return state;
     }
 
+    public void setBarrageEmitter(BarrageEmitter barrageEmitter) {
+        this.barrageEmitter = barrageEmitter;
+    }
+
     public double getDebugFootCenterX() {
         return footCenterX();
     }
@@ -234,6 +280,11 @@ public final class FinalBoss extends Enemy {
         updateFacingDirection(dx);
 
         updateAttackVector(player);
+        if (shouldStartBarrage(now)) {
+            transitionTo(BossState.BARRAGE);
+            barrageStartedAtNs = now;
+            return;
+        }
         Point2D desiredPosition = desiredBossPositionForCleave(player);
         boolean playerInsidePrimaryHitbox = intersectsCleaveHitbox(player);
         if (playerInsidePrimaryHitbox && now - lastAttackAtNs >= ATTACK_COOLDOWN_NS) {
@@ -294,6 +345,29 @@ public final class FinalBoss extends Enemy {
         transitionTo(BossState.IDLE);
     }
 
+    private void updateBarrage(long now, Player player) {
+        double dx = player == null ? 0.0 : player.getCenterX() - getCenterX();
+        double dy = player == null ? 0.0 : player.getCenterY() - getCenterY();
+        updateAttackDirection(dx, dy);
+        updateFacingDirection(dx);
+        updateAttackVector(player);
+
+        SpriteAnimation animation = animationFor(BossState.BARRAGE);
+        animation.update(now, true);
+        currentFrame = animation.getCurrentFrame();
+
+        if (barrageStartedAtNs < 0L) {
+            barrageStartedAtNs = now;
+        }
+        if (now - barrageStartedAtNs < BARRAGE_CHARGE_NS) {
+            return;
+        }
+        fireOrbBarrage(now);
+        nextBarrageAtNs = now + BARRAGE_INTERVAL_NS;
+        barrageStartedAtNs = -1L;
+        transitionTo(BossState.IDLE);
+    }
+
     private void updateDeath(long now) {
         SpriteAnimation animation = animationFor(BossState.DEATH);
         deathAnimationFinished = animation.updateOnce(now);
@@ -309,6 +383,9 @@ public final class FinalBoss extends Enemy {
             animationFor(nextState).reset();
             if (nextState == BossState.CLEAVE) {
                 cleaveDamageApplied = false;
+            }
+            if (nextState != BossState.BARRAGE) {
+                barrageStartedAtNs = -1L;
             }
         }
         currentFrame = resolveFrame(nextState);
@@ -474,6 +551,7 @@ public final class FinalBoss extends Enemy {
             case IDLE -> IDLE_FRAME_NS;
             case WALK -> WALK_FRAME_NS;
             case CLEAVE -> CLEAVE_FRAME_NS;
+            case BARRAGE -> IDLE_FRAME_NS;
             case TAKE_HIT -> TAKE_HIT_FRAME_NS;
             case DEATH -> DEATH_FRAME_NS;
         };
@@ -496,8 +574,61 @@ public final class FinalBoss extends Enemy {
         frames.put(BossState.IDLE, BossSpriteLoader.loadSequence(STATE_ROOT + "/01_demon_idle"));
         frames.put(BossState.WALK, BossSpriteLoader.loadSequence(STATE_ROOT + "/02_demon_walk"));
         frames.put(BossState.CLEAVE, BossSpriteLoader.loadSequence(STATE_ROOT + "/03_demon_cleave"));
+        frames.put(BossState.BARRAGE, BossSpriteLoader.loadSequence(STATE_ROOT + "/01_demon_idle"));
         frames.put(BossState.TAKE_HIT, BossSpriteLoader.loadSequence(STATE_ROOT + "/04_demon_take_hit"));
         frames.put(BossState.DEATH, BossSpriteLoader.loadSequence(STATE_ROOT + "/05_demon_death"));
         return frames;
+    }
+
+    private boolean shouldStartBarrage(long nowNs) {
+        return state != BossState.BARRAGE
+                && state != BossState.CLEAVE
+                && state != BossState.TAKE_HIT
+                && nextBarrageAtNs > 0L
+                && nowNs >= nextBarrageAtNs;
+    }
+
+    private void fireOrbBarrage(long nowNs) {
+        if (barrageEmitter == null) {
+            return;
+        }
+        int orbCount = resolveBarrageOrbCount(nowNs);
+        double[] forward = resolveBarrageForwardVector();
+        barrageEmitter.emit(getCenterX(), getCenterY(), forward[0], forward[1], orbCount, nowNs);
+        barrageFlashUntilNs = nowNs + BARRAGE_FLASH_NS;
+        triggerHitFlash(nowNs, BARRAGE_FLASH_NS, Color.rgb(255, 170, 70));
+    }
+
+    private int resolveBarrageOrbCount(long nowNs) {
+        long encounterAgeNs = encounterStartedAtNs < 0L ? 0L : Math.max(0L, nowNs - encounterStartedAtNs);
+        long encounterAgeSec = encounterAgeNs / 1_000_000_000L;
+        int min;
+        int max;
+        if (encounterAgeSec < 30L) {
+            min = 5;
+            max = 6;
+        } else if (encounterAgeSec < 60L) {
+            min = 6;
+            max = 7;
+        } else if (encounterAgeSec < 90L) {
+            min = 7;
+            max = 8;
+        } else if (encounterAgeSec < 120L) {
+            min = 8;
+            max = 9;
+        } else {
+            min = 9;
+            max = 10;
+        }
+        return min + ThreadLocalRandom.current().nextInt(max - min + 1);
+    }
+
+    private double[] resolveBarrageForwardVector() {
+        return switch (attackDirection) {
+            case LEFT -> new double[]{-1.0, 0.0};
+            case RIGHT -> new double[]{1.0, 0.0};
+            case UP -> new double[]{0.0, -1.0};
+            case DOWN -> new double[]{0.0, 1.0};
+        };
     }
 }

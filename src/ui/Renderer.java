@@ -1,6 +1,7 @@
 package ui;
 
 import boss.entity.FinalBoss;
+import boss.projectile.FireOrb;
 import buildsystem.core.BuildManager;
 import buildsystem.object.BuildObject;
 import buildsystem.fence.FenceEntity;
@@ -218,6 +219,8 @@ public class Renderer {
                        BuildManager buildManager,
                        List<HotbarItemStack> hotbarItems,
                        List<ArrowProjectile> arrowProjectiles,
+                       List<FireOrb> fireOrbs,
+                       Image[] fireOrbFrames,
                        List<ThrownBomb> thrownBombs,
                        List<DroppedItem> droppedItems,
                        List<ExplosionEffect> explosionEffects,
@@ -278,7 +281,7 @@ public class Renderer {
 
         if (gameState == GameState.DIALOGUE || gameState == GameState.PLAYING || gameState == GameState.PAUSED || gameState == GameState.GAME_OVER || gameState == GameState.LEVEL_COMPLETE) {
             renderGameplay(player, baseCamp, enemies, friendlyArchers, now, cameraX, cameraY, currentLevel, objectiveStatus,
-                    debugCollisionOverlayEnabled, mapCollisions, mapTransitionTrigger, allResources, collectedResources, buildManager, arrowProjectiles, thrownBombs, droppedItems, explosionEffects, fireBombBurnZones, floatingDamageTexts,
+                    debugCollisionOverlayEnabled, mapCollisions, mapTransitionTrigger, allResources, collectedResources, buildManager, arrowProjectiles, fireOrbs, fireOrbFrames, thrownBombs, droppedItems, explosionEffects, fireBombBurnZones, floatingDamageTexts,
                     cameraShakeX, cameraShakeY, screenFlashAlpha,
                     darknessAlpha, isNight, dayNightPhase, timeIcon, timeTitle, timeClock, timeAnnouncement,
                     worldWidth, worldHeight, viewportWidth, viewportHeight);
@@ -500,6 +503,8 @@ public class Renderer {
                                 Map<String, Integer> collectedResources,
                                 BuildManager buildManager,
                                 List<ArrowProjectile> arrowProjectiles,
+                                List<FireOrb> fireOrbs,
+                                Image[] fireOrbFrames,
                                 List<ThrownBomb> thrownBombs,
                                 List<DroppedItem> droppedItems,
                                 List<ExplosionEffect> explosionEffects,
@@ -535,6 +540,7 @@ public class Renderer {
         renderBuildPreview(buildManager, cameraX, cameraY);
         List<ArcherTower> archerTowers = renderPlacedBuildObjects(buildManager, cameraX, cameraY, now);
         renderArrowProjectiles(arrowProjectiles, cameraX, cameraY);
+        renderFireOrbs(fireOrbs, fireOrbFrames, cameraX, cameraY);
         renderThrownBombs(thrownBombs, cameraX, cameraY, now);
         renderDroppedItems(droppedItems, cameraX, cameraY, now);
         renderExplosionEffects(explosionEffects, cameraX, cameraY, now);
@@ -1108,6 +1114,38 @@ public class Renderer {
             graphicsContext.fillRect(-arrow.getWidth() / 2.0, -arrow.getHeight() / 2.0, arrow.getWidth(), arrow.getHeight());
             graphicsContext.restore();
         }
+    }
+
+    private void renderFireOrbs(List<FireOrb> fireOrbs, Image[] fireOrbFrames, double cameraX, double cameraY) {
+        if (fireOrbs == null || fireOrbs.isEmpty()) {
+            return;
+        }
+        for (FireOrb fireOrb : fireOrbs) {
+            if (fireOrb == null || !fireOrb.isActive()) {
+                continue;
+            }
+            double screenX = fireOrb.getX() - cameraX;
+            double screenY = fireOrb.getY() - cameraY;
+            Image frame = resolveFireOrbFrame(fireOrbFrames, fireOrb.getFrameIndex());
+            if (frame != null && !frame.isError()) {
+                drawRotatedImage(frame, screenX, screenY, fireOrb.getWidth(), fireOrb.getHeight(), fireOrb.getRotationDegrees());
+                continue;
+            }
+            graphicsContext.save();
+            graphicsContext.translate(fireOrb.getCenterX() - cameraX, fireOrb.getCenterY() - cameraY);
+            graphicsContext.rotate(fireOrb.getRotationDegrees());
+            graphicsContext.setFill(Color.web("#ff8c2f"));
+            graphicsContext.fillOval(-fireOrb.getWidth() * 0.5, -fireOrb.getHeight() * 0.5, fireOrb.getWidth(), fireOrb.getHeight());
+            graphicsContext.restore();
+        }
+    }
+
+    private Image resolveFireOrbFrame(Image[] fireOrbFrames, int frameIndex) {
+        if (fireOrbFrames == null || fireOrbFrames.length == 0) {
+            return null;
+        }
+        int safeIndex = Math.max(0, Math.min(frameIndex, fireOrbFrames.length - 1));
+        return fireOrbFrames[safeIndex];
     }
 
     private void renderFireBombBurnZones(List<FireBombBurnZone> fireBombBurnZones, double cameraX, double cameraY, long nowNs) {
