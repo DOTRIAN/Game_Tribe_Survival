@@ -58,14 +58,20 @@ public class TileResourceAdapter {
                 if (!treeVisited[y][x] && catalog.isTree(gid)) {
                     Cluster cluster = floodFillCluster(x, y, "tree", mapData, objectsLayer, foregroundLayer, treeVisited, catalog);
                     if (!cluster.cells.isEmpty()) {
-                        result.add(buildTreeObject(cluster, mapData, catalog, nextId--, tileW, tileH));
+                        MapObjectData resource = buildTreeObject(cluster, mapData, catalog, nextId--, tileW, tileH);
+                        if (resource != null) {
+                            result.add(resource);
+                        }
                     }
                 }
 
                 if (!stoneVisited[y][x] && catalog.isStone(gid)) {
                     Cluster cluster = floodFillCluster(x, y, "stone", mapData, objectsLayer, foregroundLayer, stoneVisited, catalog);
                     if (!cluster.cells.isEmpty()) {
-                        result.add(buildStoneObject(cluster, mapData, catalog, nextId--, tileW, tileH));
+                        MapObjectData resource = buildStoneObject(cluster, mapData, catalog, nextId--, tileW, tileH);
+                        if (resource != null) {
+                            result.add(resource);
+                        }
                     }
                 }
             }
@@ -74,10 +80,14 @@ public class TileResourceAdapter {
     }
 
     private MapObjectData buildTreeObject(Cluster cluster, MapData mapData, TilePropertyCatalog catalog, int objectId, int tileW, int tileH) {
+        Cluster collisionFootprint = extractCollisionFootprint(cluster, mapData, catalog);
+        if (collisionFootprint.cells.isEmpty()) {
+            return null;
+        }
         int maxHp = 5;
         TileLayerData objectsLayer = mapData.findLayerByName("Objects");
         TileLayerData foregroundLayer = findForegroundLayer(mapData);
-        for (Cell cell : cluster.cells) {
+        for (Cell cell : collisionFootprint.cells) {
             int gid = getTopVisualGidAt(cell.x, cell.y, objectsLayer, foregroundLayer);
             // Uu tien schema Tiled moi, fallback schema cu.
             maxHp = Math.max(maxHp, catalog.getIntProperty(gid, 5, "Hp_tree", "Hp", "hp", "maxHp"));
@@ -98,19 +108,23 @@ public class TileResourceAdapter {
                 // Khong danh dau Collision o object adapter:
                 // movement collision se do TileCollisionResolver (collision:on) quyet dinh.
                 "Resource",
-                cluster.minX * tileW,
-                cluster.minY * tileH,
-                (cluster.maxX - cluster.minX + 1) * tileW,
-                (cluster.maxY - cluster.minY + 1) * tileH,
+                collisionFootprint.minX * tileW,
+                collisionFootprint.minY * tileH,
+                (collisionFootprint.maxX - collisionFootprint.minX + 1) * tileW,
+                (collisionFootprint.maxY - collisionFootprint.minY + 1) * tileH,
                 props
         );
     }
 
     private MapObjectData buildStoneObject(Cluster cluster, MapData mapData, TilePropertyCatalog catalog, int objectId, int tileW, int tileH) {
+        Cluster collisionFootprint = extractCollisionFootprint(cluster, mapData, catalog);
+        if (collisionFootprint.cells.isEmpty()) {
+            return null;
+        }
         int maxHp = GameBalance.ROCK_HITS_TO_BREAK;
         TileLayerData objectsLayer = mapData.findLayerByName("Objects");
         TileLayerData foregroundLayer = findForegroundLayer(mapData);
-        for (Cell cell : cluster.cells) {
+        for (Cell cell : collisionFootprint.cells) {
             int gid = getTopVisualGidAt(cell.x, cell.y, objectsLayer, foregroundLayer);
             // Uu tien schema Tiled moi, fallback schema cu.
             maxHp = Math.max(maxHp, catalog.getIntProperty(gid, GameBalance.ROCK_HITS_TO_BREAK, "Hp_stone", "stone_Hp", "maxHp"));
@@ -128,12 +142,28 @@ public class TileResourceAdapter {
                 objectId,
                 "TileStoneCluster",
                 "Resource",
-                cluster.minX * tileW,
-                cluster.minY * tileH,
-                (cluster.maxX - cluster.minX + 1) * tileW,
-                (cluster.maxY - cluster.minY + 1) * tileH,
+                collisionFootprint.minX * tileW,
+                collisionFootprint.minY * tileH,
+                (collisionFootprint.maxX - collisionFootprint.minX + 1) * tileW,
+                (collisionFootprint.maxY - collisionFootprint.minY + 1) * tileH,
                 props
         );
+    }
+
+    private Cluster extractCollisionFootprint(Cluster visualCluster, MapData mapData, TilePropertyCatalog catalog) {
+        Cluster footprint = new Cluster();
+        if (visualCluster == null || visualCluster.cells.isEmpty() || mapData == null || catalog == null) {
+            return footprint;
+        }
+        TileLayerData objectsLayer = mapData.findLayerByName("Objects");
+        TileLayerData foregroundLayer = findForegroundLayer(mapData);
+        for (Cell cell : visualCluster.cells) {
+            int gid = getTopVisualGidAt(cell.x, cell.y, objectsLayer, foregroundLayer);
+            if (gid > 0 && catalog.isCollisionOn(gid)) {
+                footprint.add(cell.x, cell.y);
+            }
+        }
+        return footprint;
     }
 
     private Cluster floodFillCluster(int startX,

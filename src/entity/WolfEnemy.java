@@ -345,6 +345,10 @@ public class WolfEnemy extends Enemy {
                 ? resolveNightVillagePlayerTarget(player, baseCamp)
                 : resolvePlayerTarget(player, nowNs);
         if (playerTarget != null) {
+            if (escapeObstacleTarget != null && escapeObstacleTarget.isAlive()) {
+                updateEscapeObstacleTarget(nowNs, worldWidth, worldHeight);
+                return;
+            }
             if (escapeObstacleTarget != null) {
                 clearObstacleFocus();
             }
