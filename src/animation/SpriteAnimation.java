@@ -52,6 +52,10 @@ public class SpriteAnimation {
     }
 
     public boolean updateOnce(long now) {
+        return updateOnce(now, frameDurationNs);
+    }
+
+    public boolean updateOnce(long now, long frameDurationOverrideNs) {
         if (frames.length <= 1) {
             currentFrameIndex = 0;
             return true;
@@ -63,7 +67,8 @@ public class SpriteAnimation {
         if (currentFrameIndex >= frames.length - 1) {
             return true;
         }
-        if (now - lastFrameTime < frameDurationNs) {
+        long effectiveFrameDurationNs = Math.max(1L, frameDurationOverrideNs);
+        if (now - lastFrameTime < effectiveFrameDurationNs) {
             return false;
         }
         currentFrameIndex = Math.min(currentFrameIndex + 1, frames.length - 1);

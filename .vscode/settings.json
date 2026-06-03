@@ -1,7 +1,5 @@
 {
-  "java.project.referencedLibraries": [
-    "lib/**/*.jar"
-  ],
+  "java.project.referencedLibraries": ["lib/**/*.jar"],
   "java.import.exclusions": [
     "**/*.iml",
     "**/out/**",
@@ -14,5 +12,6 @@
     "**/src/Game__TEST.iml",
     "**/src/Game__TEST/**"
   ],
-  "CodeGPT.apiKey": "Ollama"
+  "CodeGPT.apiKey": "Ollama",
+  "java.debug.settings.onBuildFailureProceed": true
 }
