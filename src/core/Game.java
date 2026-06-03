@@ -136,6 +136,7 @@ public class Game {
             BuildType.FENCE,
             BuildType.WOOD_WALL,
             BuildType.STONE_WALL,
+            BuildType.ARCHER_TOWER,
             BuildType.DOOR
     };
 
@@ -237,7 +238,7 @@ public class Game {
     // Stats energy cho loop di chuyen/sinh ton.
     private static final double MOVE_ENERGY_DRAIN_PER_SECOND = 2.2;
     private static final double SKILL_F_ENERGY_COST = 3.0;
-    private static final double FOOD_ENERGY_BONUS = 15.0;
+    private static final double FOOD_ENERGY_BONUS = 50.0;
     private static final long NIKU_EAT_DURATION_NS = 2_000_000_000L;
     private static final long EMPTY_ENERGY_DAMAGE_INTERVAL_NS = 800_000_000L;
     private static final int EMPTY_ENERGY_DAMAGE = 1;
@@ -2102,7 +2103,7 @@ public class Game {
             }
             if (enemy instanceof GolemEnemy golemEnemy) {
                 golemEnemy.setDebugEnabled(debugCollisionOverlayEnabled);
-                golemEnemy.updateAi(now, baseCamp, player, friendlyArcherManager.getArchers(), worldWidth, worldHeight, allowExpensiveNavigation);
+                golemEnemy.updateAi(now, baseCamp, player, friendlyArcherManager.getArchers(), buildManager.getPlacedObjectsByType(BuildType.ARCHER_TOWER), worldWidth, worldHeight, allowExpensiveNavigation);
                 int baseHpBefore = baseCamp.getHp();
                 if (golemEnemy.applyAttackIfReady(now)) {
                     if (golemEnemy.getCurrentTarget() instanceof BaseCamp) {
@@ -2134,7 +2135,7 @@ public class Game {
             if (enemy instanceof WolfEnemy) {
                 WolfEnemy wolfEnemy = (WolfEnemy) enemy;
                 wolfEnemy.setDebugEnabled(debugCollisionOverlayEnabled);
-                wolfEnemy.updateBehavior(now, dayNightManager.isNight(now), player, baseCamp, worldWidth, worldHeight, allowExpensiveNavigation);
+                wolfEnemy.updateBehavior(now, dayNightManager.isNight(now), player, baseCamp, friendlyArcherManager.getArchers(), worldWidth, worldHeight, allowExpensiveNavigation);
                 if (enemy.shouldRemoveFromWorld()) {
                     handleEnemyDeathDrops(enemy);
                     dead.add(enemy);
@@ -2789,17 +2790,7 @@ public class Game {
     }
 
     private boolean damageWolfBase(WolfEnemy enemy, BaseCamp targetBaseCamp, long now) {
-        if (enemy == null || targetBaseCamp == null || targetBaseCamp.isDead()) {
-            return false;
-        }
-        int beforeHp = targetBaseCamp.getHp();
-        DamageSystem.applyDamage(enemy, targetBaseCamp, enemy.getDamage(), now);
-        int dealt = Math.max(0, beforeHp - targetBaseCamp.getHp());
-        if (dealt <= 0) {
-            return false;
-        }
-        eventBus.publish(new GameEvent(GameEventType.BASE_CAMP_DAMAGED, Map.of("damage", dealt, "hp", targetBaseCamp.getHp())));
-        return true;
+        return false;
     }
 
     private boolean isAttackableWallType(BuildType type) {
@@ -2822,9 +2813,12 @@ public class Game {
         if (resource == null || !resource.isAlive()) {
             return false;
         }
+        if (enemy instanceof WolfEnemy) {
+            return false;
+        }
         return switch (resource.getResourceType()) {
             case TREE -> true;
-            case ROCK -> enemy instanceof GolemEnemy || enemy instanceof WolfEnemy;
+            case ROCK -> enemy instanceof GolemEnemy;
             case GRASS -> resource.getKind().toLowerCase().contains("bush");
             case UNKNOWN -> resource.getKind().toLowerCase().contains("bush");
             default -> false;
@@ -4765,7 +4759,7 @@ public class Game {
             case WOOD_WALL_ITEM_ID -> Map.of(COIN_ITEM_ID, WOOD_WALL_PRICE);
             case POTION_ITEM_ID -> Map.of(COIN_ITEM_ID, 12);
             case TORCH_ITEM_ID -> Map.of(COIN_ITEM_ID, TORCH_PRICE);
-            case ARCHER_TOWER_ITEM_ID -> Map.of("wood", ARCHER_TOWER_PRICE);
+            case ARCHER_TOWER_ITEM_ID -> Map.of("wood", 10, "stone", 10);
             case FRIENDLY_ARCHER_ITEM_ID -> Map.of(COIN_ITEM_ID, FRIENDLY_ARCHER_PRICE);
             case CHEST_ITEM_ID -> Map.of(COIN_ITEM_ID, CHEST_PRICE);
             case BOMB_TRAP_ITEM_ID -> Map.of(COIN_ITEM_ID, BOMB_TRAP_PRICE);

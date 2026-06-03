@@ -83,6 +83,8 @@ public class WolfEnemy extends Enemy {
     private static final double DAY_CHASE_HOME_RADIUS = CHASE_HOME_RADIUS * 0.5;
     private static final double NIGHT_PLAYER_DEFEND_RADIUS = 220.0;
     private static final double NIGHT_WALL_BREAK_DISTANCE = 92.0;
+    private static final double ARCHER_INTERCEPT_RANGE = 170.0;
+    private static final double ARCHER_INTERCEPT_CORRIDOR = 72.0;
     private static final double RETURN_TOLERANCE = 10.0;
     private static final double DIRECT_TARGET_RECALC_DISTANCE = 28.0;
     private static final double PATH_POINT_REACHED = 9.0;
@@ -302,6 +304,7 @@ public class WolfEnemy extends Enemy {
                                boolean isNight,
                                Player player,
                                BaseCamp baseCamp,
+                               Iterable<FriendlyArcher> friendlies,
                                double worldWidth,
                                double worldHeight,
                                boolean allowExpensiveNavigation) {
@@ -345,6 +348,10 @@ public class WolfEnemy extends Enemy {
                 ? resolveNightVillagePlayerTarget(player, baseCamp)
                 : resolvePlayerTarget(player, nowNs);
         if (playerTarget != null) {
+            Entity chaseTarget = resolveInterceptArcherTarget(playerTarget, friendlies);
+            if (chaseTarget == null) {
+                chaseTarget = playerTarget;
+            }
             if (escapeObstacleTarget != null && escapeObstacleTarget.isAlive()) {
                 updateEscapeObstacleTarget(nowNs, worldWidth, worldHeight);
                 return;
@@ -352,15 +359,15 @@ public class WolfEnemy extends Enemy {
             if (escapeObstacleTarget != null) {
                 clearObstacleFocus();
             }
-            activeEntityTarget = playerTarget;
+            activeEntityTarget = chaseTarget;
             activeBuildTarget = null;
             activeResourceTarget = null;
-            if (tryStartAttack(playerTarget, null, nowNs, isNight)) {
+            if (tryStartAttack(chaseTarget, null, nowNs, isNight)) {
                 return;
             }
             state = BrainState.CHASE;
-            aiState = EnemyAiState.CHASE_PLAYER;
-            runTowardEntity(playerTarget, nowNs, worldWidth, worldHeight, isNight);
+            aiState = chaseTarget instanceof FriendlyArcher ? EnemyAiState.MOVE_TO_OBSTACLE : EnemyAiState.CHASE_PLAYER;
+            runTowardEntity(chaseTarget, nowNs, worldWidth, worldHeight, isNight && chaseTarget instanceof Player);
             return;
         }
 
@@ -621,30 +628,59 @@ public class WolfEnemy extends Enemy {
 
     private Player resolveNightVillagePlayerTarget(Player player, BaseCamp baseCamp) {
         if (player == null || !player.isAlive()) {
+            aggroPlayer = null;
             return null;
+        }
+        if (aggroPlayer == player) {
+            return player;
         }
         if (canDetectPlayer(player)) {
             aggroPlayer = player;
             return player;
         }
-        if (baseCamp == null || !baseCamp.isAlive()) {
+        // Ban dem soi chi san player, khong lay nha chinh lam muc tieu/neo aggro.
+        aggroPlayer = player;
+        return player;
+    }
+
+    private Entity resolveInterceptArcherTarget(Player playerTarget, Iterable<FriendlyArcher> friendlies) {
+        if (playerTarget == null || friendlies == null) {
             return null;
         }
-        double playerToCamp = rectDistance(
-                player.getCollisionX(),
-                player.getCollisionY(),
-                player.getCollisionWidth(),
-                player.getCollisionHeight(),
-                baseCamp.getCollisionX(),
-                baseCamp.getCollisionY(),
-                baseCamp.getCollisionWidth(),
-                baseCamp.getCollisionHeight()
-        );
-        if (playerToCamp <= NIGHT_PLAYER_DEFEND_RADIUS) {
-            aggroPlayer = player;
-            return player;
+        double startX = getCenterX();
+        double startY = getCenterY();
+        double endX = playerTarget.getCenterX();
+        double endY = playerTarget.getCenterY();
+        double playerDistance = distanceTo(endX, endY);
+        if (playerDistance <= 0.001) {
+            return null;
         }
-        return null;
+
+        FriendlyArcher best = null;
+        double bestScore = Double.POSITIVE_INFINITY;
+        for (FriendlyArcher archer : friendlies) {
+            if (archer == null || !archer.isAlive()) {
+                continue;
+            }
+            double archerDistance = distanceTo(archer.getCenterX(), archer.getCenterY());
+            if (archerDistance > ARCHER_INTERCEPT_RANGE) {
+                continue;
+            }
+            double progress = projectPointOnSegment(archer.getCenterX(), archer.getCenterY(), startX, startY, endX, endY);
+            if (progress < 0.08 || progress > 0.95) {
+                continue;
+            }
+            double corridorDistance = pointToSegmentDistance(archer.getCenterX(), archer.getCenterY(), startX, startY, endX, endY);
+            if (corridorDistance > ARCHER_INTERCEPT_CORRIDOR) {
+                continue;
+            }
+            double score = archerDistance + corridorDistance * 1.6 - progress * 22.0;
+            if (score < bestScore) {
+                bestScore = score;
+                best = archer;
+            }
+        }
+        return best;
     }
 
     private boolean runTowardNightEntityTarget(Entity target,
@@ -721,7 +757,7 @@ public class WolfEnemy extends Enemy {
     }
 
     private AttackProfile chooseAttackProfile(Entity entityTarget, BaseCamp baseTarget, BuildObject buildTarget, ResourceNode resourceTarget, boolean isNight) {
-        if (entityTarget instanceof Player) {
+        if (entityTarget instanceof Player || entityTarget instanceof FriendlyArcher) {
             return ATTACK_TWO;
         }
         if (buildTarget != null || resourceTarget != null) {
@@ -796,7 +832,11 @@ public class WolfEnemy extends Enemy {
         if (canApplyDamageOnCurrentFrame(animation)) {
             if (entityTarget != null) {
                 if (intersectsAttackHitbox(entityTarget, activeAttackProfile)) {
-                    DamageSystem.applyDamage(this, entityTarget, activeAttackProfile.damage(), nowNs);
+                    if (entityTarget instanceof FriendlyArcher friendlyArcher) {
+                        friendlyArcher.receiveDamage(activeAttackProfile.damage());
+                    } else {
+                        DamageSystem.applyDamage(this, entityTarget, activeAttackProfile.damage(), nowNs);
+                    }
                     attackDamageAppliedThisCycle = true;
                 }
             } else if (buildTarget != null) {
@@ -927,6 +967,11 @@ public class WolfEnemy extends Enemy {
         if (!moved && canMoveDirectlyTo(targetX, targetY)) {
             moved = moveToward(targetX, targetY, worldWidth, worldHeight);
         }
+        if (!moved && currentPath.isEmpty()) {
+            if (chooseSideStepWaypoint(targetX, targetY) || chooseOrderedEscapeWaypoint(targetX, targetY)) {
+                moved = advanceCurrentWaypoint(worldWidth, worldHeight);
+            }
+        }
         if (moved) {
             blockedSinceNs = 0L;
             blockedCount = 0;
@@ -949,6 +994,18 @@ public class WolfEnemy extends Enemy {
             updateIdleAnimation(System.nanoTime());
         }
         return false;
+    }
+
+    private boolean advanceCurrentWaypoint(double worldWidth, double worldHeight) {
+        if (currentPath.isEmpty() || currentPathIndex >= currentPath.size()) {
+            return false;
+        }
+        Point2D waypoint = currentPath.get(currentPathIndex);
+        if (distanceTo(waypoint.getX(), waypoint.getY()) <= PATH_POINT_REACHED) {
+            currentPathIndex++;
+            return false;
+        }
+        return moveToward(waypoint.getX(), waypoint.getY(), worldWidth, worldHeight);
     }
 
     private void updateStuckSample(long nowNs) {
@@ -1262,9 +1319,9 @@ public class WolfEnemy extends Enemy {
         aiState = EnemyAiState.DIRECT_SIEGE_TO_PLAYER;
         animationState = AnimationState.RUN;
         currentMoveSpeed = RUN_SPEED;
-        clearPath();
         setDesiredMove(targetX - getCenterX(), targetY - getCenterY());
         if (attemptDirectSiegeMovement(targetX, targetY, worldWidth, worldHeight)) {
+            clearPath();
             blockedSinceNs = 0L;
             blockedCount = 0;
             blockedDirections = 0;
@@ -1273,8 +1330,17 @@ public class WolfEnemy extends Enemy {
             updateStuckSample(nowNs);
             return true;
         }
+        boolean routedAroundObstacle = followPathToPoint(targetX, targetY, nowNs, worldWidth, worldHeight, false);
+        if (routedAroundObstacle) {
+            siegeMode = false;
+            return true;
+        }
         if (blockedSinceNs == 0L) {
             blockedSinceNs = nowNs;
+        }
+        if (pendingPathRequest || !currentPath.isEmpty() || !lastPathFailed) {
+            waitUntilNs = 0L;
+            return false;
         }
         BuildObject obstacle = findBlockingObstacleThrottled(targetX, targetY, nowNs);
         if (obstacle != null) {
@@ -2037,6 +2103,25 @@ public class WolfEnemy extends Enemy {
         double dx = x2 - x1;
         double dy = y2 - y1;
         return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    private double projectPointOnSegment(double px, double py, double ax, double ay, double bx, double by) {
+        double abx = bx - ax;
+        double aby = by - ay;
+        double lengthSquared = abx * abx + aby * aby;
+        if (lengthSquared <= 0.001) {
+            return 0.0;
+        }
+        double apx = px - ax;
+        double apy = py - ay;
+        return Math.max(0.0, Math.min(1.0, ((apx * abx) + (apy * aby)) / lengthSquared));
+    }
+
+    private double pointToSegmentDistance(double px, double py, double ax, double ay, double bx, double by) {
+        double progress = projectPointOnSegment(px, py, ax, ay, bx, by);
+        double closestX = ax + (bx - ax) * progress;
+        double closestY = ay + (by - ay) * progress;
+        return distance(px, py, closestX, closestY);
     }
 
     private double rectDistance(double ax, double ay, double aw, double ah,

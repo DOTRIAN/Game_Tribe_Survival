@@ -250,13 +250,14 @@ public class GolemEnemy extends Enemy {
     }
 
     public void updateAi(long nowNs, BaseCamp baseCamp, Player player, Iterable<FriendlyArcher> friendlies, double worldWidth, double worldHeight) {
-        updateAi(nowNs, baseCamp, player, friendlies, worldWidth, worldHeight, true);
+        updateAi(nowNs, baseCamp, player, friendlies, null, worldWidth, worldHeight, true);
     }
 
     public void updateAi(long nowNs,
                          BaseCamp baseCamp,
                          Player player,
                          Iterable<FriendlyArcher> friendlies,
+                         Iterable<BuildObject> priorityBuildTargets,
                          double worldWidth,
                          double worldHeight,
                          boolean allowExpensiveNavigation) {
@@ -269,12 +270,6 @@ public class GolemEnemy extends Enemy {
             aiState = EnemyAiState.DEATH;
             if (dyingAnimation.updateOnce(nowNs)) {
                 removeFromWorld = true;
-            }
-            return;
-        }
-        if (state == State.HURT) {
-            if (hurtAnimation.updateOnce(nowNs)) {
-                state = resumeStateAfterHurt;
             }
             return;
         }
@@ -306,6 +301,14 @@ public class GolemEnemy extends Enemy {
         }
         if (currentResourceTarget != null) {
             updateResourceTarget(nowNs, baseCamp, worldWidth, worldHeight);
+            return;
+        }
+
+        BuildObject priorityBuildTarget = choosePriorityBuildTarget(priorityBuildTargets);
+        if (priorityBuildTarget != null) {
+            siegeMode = false;
+            currentBuildTarget = priorityBuildTarget;
+            updateBuildTarget(nowNs, baseCamp, worldWidth, worldHeight);
             return;
         }
 
@@ -408,14 +411,6 @@ public class GolemEnemy extends Enemy {
             state = State.DYING;
             aiState = EnemyAiState.DEATH;
             dyingAnimation.reset();
-            return;
-        }
-        long nowNs = System.nanoTime();
-        if (state != State.HURT || nowNs - lastHurtAtNs >= HURT_RESTART_GUARD_NS) {
-            resumeStateAfterHurt = state == State.ATTACKING ? State.CHASE_TARGET : state;
-            state = State.HURT;
-            hurtAnimation.reset();
-            lastHurtAtNs = nowNs;
         }
     }
 
@@ -661,6 +656,31 @@ public class GolemEnemy extends Enemy {
                 && target.isAlive()
                 && !(target instanceof BaseCamp)
                 && (isWithinAttackRange(target) || canMoveDirectlyTo(target.getCenterX(), target.getCenterY()));
+    }
+
+    private BuildObject choosePriorityBuildTarget(Iterable<BuildObject> priorityBuildTargets) {
+        if (currentBuildTarget != null
+                && currentBuildTarget.isAlive()
+                && distanceTo(currentBuildTarget.getCenterX(), currentBuildTarget.getCenterY()) <= AGGRO_RANGE + LEASH_EXTRA) {
+            return currentBuildTarget;
+        }
+        if (priorityBuildTargets == null) {
+            return null;
+        }
+        BuildObject nearest = null;
+        double nearestDistance = AGGRO_RANGE + LEASH_EXTRA;
+        for (BuildObject target : priorityBuildTargets) {
+            if (target == null || !target.isAlive()) {
+                continue;
+            }
+            double distance = distanceTo(target.getCenterX(), target.getCenterY());
+            if (distance > nearestDistance) {
+                continue;
+            }
+            nearest = target;
+            nearestDistance = distance;
+        }
+        return nearest;
     }
 
     private Entity choosePreferredTarget(BaseCamp baseCamp, Player player, Iterable<FriendlyArcher> friendlies) {

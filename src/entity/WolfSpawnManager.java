@@ -75,6 +75,7 @@ public class WolfSpawnManager {
                           boolean isNight,
                           Player player,
                           BaseCamp baseCamp,
+                          Iterable<FriendlyArcher> friendlies,
                           boolean debugEnabled,
                           double worldWidth,
                           double worldHeight) {
@@ -83,7 +84,7 @@ public class WolfSpawnManager {
                 continue;
             }
             wolf.setDebugEnabled(debugEnabled);
-            wolf.updateBehavior(nowNs, isNight, player, baseCamp, worldWidth, worldHeight, true);
+            wolf.updateBehavior(nowNs, isNight, player, baseCamp, friendlies, worldWidth, worldHeight, true);
         }
     }
 

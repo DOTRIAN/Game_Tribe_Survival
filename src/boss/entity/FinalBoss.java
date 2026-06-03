@@ -160,9 +160,6 @@ public final class FinalBoss extends Enemy {
             transitionTo(BossState.DEATH);
             return;
         }
-        if (state != BossState.CLEAVE && state != BossState.DEATH) {
-            transitionTo(BossState.TAKE_HIT);
-        }
     }
 
     @Override
