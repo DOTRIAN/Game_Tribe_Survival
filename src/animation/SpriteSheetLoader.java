@@ -83,6 +83,91 @@ public final class SpriteSheetLoader {
         return frames;
     }
 
+    public static synchronized Image[] loadRowStrip(String imagePath, int rowIndex, int totalRows, int frameCount) {
+        String cacheKey = "row-strip|" + imagePath + "|" + rowIndex + "|" + totalRows + "|" + frameCount;
+        Image[] cached = FRAME_CACHE.get(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+        Image spriteSheet = loadSheet(imagePath);
+        PixelReader pixelReader = spriteSheet.getPixelReader();
+        if (pixelReader == null || totalRows <= 0 || frameCount <= 0 || rowIndex < 0 || rowIndex >= totalRows) {
+            return new Image[0];
+        }
+
+        int sheetWidth = (int) Math.round(spriteSheet.getWidth());
+        int sheetHeight = (int) Math.round(spriteSheet.getHeight());
+        int startY = (int) Math.round(rowIndex * sheetHeight / (double) totalRows);
+        int endY = (int) Math.round((rowIndex + 1) * sheetHeight / (double) totalRows);
+        int frameHeight = Math.max(1, endY - startY);
+        if (startY + frameHeight > sheetHeight) {
+            frameHeight = Math.max(1, sheetHeight - startY);
+        }
+
+        Image[] frames = new Image[frameCount];
+        for (int index = 0; index < frameCount; index++) {
+            int startX = (int) Math.round(index * sheetWidth / (double) frameCount);
+            int endX = (int) Math.round((index + 1) * sheetWidth / (double) frameCount);
+            int frameWidth = Math.max(1, endX - startX);
+            if (startX + frameWidth > sheetWidth) {
+                frameWidth = Math.max(1, sheetWidth - startX);
+            }
+            frames[index] = new WritableImage(pixelReader, startX, startY, frameWidth, frameHeight);
+        }
+
+        FRAME_CACHE.put(cacheKey, frames);
+        return frames;
+    }
+
+    public static synchronized Image[] loadRowCells(String imagePath,
+                                                    int rowIndex,
+                                                    int totalRows,
+                                                    int totalColumns,
+                                                    int startColumn,
+                                                    int frameCount) {
+        String cacheKey = "row-cells|" + imagePath + "|" + rowIndex + "|" + totalRows + "|" + totalColumns + "|" + startColumn + "|" + frameCount;
+        Image[] cached = FRAME_CACHE.get(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+        Image spriteSheet = loadSheet(imagePath);
+        PixelReader pixelReader = spriteSheet.getPixelReader();
+        if (pixelReader == null
+                || totalRows <= 0
+                || totalColumns <= 0
+                || frameCount <= 0
+                || rowIndex < 0
+                || rowIndex >= totalRows
+                || startColumn < 0
+                || startColumn + frameCount > totalColumns) {
+            return new Image[0];
+        }
+
+        int sheetWidth = (int) Math.round(spriteSheet.getWidth());
+        int sheetHeight = (int) Math.round(spriteSheet.getHeight());
+        int startY = (int) Math.round(rowIndex * sheetHeight / (double) totalRows);
+        int endY = (int) Math.round((rowIndex + 1) * sheetHeight / (double) totalRows);
+        int frameHeight = Math.max(1, endY - startY);
+        if (startY + frameHeight > sheetHeight) {
+            frameHeight = Math.max(1, sheetHeight - startY);
+        }
+
+        Image[] frames = new Image[frameCount];
+        for (int index = 0; index < frameCount; index++) {
+            int columnIndex = startColumn + index;
+            int startX = (int) Math.round(columnIndex * sheetWidth / (double) totalColumns);
+            int endX = (int) Math.round((columnIndex + 1) * sheetWidth / (double) totalColumns);
+            int frameWidth = Math.max(1, endX - startX);
+            if (startX + frameWidth > sheetWidth) {
+                frameWidth = Math.max(1, sheetWidth - startX);
+            }
+            frames[index] = new WritableImage(pixelReader, startX, startY, frameWidth, frameHeight);
+        }
+
+        FRAME_CACHE.put(cacheKey, frames);
+        return frames;
+    }
+
     // Cat theo region bat dau tu (startX,startY) de lay dung row mong muon trong spritesheet.
     public static synchronized Image[] loadGridRegion(String imagePath,
                                                       int startX,
