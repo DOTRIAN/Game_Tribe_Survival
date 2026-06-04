@@ -41,6 +41,7 @@ import entity.GolemEnemy;
 import entity.PathfindingManager;
 import entity.Player;
 import entity.ThrownBomb;
+import entity.WildlifeSpawnManager;
 import entity.WallJumperEnemy;
 import entity.WolfEnemy;
 import entity.WolfSpawnManager;
@@ -159,6 +160,7 @@ public class Game {
     private final BuildController buildController;
     private final CollisionManager buildCollisionManager;
     private final BlackGrouseSpawnManager blackGrouseSpawnManager;
+    private final WildlifeSpawnManager wildlifeSpawnManager;
     private final WolfSpawnManager wolfSpawnManager;
     private final EnemyNavigationContext enemyNavigationContext;
     private final EnemyAiDebug enemyAiDebug;
@@ -608,6 +610,13 @@ public class Game {
                 player,
                 random
         );
+        this.wildlifeSpawnManager = new WildlifeSpawnManager(
+                loadedMap,
+                buildCollisionManager,
+                buildManager,
+                player,
+                random
+        );
         this.wolfSpawnManager = new WolfSpawnManager(
                 buildCollisionManager,
                 this::canWolfOccupy,
@@ -634,7 +643,7 @@ public class Game {
         this.lastBuildObjectCount = buildManager.getPlacedObjects().size();
         this.flowFieldManager.markDirty(System.nanoTime(), 0L);
         if (mapManager.getCurrentMapType() == MapType.MAIN_MAP) {
-            spawnAmbientBlackGrouse();
+            spawnAmbientWildlife();
         }
         refreshBuildInventoryUi();
         renderer.setContinueAvailable(hasLoadedSaveSnapshot);
@@ -2042,7 +2051,7 @@ public class Game {
         hasLoadedSaveSnapshot = false;
         renderer.setContinueAvailable(false);
         loadMapWoodFences();
-        spawnAmbientBlackGrouse();
+        spawnAmbientWildlife();
         gameState = GameState.PLAYING;
     }
 
@@ -3787,8 +3796,9 @@ public class Game {
         return true;
     }
 
-    private void spawnAmbientBlackGrouse() {
+    private void spawnAmbientWildlife() {
         blackGrouseSpawnManager.spawnInitialFlock(enemies);
+        wildlifeSpawnManager.spawnInitialWildlife(enemies);
     }
 
     private int countAliveEnemyByType(String type) {
