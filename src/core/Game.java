@@ -41,6 +41,7 @@ import entity.GolemEnemy;
 import entity.PathfindingManager;
 import entity.Player;
 import entity.ThrownBomb;
+import entity.WildlifeSpawnManager;
 import entity.WallJumperEnemy;
 import entity.WolfEnemy;
 import entity.WolfSpawnManager;
@@ -110,6 +111,7 @@ public class Game {
     private record FencePerimeter(int left, int top, int right, int bottom, int centerX, int centerY) {}
     private record ObjectiveStep(String title, int targetAmount, boolean foodObjective, String itemId) {}
     private record SkillUnlockInfo(int level, String name, Player.AttackAnimationType attackType) {}
+    private record TutorialHintInfo(String title, String description, String keyHint, String itemId) {}
 
     private enum GameOverReason {
         PLAYER_DIED,
@@ -162,6 +164,7 @@ public class Game {
     private final BuildController buildController;
     private final CollisionManager buildCollisionManager;
     private final BlackGrouseSpawnManager blackGrouseSpawnManager;
+    private final WildlifeSpawnManager wildlifeSpawnManager;
     private final WolfSpawnManager wolfSpawnManager;
     private final EnemyNavigationContext enemyNavigationContext;
     private final EnemyAiDebug enemyAiDebug;
@@ -268,7 +271,9 @@ public class Game {
     private static final int DAY_ONE_OBJECTIVE_WOOD = 10;
     private static final int DAY_ONE_OBJECTIVE_ROCK = 10;
     private static final int DAY_ONE_OBJECTIVE_FOOD = 5;
+    private static final int DAY_ONE_OBJECTIVE_ENEMY_KILL = 1;
     private static final int DAY_ONE_OBJECTIVE_REWARD_GOLD = 10;
+    private static final long SHOP_TUTORIAL_CELEBRATION_DURATION_NS = 6_500_000_000L;
     private static final int AXE_SKILL_UNLOCK_LEVEL = 2;
     private static final int STORMBREAKER_UNLOCK_LEVEL = 3;
     private static final int DEATH_SPEAR_UNLOCK_LEVEL = 4;
@@ -278,12 +283,18 @@ public class Game {
     private static final List<ObjectiveStep> DAY_ONE_OBJECTIVES = List.of(
             new ObjectiveStep("Nhi\u1ec7m v\u1ee5 1", DAY_ONE_OBJECTIVE_WOOD, false, "wood"),
             new ObjectiveStep("Nhi\u1ec7m v\u1ee5 2", DAY_ONE_OBJECTIVE_ROCK, false, "rock"),
-            new ObjectiveStep("Nhi\u1ec7m v\u1ee5 3", DAY_ONE_OBJECTIVE_FOOD, true, "")
+            new ObjectiveStep("Nhi\u1ec7m v\u1ee5 3", DAY_ONE_OBJECTIVE_FOOD, true, ""),
+            new ObjectiveStep("Nhi\u1ec7m v\u1ee5 4", DAY_ONE_OBJECTIVE_ENEMY_KILL, false, "enemy_kill")
     );
     private static final List<SkillUnlockInfo> SKILL_UNLOCKS = List.of(
             new SkillUnlockInfo(AXE_SKILL_UNLOCK_LEVEL, "Ti\u1ec1u phu ch\u00e9m c\u1ee7i", Player.AttackAnimationType.SLICE),
             new SkillUnlockInfo(STORMBREAKER_UNLOCK_LEVEL, "StormBreaker", Player.AttackAnimationType.CRUSH),
             new SkillUnlockInfo(DEATH_SPEAR_UNLOCK_LEVEL, "Ng\u1ecdn gi\u00e1o t\u1eed th\u1ea7n", Player.AttackAnimationType.PIERCE)
+    );
+    private static final List<TutorialHintInfo> SHOP_TUTORIAL_HINTS = List.of(
+            new TutorialHintInfo("ARCHER", "\u0110\u1ed3ng minh", "M\u1edf shop [B] v\u00e0 mua Archer.", FRIENDLY_ARCHER_ITEM_ID),
+            new TutorialHintInfo("FIRE BOMB", "Bomb c\u00f4ng ph\u00e1.", "Nh\u1ea5n [Q] \u0111\u1ec3 n\u00e9m.", FIRE_BOMB_ITEM_ID),
+            new TutorialHintInfo("ARCHER TOWER", "Th\u00e1p \u0111\u1ed3ng minh.", "\u0110\u1eb7t \u0111\u1ec3 th\u1ee7 tr\u1ea1i.", ARCHER_TOWER_ITEM_ID)
     );
     private static final String[] HOTBAR_PRIORITY = {
             WOOD_FENCE_ITEM_ID,
@@ -375,6 +386,11 @@ public class Game {
     private int dayOneObjectiveStep;
     private long axeSkillCelebrationUntilNs;
     private SkillUnlockInfo pendingSkillUnlockCelebration;
+    private int dayOneEnemyKillCount;
+    private TutorialHintInfo activeShopTutorialHint;
+    private int nextShopTutorialHintIndex;
+    private long activeShopTutorialHintUntilNs;
+    private long nextShopTutorialHintAtNs;
     private boolean gemRewardAnimationActive;
     private boolean gemRewardGranted;
     private long gemRewardAnimationStartedAtNs;
@@ -464,6 +480,11 @@ public class Game {
         this.dayOneObjectiveStep = 0;
         this.axeSkillCelebrationUntilNs = -1L;
         this.pendingSkillUnlockCelebration = null;
+        this.dayOneEnemyKillCount = 0;
+        this.activeShopTutorialHint = null;
+        this.nextShopTutorialHintIndex = 0;
+        this.activeShopTutorialHintUntilNs = -1L;
+        this.nextShopTutorialHintAtNs = -1L;
         this.gemRewardAnimationActive = false;
         this.gemRewardGranted = false;
         this.gemRewardAnimationStartedAtNs = -1L;
@@ -613,6 +634,13 @@ public class Game {
                 player,
                 random
         );
+        this.wildlifeSpawnManager = new WildlifeSpawnManager(
+                loadedMap,
+                buildCollisionManager,
+                buildManager,
+                player,
+                random
+        );
         this.wolfSpawnManager = new WolfSpawnManager(
                 buildCollisionManager,
                 this::canWolfOccupy,
@@ -636,7 +664,7 @@ public class Game {
         this.lastBuildObjectCount = buildManager.getPlacedObjects().size();
         this.flowFieldManager.markDirty(System.nanoTime(), 0L);
         if (mapManager.getCurrentMapType() == MapType.MAIN_MAP) {
-            spawnAmbientBlackGrouse();
+            spawnAmbientWildlife();
         }
         refreshBuildInventoryUi();
         renderer.setContinueAvailable(hasLoadedSaveSnapshot);
@@ -754,10 +782,14 @@ public class Game {
                         : 0.0
         );
         SkillUnlockInfo activeCelebration = now < axeSkillCelebrationUntilNs ? pendingSkillUnlockCelebration : null;
+        TutorialHintInfo activeTutorialHint = activeShopTutorialHint;
+        ItemUiMeta tutorialMeta = activeTutorialHint == null ? null : renderer.getItemMeta(activeTutorialHint.itemId());
         renderer.setSkillUnlockCelebration(
-                activeCelebration == null ? null : "LEVEL " + activeCelebration.level() + " UNLOCK",
-                activeCelebration == null ? null : "Ch\u00fac m\u1eebng! M\u1edf kh\u00f3a k\u1ef9 n\u0103ng m\u1edbi \"" + activeCelebration.name() + "\"",
-                activeCelebration == null ? null : activeCelebration.attackType()
+                activeCelebration == null ? (activeTutorialHint == null ? null : activeTutorialHint.title()) : "LEVEL " + activeCelebration.level() + " UNLOCK",
+                activeCelebration == null ? (activeTutorialHint == null ? null : activeTutorialHint.description()) : "Ch\u00fac m\u1eebng! M\u1edf kh\u00f3a k\u1ef9 n\u0103ng m\u1edbi \"" + activeCelebration.name() + "\"",
+                activeCelebration == null ? null : activeCelebration.attackType(),
+                activeCelebration == null ? (activeTutorialHint == null ? null : activeTutorialHint.keyHint()) : null,
+                activeCelebration == null ? (tutorialMeta == null ? null : tutorialMeta.getImageIcon()) : null
         );
         boolean bossMode = mapManager.getCurrentMapType() == MapType.BOSS_MAP;
         String objectiveStatus = buildObjectiveStatusV2(now);
@@ -1682,7 +1714,9 @@ public class Game {
         } else if (!bossMode && !blockingOverlayVisible && inputHandler.isJustPressed(KeyCode.F)) {
             tryUseUnlockedSkill(now, Player.AttackAnimationType.SLICE, "Ti\u1ec1u phu ch\u00e9m c\u1ee7i", AXE_SKILL_UNLOCK_LEVEL, "F");
         } else if (!bossMode && !blockingOverlayVisible && inputHandler.isJustPressed(KeyCode.J)) {
-            tryUseUnlockedSkill(now, Player.AttackAnimationType.CRUSH, "StormBreaker", STORMBREAKER_UNLOCK_LEVEL, "J");
+            performPlayerAttack(now, player.getAttackAnimationTypeForCurrentMode());
+        } else if (!bossMode && !blockingOverlayVisible && inputHandler.isJustPressed(KeyCode.L)) {
+            tryUseUnlockedSkill(now, Player.AttackAnimationType.CRUSH, "StormBreaker", STORMBREAKER_UNLOCK_LEVEL, "L");
         } else if (!bossMode && !blockingOverlayVisible && inputHandler.isJustPressed(KeyCode.K)) {
             tryUseUnlockedSkill(now, Player.AttackAnimationType.PIERCE, "Ng\u1ecdn gi\u00e1o t\u1eed th\u1ea7n", DEATH_SPEAR_UNLOCK_LEVEL, "K");
         }
@@ -1702,6 +1736,7 @@ public class Game {
         resourceManager.update(now);
         updateDroppedItemPickup();
         updateObjectiveProgressionV2(now);
+        updateShopTutorialHints(now);
         updateGemRewardAnimation(now);
         cleanupExpiredDamageTexts(now);
         cleanupExpiredExplosionEffects(now);
@@ -1945,6 +1980,11 @@ public class Game {
             dayOneObjectiveCompleted = false;
             dayOneObjectiveCompletedAtNs = -1L;
             dayOneObjectiveStep = 0;
+            dayOneEnemyKillCount = 0;
+            activeShopTutorialHint = null;
+            nextShopTutorialHintIndex = 0;
+            activeShopTutorialHintUntilNs = -1L;
+            nextShopTutorialHintAtNs = -1L;
             gameState = GameState.PLAYING;
         }
     }
@@ -2113,6 +2153,11 @@ public class Game {
         dayOneObjectiveStep = 0;
         axeSkillCelebrationUntilNs = -1L;
         pendingSkillUnlockCelebration = null;
+        dayOneEnemyKillCount = 0;
+        activeShopTutorialHint = null;
+        nextShopTutorialHintIndex = 0;
+        activeShopTutorialHintUntilNs = -1L;
+        nextShopTutorialHintAtNs = -1L;
         gemRewardAnimationActive = false;
         gemRewardGranted = false;
         gemRewardAnimationStartedAtNs = -1L;
@@ -2155,7 +2200,7 @@ public class Game {
         hasLoadedSaveSnapshot = false;
         renderer.setContinueAvailable(false);
         loadMapWoodFences();
-        spawnAmbientBlackGrouse();
+        spawnAmbientWildlife();
         gameState = GameState.PLAYING;
     }
 
@@ -4030,8 +4075,9 @@ public class Game {
         return true;
     }
 
-    private void spawnAmbientBlackGrouse() {
+    private void spawnAmbientWildlife() {
         blackGrouseSpawnManager.spawnInitialFlock(enemies);
+        wildlifeSpawnManager.spawnInitialWildlife(enemies);
     }
 
     private int countAliveEnemyByType(String type) {
@@ -4185,6 +4231,9 @@ public class Game {
         if (objectiveStep.foodObjective()) {
             return getCurrentFoodAmount();
         }
+        if ("enemy_kill".equals(objectiveStep.itemId())) {
+            return Math.max(0, dayOneEnemyKillCount);
+        }
         return Math.max(0, inventory.getAmount(objectiveStep.itemId()));
     }
 
@@ -4198,6 +4247,7 @@ public class Game {
         return switch (objectiveStep.itemId()) {
             case "wood" -> "g\u1ed7";
             case "rock" -> "\u0111\u00e1";
+            case "enemy_kill" -> "qu\u00e1i";
             default -> objectiveStep.itemId();
         };
     }
@@ -4355,7 +4405,7 @@ public class Game {
 
         ObjectiveStep currentStep = getCurrentObjectiveStep();
         if (currentStep == null) {
-            return "Nhi\u1ec7m v\u1ee5 4:\n- S\u1ed1ng s\u00f3t qua \u0111\u00eam \u0111\u1ea7u ti\u00ean";
+            return "Nhi\u1ec7m v\u1ee5 5:\n- S\u1ed1ng s\u00f3t qua \u0111\u00eam \u0111\u1ea7u ti\u00ean";
         }
         return currentStep.title() + ":\n- "
                 + getObjectiveProgress(currentStep) + "/" + currentStep.targetAmount()
@@ -4372,6 +4422,7 @@ public class Game {
         return switch (objectiveStep.itemId()) {
             case "wood" -> "g\u1ed7";
             case "rock" -> "\u0111\u00e1";
+            case "enemy_kill" -> "qu\u00e1i";
             default -> objectiveStep.itemId();
         };
     }
@@ -4397,12 +4448,42 @@ public class Game {
 
         String rewardText = "Ho\u00e0n th\u00e0nh " + completedStep.title() + "! +10 v\u00e0ng, +1 level";
         SkillUnlockInfo unlockedSkill = findSkillUnlockedAtLevel(player.getLastLeveledUpTo());
+        if (dayOneObjectiveStep >= DAY_ONE_OBJECTIVES.size()) {
+            scheduleShopTutorialHints(now, unlockedSkill != null);
+        }
         if (unlockedSkill != null) {
             triggerSkillUnlockCelebration(unlockedSkill, now);
             renderer.showToast(rewardText + ". M\u1edf kh\u00f3a \"" + unlockedSkill.name() + "\" [" + getSkillKeyLabel(unlockedSkill.attackType()) + "]");
             return;
         }
         renderer.showToast(rewardText);
+    }
+
+    private void scheduleShopTutorialHints(long now, boolean delayedForSkillCelebration) {
+        activeShopTutorialHint = null;
+        nextShopTutorialHintIndex = 0;
+        activeShopTutorialHintUntilNs = -1L;
+        nextShopTutorialHintAtNs = now + (delayedForSkillCelebration ? 3_000_000_000L : 0L);
+    }
+
+    private void updateShopTutorialHints(long now) {
+        if (activeShopTutorialHint != null && now >= activeShopTutorialHintUntilNs) {
+            activeShopTutorialHint = null;
+            activeShopTutorialHintUntilNs = -1L;
+            nextShopTutorialHintAtNs = now;
+        }
+        if (activeShopTutorialHint != null || nextShopTutorialHintAtNs < 0L) {
+            return;
+        }
+        if (now < nextShopTutorialHintAtNs) {
+            return;
+        }
+        if (nextShopTutorialHintIndex >= SHOP_TUTORIAL_HINTS.size()) {
+            nextShopTutorialHintAtNs = -1L;
+            return;
+        }
+        activeShopTutorialHint = SHOP_TUTORIAL_HINTS.get(nextShopTutorialHintIndex++);
+        activeShopTutorialHintUntilNs = now + SHOP_TUTORIAL_CELEBRATION_DURATION_NS;
     }
 
     private SkillUnlockInfo findSkillUnlockedAtLevel(int level) {
@@ -4456,10 +4537,10 @@ public class Game {
         }
         return switch (attackType) {
             case SLICE -> "F";
-            case CRUSH -> "J";
+            case CRUSH -> "L";
             case PIERCE -> "K";
-            case HIT -> "";
-            default -> "";
+            case HIT -> "J";
+            default -> "F";
         };
     }
 
@@ -5193,6 +5274,9 @@ public class Game {
     private void handleEnemyDeathDrops(Enemy enemy) {
         if (enemy == null || enemy.hasSpawnedDeathDrop() || enemy.isAlive()) {
             return;
+        }
+        if (enemy.isHostile() && dayOneObjectiveUnlocked && !dayOneObjectiveCompleted) {
+            dayOneEnemyKillCount++;
         }
         List<DropSpec> dropTable = enemy.isHostile() ? ENEMY_DROP_TABLE : ANIMAL_DROP_TABLE;
         enemy.markDeathDropSpawned();

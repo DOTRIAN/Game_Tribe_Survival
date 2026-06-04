@@ -88,7 +88,7 @@ public class UIManager {
         this.shopOverlay = new ShopOverlay();
         this.inventoryOverlay = new InventoryOverlay();
         this.chestOverlay = new ChestOverlay();
-        this.guideOverlay = buildSimpleOverlay("Guide", "WASD move\nSPACE run\nB shop\nI inventory\nC open chest nearby\nM minimap\nSelect bomb and press Q to throw\nESC close overlay");
+        this.guideOverlay = buildSimpleOverlay("Guide", "WASD move\nSPACE run\nJ attack\nF/L/K skills\nB shop\nI inventory\nC open chest nearby\nM minimap\nSelect bomb and press Q to throw\nESC close overlay");
         this.pauseOverlay = buildSimpleOverlay("Paused", "Press P to resume\nESC returns to menu");
         this.gameOverOverlay = buildSimpleOverlay("Game Over", "Press R to restart");
         this.victoryOverlay = buildSimpleOverlay("Victory", "ENTER start new world\nESC save and back to menu");

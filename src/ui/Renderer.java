@@ -116,6 +116,8 @@ public class Renderer {
     private String skillUnlockCelebrationTitle;
     private String skillUnlockCelebrationText;
     private Player.AttackAnimationType skillUnlockCelebrationType;
+    private String skillUnlockCelebrationHint;
+    private Image skillUnlockCelebrationPreviewImage;
     private String actionCountdownLabel;
     private double actionCountdownSeconds;
     private boolean fightBannerVisible;
@@ -152,6 +154,8 @@ public class Renderer {
         this.skillUnlockCelebrationTitle = null;
         this.skillUnlockCelebrationText = null;
         this.skillUnlockCelebrationType = null;
+        this.skillUnlockCelebrationHint = null;
+        this.skillUnlockCelebrationPreviewImage = null;
         this.actionCountdownLabel = null;
         this.actionCountdownSeconds = 0.0;
         this.fightBannerVisible = false;
@@ -343,10 +347,14 @@ public class Renderer {
 
     public void setSkillUnlockCelebration(String skillUnlockCelebrationTitle,
                                           String skillUnlockCelebrationText,
-                                          Player.AttackAnimationType skillUnlockCelebrationType) {
+                                          Player.AttackAnimationType skillUnlockCelebrationType,
+                                          String skillUnlockCelebrationHint,
+                                          Image skillUnlockCelebrationPreviewImage) {
         this.skillUnlockCelebrationTitle = skillUnlockCelebrationTitle;
         this.skillUnlockCelebrationText = skillUnlockCelebrationText;
         this.skillUnlockCelebrationType = skillUnlockCelebrationType;
+        this.skillUnlockCelebrationHint = skillUnlockCelebrationHint;
+        this.skillUnlockCelebrationPreviewImage = skillUnlockCelebrationPreviewImage;
     }
 
     public void setActionCountdown(String label, double remainingSeconds) {
@@ -794,7 +802,9 @@ public class Renderer {
         if (skillUnlockCelebrationText == null || skillUnlockCelebrationText.isBlank() || player == null) {
             return;
         }
-        Image frame = player.getSkillUnlockPreviewFrame(now, skillUnlockCelebrationType);
+        Image frame = skillUnlockCelebrationType == null
+                ? skillUnlockCelebrationPreviewImage
+                : player.getSkillUnlockPreviewFrame(now, skillUnlockCelebrationType);
         double panelWidth = 430;
         double panelHeight = 110;
         double panelX = (viewportWidth - panelWidth) * 0.5;
@@ -822,13 +832,16 @@ public class Renderer {
         graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 12));
         graphicsContext.fillText(skillUnlockCelebrationText, panelX + 104, panelY + 58);
         String keyHint;
-        if (skillUnlockCelebrationType == null) {
+        if (skillUnlockCelebrationHint != null && !skillUnlockCelebrationHint.isBlank()) {
+            keyHint = skillUnlockCelebrationHint;
+        } else if (skillUnlockCelebrationType == null) {
             keyHint = "Press F to use the skill.";
         } else {
             keyHint = switch (skillUnlockCelebrationType) {
-                case CRUSH -> "Press J to use the skill.";
+                case CRUSH -> "Press L to use the skill.";
                 case PIERCE -> "Press K to use the skill.";
-                case HIT, SLICE -> "Press F to use the skill.";
+                case HIT -> "Press J to attack.";
+                case SLICE -> "Press F to use the skill.";
                 default -> "Press F to use the skill.";
             };
         }

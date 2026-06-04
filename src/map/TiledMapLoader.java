@@ -193,7 +193,8 @@ public class TiledMapLoader {
 
         for (int i = 0; i < objectGroups.getLength(); i++) {
             Element group = (Element) objectGroups.item(i);
-            boolean collisionLayer = "Collisions".equalsIgnoreCase(group.getAttribute("name"));
+            Map<String, String> groupProperties = readProperties(group);
+            boolean collisionLayer = isCollisionGroup(group.getAttribute("name"), groupProperties);
 
             NodeList objectNodes = group.getElementsByTagName("object");
             for (int j = 0; j < objectNodes.getLength(); j++) {
@@ -214,7 +215,8 @@ public class TiledMapLoader {
                 Map<String, String> properties = new HashMap<>(templateData.properties);
                 properties.putAll(readProperties(object));
 
-                if (!collisionLayer && !isBaseCampMarker(name, type, properties)) {
+                boolean objectCollision = collisionLayer || isCollisionMarker(name, type, properties);
+                if (!objectCollision && !isBaseCampMarker(name, type, properties)) {
                     continue;
                 }
 
@@ -222,6 +224,19 @@ public class TiledMapLoader {
             }
         }
         return collisions;
+    }
+
+    private boolean isCollisionGroup(String name, Map<String, String> properties) {
+        if (matchesCollisionToken(name)) {
+            return true;
+        }
+        return hasTruthyProperty(properties, "collision", "collisions", "blocked", "solid");
+    }
+
+    private boolean isCollisionMarker(String name, String type, Map<String, String> properties) {
+        return matchesCollisionToken(name)
+                || matchesCollisionToken(type)
+                || hasTruthyProperty(properties, "collision", "collisions", "blocked", "solid");
     }
 
     private TemplateData loadTemplateData(Element objectElement, File mapDirectory) throws Exception {
@@ -319,6 +334,19 @@ public class TiledMapLoader {
                 || normalized.equals("mainhouse")
                 || normalized.equals("main_house")
                 || normalized.equals("main-house");
+    }
+
+    private boolean matchesCollisionToken(String value) {
+        if (value == null) {
+            return false;
+        }
+        String normalized = value.trim().toLowerCase();
+        return normalized.equals("collision")
+                || normalized.equals("collisions")
+                || normalized.equals("collider")
+                || normalized.equals("blocker")
+                || normalized.equals("blockers")
+                || normalized.equals("solid");
     }
 
     private boolean hasTruthyProperty(Map<String, String> properties, String... keys) {
