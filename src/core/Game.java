@@ -38,6 +38,7 @@ import entity.FlowFieldManager;
 import entity.FriendlyArcher;
 import entity.FriendlyArcherManager;
 import entity.GolemEnemy;
+import entity.OrcBerserkEnemy;
 import entity.PathfindingManager;
 import entity.Player;
 import entity.ThrownBomb;
@@ -268,6 +269,7 @@ public class Game {
     private static final String PICKAXE_ITEM_ID = "pickaxe";
     private static final String AXE_ITEM_ID = "axe";
     private static final String CARROT_ITEM_ID = "carrot";
+    private static final String ORC_BERSERK_ENEMY_TYPE = "ORC_BERSERK";
     private static final int DAY_ONE_OBJECTIVE_WOOD = 10;
     private static final int DAY_ONE_OBJECTIVE_ROCK = 10;
     private static final int DAY_ONE_OBJECTIVE_FOOD = 5;
@@ -403,6 +405,7 @@ public class Game {
         this.wallAssetManager = new AssetManager();
         DropManager.preloadAll();
         WolfEnemy.preloadAssets();
+        OrcBerserkEnemy.preloadAssets();
         GolemEnemy.preloadAssets();
         WallJumperEnemy.preloadAssets();
         this.player = new Player(100, 100, 58, 58, 3.5, 100);
@@ -3986,6 +3989,52 @@ public class Game {
         return true;
     }
 
+    private boolean canOrcBerserkOccupy(OrcBerserkEnemy enemy, double x, double y, double width, double height) {
+        if (enemy == null) {
+            return false;
+        }
+        double collisionX = enemy.getCollisionXAt(x, width, height);
+        double collisionY = enemy.getCollisionYAt(y, width, height);
+        double collisionWidth = enemy.getCollisionWidthAt(width, height);
+        double collisionHeight = enemy.getCollisionHeightAt(width, height);
+        if (collisionX < 0 || collisionY < 0 || collisionX + collisionWidth > worldWidth || collisionY + collisionHeight > worldHeight) {
+            return false;
+        }
+        if (intersectsBaseCampCollision(collisionX, collisionY, collisionWidth, collisionHeight)) {
+            return false;
+        }
+        if (buildCollisionManager.isBlockedByStaticObjects(collisionX, collisionY, collisionWidth, collisionHeight)
+                || buildCollisionManager.isBlockedByTerrain(collisionX, collisionY, collisionWidth, collisionHeight)
+                || buildCollisionManager.isBlockedByWater(collisionX, collisionY, collisionWidth, collisionHeight)
+                || intersectsPlacedBuildObjectFast(collisionX, collisionY, collisionWidth, collisionHeight)) {
+            return false;
+        }
+        return true;
+    }
+
+    private boolean intersectsExistingEnemy(Enemy candidate) {
+        if (candidate == null) {
+            return false;
+        }
+        for (Enemy enemy : enemies) {
+            if (enemy == null || !enemy.isAlive()) {
+                continue;
+            }
+            if (intersectsRect(
+                    candidate.getCollisionX(),
+                    candidate.getCollisionY(),
+                    candidate.getCollisionWidth(),
+                    candidate.getCollisionHeight(),
+                    enemy.getCollisionX(),
+                    enemy.getCollisionY(),
+                    enemy.getCollisionWidth(),
+                    enemy.getCollisionHeight())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private boolean spawnFriendlyArcherNearPlayer() {
         int playerGridX = (int) Math.floor(player.getCenterX() / buildCollisionManager.getTileWidth());
         int playerGridY = (int) Math.floor(player.getCenterY() / buildCollisionManager.getTileHeight());
@@ -4080,6 +4129,61 @@ public class Game {
         wildlifeSpawnManager.spawnInitialWildlife(enemies);
     }
 
+    private void spawnInitialOrcBerserk() {
+        int targetCount = 1 + random.nextInt(2);
+        int existing = countAliveEnemyByType(ORC_BERSERK_ENEMY_TYPE);
+        while (existing < targetCount) {
+            OrcBerserkEnemy orc = spawnInitialOrcBerserkNearPlayer();
+            if (orc == null) {
+                break;
+            }
+            enemies.add(orc);
+            existing++;
+        }
+    }
+
+    private OrcBerserkEnemy spawnInitialOrcBerserkNearPlayer() {
+        double margin = 40.0;
+        double[][] corners = {
+                {margin, margin},
+                {Math.max(margin, worldWidth - OrcBerserkEnemy.RENDER_WIDTH - margin), margin},
+                {margin, Math.max(margin, worldHeight - OrcBerserkEnemy.RENDER_HEIGHT - margin)},
+                {
+                        Math.max(margin, worldWidth - OrcBerserkEnemy.RENDER_WIDTH - margin),
+                        Math.max(margin, worldHeight - OrcBerserkEnemy.RENDER_HEIGHT - margin)
+                }
+        };
+        double playerX = player.getCenterX();
+        double playerY = player.getCenterY();
+        double[] farCorner = corners[0];
+        double bestDistance = -1.0;
+        for (double[] corner : corners) {
+            double cornerCenterX = corner[0] + OrcBerserkEnemy.RENDER_WIDTH * 0.5;
+            double cornerCenterY = corner[1] + OrcBerserkEnemy.RENDER_HEIGHT * 0.5;
+            double distance = distance(playerX, playerY, cornerCenterX, cornerCenterY);
+            if (distance > bestDistance) {
+                bestDistance = distance;
+                farCorner = corner;
+            }
+        }
+
+        for (int attempt = 0; attempt < 28; attempt++) {
+            double jitterX = (random.nextDouble() - 0.5) * 180.0;
+            double jitterY = (random.nextDouble() - 0.5) * 180.0;
+            double x = Math.max(0.0, Math.min(farCorner[0] + jitterX, Math.max(0.0, worldWidth - OrcBerserkEnemy.RENDER_WIDTH)));
+            double y = Math.max(0.0, Math.min(farCorner[1] + jitterY, Math.max(0.0, worldHeight - OrcBerserkEnemy.RENDER_HEIGHT)));
+            OrcBerserkEnemy orc = new OrcBerserkEnemy(x, y);
+            if (!canOrcBerserkOccupy(orc, x, y, orc.getWidth(), orc.getHeight())) {
+                continue;
+            }
+            if (intersectsExistingEnemy(orc)) {
+                continue;
+            }
+            return orc;
+        }
+        return null;
+    }
+
     private int countAliveEnemyByType(String type) {
         int count = 0;
         for (Enemy enemy : enemies) {
@@ -4171,11 +4275,15 @@ public class Game {
             player.addExperience(player.getExperienceToNextLevel());
         }
         refreshBuildInventoryUi();
+        boolean finishedWoodObjective = step == 0;
         if (step >= 2) {
             dayOneObjectiveCompleted = true;
             dayOneObjectiveCompletedAtNs = now;
         } else {
             dayOneObjectiveStep++;
+        }
+        if (finishedWoodObjective && mapManager.getCurrentMapType() == MapType.MAIN_MAP) {
+            spawnInitialOrcBerserk();
         }
         if (isAxeSkillUnlocked() && !axeSkillUnlockAnnounced) {
             axeSkillUnlockAnnounced = true;
