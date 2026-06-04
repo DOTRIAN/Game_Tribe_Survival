@@ -19,10 +19,10 @@ public final class GameBalance {
     public static final int CHEST_PRICE = 50;
     public static final int TORCH_HITS_TO_BREAK = 2;
     public static final int WOOD_FENCE_MAX_HP = 10;
-    public static final int ARCHER_TOWER_HITS_TO_BREAK = 8;
+    public static final int ARCHER_TOWER_HITS_TO_BREAK = 40;
     public static final int BOMB_TRAP_HITS_TO_BREAK = 2;
     public static final int CHEST_HITS_TO_BREAK = 50;
-    public static final int ARCHER_TOWER_DAMAGE = 2;
+    public static final int ARCHER_TOWER_DAMAGE = 3;
     public static final int BOMB_TRAP_DAMAGE = 50;
     public static final int FIRE_BOMB_IMPACT_DAMAGE = 12;
     public static final int FIRE_BOMB_BURN_DAMAGE = 5;

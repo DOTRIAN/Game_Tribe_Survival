@@ -497,7 +497,7 @@ public class UIManager {
         meta.put("rock", new ItemUiMeta("rock", "Rock", "Mining resource from stone nodes.", 0, "RK", rockIcon));
         meta.put("stone", new ItemUiMeta("stone", "Stone", "Solid building material.", 0, "ST", null));
         meta.put("niku", new ItemUiMeta("niku", "Niku", "Meat dropped from animals.", 0, "NK", nikuIcon));
-        meta.put("seal_gem", new ItemUiMeta("seal_gem", "Ngọc Phong Ấn", "Viên ngọc nhận được sau khi vượt qua đêm đầu tiên.", 0, "NG", sealGemIcon));
+        meta.put("seal_gem", new ItemUiMeta("seal_gem", "Ng\u1ecdc Phong \u1ea4n", "Vi\u00ean ng\u1ecdc nh\u1eadn \u0111\u01b0\u1ee3c sau m\u1ed7i \u0111\u00eam sinh t\u1ed3n, d\u00f9ng \u0111\u1ec3 m\u1edf c\u1ed5ng boss.", 0, "NG", sealGemIcon));
         meta.put("fiber", new ItemUiMeta("fiber", "Fiber", "Soft crafting material.", 0, "FB", null));
         meta.put("carrot", new ItemUiMeta("carrot", "Carrot", "Simple food item.", 3, "CR", null));
         return meta;
