@@ -722,7 +722,7 @@ public class Renderer {
     private void renderObjectivePanel(Level currentLevel, String objectiveStatus) {
         String title = currentLevel != null
                 ? "L" + currentLevel.getId() + " " + currentLevel.getName()
-                : "Nhiem vu hien tai";
+                : "Nhi\u1ec7m v\u1ee5 hi\u1ec7n t\u1ea1i";
         String[] lines = objectiveStatus.split("\\R");
         int lineCount = Math.max(1, lines.length);
 
@@ -858,9 +858,9 @@ public class Renderer {
         graphicsContext.drawImage(sealGemImage, badgeX + 12.0, badgeY + 9.0, 36.0, 36.0);
         graphicsContext.setFill(Color.web("#f6edc7"));
         graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 13));
-        graphicsContext.fillText("NGÃƒÂ¡Ã‚Â»Ã…â€™C PHONG ÃƒÂ¡Ã‚ÂºÃ‚Â¤N", badgeX + 58.0, badgeY + 22.0);
+        graphicsContext.fillText("NGÃƒÆ’Ã‚Â¡Ãƒâ€šÃ‚Â»Ãƒâ€¦Ã¢â‚¬â„¢C PHONG ÃƒÆ’Ã‚Â¡Ãƒâ€šÃ‚ÂºÃƒâ€šÃ‚Â¤N", badgeX + 58.0, badgeY + 22.0);
         graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 12));
-        graphicsContext.fillText("SÃƒÂ¡Ã‚Â»Ã¢â‚¬Ëœ lÃƒâ€ Ã‚Â°ÃƒÂ¡Ã‚Â»Ã‚Â£ng: " + gemCount, badgeX + 58.0, badgeY + 40.0);
+        graphicsContext.fillText("SÃƒÆ’Ã‚Â¡Ãƒâ€šÃ‚Â»ÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“ lÃƒÆ’Ã¢â‚¬Â Ãƒâ€šÃ‚Â°ÃƒÆ’Ã‚Â¡Ãƒâ€šÃ‚Â»Ãƒâ€šÃ‚Â£ng: " + gemCount, badgeX + 58.0, badgeY + 40.0);
         graphicsContext.restore();
     }
 
@@ -889,7 +889,7 @@ public class Renderer {
         graphicsContext.drawImage(sealGemImage, x, y, size, size);
         graphicsContext.setFill(Color.web("#f6edc7"));
         graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 14));
-        graphicsContext.fillText("NgÃƒÂ¡Ã‚Â»Ã‚Âc Phong ÃƒÂ¡Ã‚ÂºÃ‚Â¤n", startX - 28.0, startY - 14.0);
+        graphicsContext.fillText("NgÃƒÆ’Ã‚Â¡Ãƒâ€šÃ‚Â»Ãƒâ€šÃ‚Âc Phong ÃƒÆ’Ã‚Â¡Ãƒâ€šÃ‚ÂºÃƒâ€šÃ‚Â¤n", startX - 28.0, startY - 14.0);
         graphicsContext.restore();
     }
 
@@ -1667,4 +1667,5 @@ public class Renderer {
         }
     }
 }
+
 
