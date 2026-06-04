@@ -3636,8 +3636,13 @@ public class Game {
         baseCamp.setHpForLoad(WorldSaveService.toInt(save.get("baseCampHp"), baseCamp.getMaxHp()));
         inventory.restore(WorldSaveService.parseInventory(save.get("inventory")));
         buildManager.restoreFromSaveData(save.get("buildObjects"));
+        if (mapManager.getCurrentMapType() == MapType.MAIN_MAP) {
+            // Initial map fences are not serialized, so restore them after loading saved player-built objects.
+            loadMapWoodFences();
+        }
         restoreDroppedItems(save.get("droppedItems"));
         refreshBuildInventoryUi();
+        lastBuildObjectCount = buildManager.getPlacedObjects().size();
 
         long elapsedNs = WorldSaveService.toLong(save.get("elapsedNs"), 0L);
         worldStartedAtNs = System.nanoTime() - Math.max(0L, elapsedNs);
