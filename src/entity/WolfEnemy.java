@@ -68,10 +68,10 @@ public class WolfEnemy extends Enemy {
         boolean canOccupy(WolfEnemy enemy, double x, double y, double width, double height);
     }
 
-    private static final double WALK_SPEED = 1.38;
-    private static final double RUN_SPEED = 2.70;
-    private static final double JUMP_SPEED = 3.35;
-    private static final int MAX_HP = 30;
+    private static final double WALK_SPEED = 1.00;
+    private static final double RUN_SPEED = 1.70;
+    private static final double JUMP_SPEED = 2.00;
+    private static final int MAX_HP = 20;
     private static final int DAMAGE = 5;
     private static final double DETECTION_RANGE = 220.0;
     private static final double DISENGAGE_RANGE = 260.0;

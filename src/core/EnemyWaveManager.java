@@ -79,8 +79,8 @@ public class EnemyWaveManager {
             }
             case NIGHT_WAVE_2 -> {
                 if (!wave2Spawned) {
-                    actions.spawnNightWolves(5);
-                    actions.spawnWallJumpers(6);
+                    actions.spawnNightWolves(4);
+                    actions.spawnWallJumpers(4);
                     actions.spawnGolems(4, GolemEnemy.GolemMode.WALL_BREAKER);
                     wave2Spawned = true;
                 }

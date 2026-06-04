@@ -14,9 +14,9 @@ PLAYER:
 [Hiện ảnh PHÙ THỦY]
 
 PHÙ THỦY:
-“Muốn cứu cô ấy, ngươi phải thu thập đủ 3 viên ngọc.”
+“Muốn cứu cô ấy, ngươi phải thu thập đủ 2 viên ngọc.”
 
-“Sau đó hãy tìm đến Rồng Thần.”
+“Sau đó hãy tìm đến cổng boss.”
 “Nó sẽ ban cho ngươi một điều ước.”
 
 PHÙ THỦY:

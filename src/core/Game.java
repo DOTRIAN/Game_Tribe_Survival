@@ -274,6 +274,7 @@ public class Game {
     private static final int DEATH_SPEAR_UNLOCK_LEVEL = 4;
     private static final String NIKU_ITEM_ID = "niku";
     private static final String SEAL_GEM_ITEM_ID = "seal_gem";
+    private static final int REQUIRED_SEAL_GEMS_FOR_BOSS = 2;
     private static final List<ObjectiveStep> DAY_ONE_OBJECTIVES = List.of(
             new ObjectiveStep("Nhi\u1ec7m v\u1ee5 1", DAY_ONE_OBJECTIVE_WOOD, false, "wood"),
             new ObjectiveStep("Nhi\u1ec7m v\u1ee5 2", DAY_ONE_OBJECTIVE_ROCK, false, "rock"),
@@ -374,7 +375,6 @@ public class Game {
     private int dayOneObjectiveStep;
     private long axeSkillCelebrationUntilNs;
     private SkillUnlockInfo pendingSkillUnlockCelebration;
-    private boolean firstNightRewardTriggered;
     private boolean gemRewardAnimationActive;
     private boolean gemRewardGranted;
     private long gemRewardAnimationStartedAtNs;
@@ -389,7 +389,7 @@ public class Game {
         WolfEnemy.preloadAssets();
         GolemEnemy.preloadAssets();
         WallJumperEnemy.preloadAssets();
-        this.player = new Player(100, 100, 58, 58, 4, 100);
+        this.player = new Player(100, 100, 58, 58, 3.5, 100);
         this.baseCamp = new BaseCamp(0, 0, 116, 116, DEFAULT_BASE_CAMP_HP);
         this.gameLoop = new GameLoop(this);
         this.enemies = new ArrayList<>();
@@ -464,7 +464,6 @@ public class Game {
         this.dayOneObjectiveStep = 0;
         this.axeSkillCelebrationUntilNs = -1L;
         this.pendingSkillUnlockCelebration = null;
-        this.firstNightRewardTriggered = false;
         this.gemRewardAnimationActive = false;
         this.gemRewardGranted = false;
         this.gemRewardAnimationStartedAtNs = -1L;
@@ -987,6 +986,10 @@ public class Game {
             return;
         }
         if (currentType == MapType.MAIN_MAP) {
+            if (inventory.getAmount(SEAL_GEM_ITEM_ID) < REQUIRED_SEAL_GEMS_FOR_BOSS) {
+                renderer.showToast("C\u1ea7n \u0111\u1ee7 " + REQUIRED_SEAL_GEMS_FOR_BOSS + " vi\u00ean Ng\u1ecdc Phong \u1ea4n \u0111\u1ec3 v\u00e0o c\u1eeda boss.");
+                return;
+            }
             mapManager.changeMap(MapType.BOSS_MAP);
         }
     }
@@ -1931,7 +1934,7 @@ public class Game {
                 gameState = GameState.PLAYING;
                 return;
             }
-            if ("night_one_reward".equals(scriptId)) {
+            if ("seal_gem_reward".equals(scriptId)) {
                 introDialogueRunner = null;
                 activateGemRewardAnimation(System.nanoTime());
                 gameState = GameState.PLAYING;
@@ -1957,8 +1960,8 @@ public class Game {
         gameState = GameState.DIALOGUE;
     }
 
-    private void startNightOneRewardDialogue() {
-        introDialogueRunner = new DialogueRunner(createNightOneRewardScript());
+    private void startSealGemRewardDialogue() {
+        introDialogueRunner = new DialogueRunner(createSealGemRewardScript());
         renderer.hideToast();
         renderer.setInventoryVisible(false);
         renderer.setShopVisible(false);
@@ -1998,17 +2001,17 @@ public class Game {
         gemRewardAnimationStartedAtNs = now;
     }
 
-    private DialogueScript createNightOneRewardScript() {
+    private DialogueScript createSealGemRewardScript() {
         return new DialogueScript(
-                "night_one_reward",
+                "seal_gem_reward",
                 List.of(
                         new DialoguePage(
-                                "ThÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¹a",
+                                "Ph\u00f9 Th\u1ee7y",
                                 "assets/phuthuy.png",
                                 List.of(
-                                        "Kinh, cÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©ng ra gÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¹Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂºÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¥y.",
-                                        "KhÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ khen cho nÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â±c cÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§a ngÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡i.",
-                                        "Ta sÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂºÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â½ tÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂºÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·ng ngÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡i 1 viÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âªn ngÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âc."
+                                        "Kh\u00e1 l\u1eafm, ng\u01b0\u01a1i l\u1ea1i s\u1ed1ng s\u00f3t th\u00eam m\u1ed9t \u0111\u00eam n\u1eefa.",
+                                        "C\u1ea7m l\u1ea5y 1 vi\u00ean Ng\u1ecdc Phong \u1ea4n.",
+                                        "Thu th\u1eadp \u0111\u1ee7 " + REQUIRED_SEAL_GEMS_FOR_BOSS + " vi\u00ean, r\u1ed3i h\u00e3y \u0111\u1ebfn c\u1ed5ng boss."
                                 )
                         )
                 )
@@ -2110,7 +2113,6 @@ public class Game {
         dayOneObjectiveStep = 0;
         axeSkillCelebrationUntilNs = -1L;
         pendingSkillUnlockCelebration = null;
-        firstNightRewardTriggered = false;
         gemRewardAnimationActive = false;
         gemRewardGranted = false;
         gemRewardAnimationStartedAtNs = -1L;
@@ -4230,19 +4232,27 @@ public class Game {
     }
 
     private void updateNightRewardFlow(long now) {
-        if (firstNightRewardTriggered || dayNightManager.getDay(now) < 2) {
+        int currentDay = dayNightManager.getDay(now);
+        if (currentDay < 2) {
             return;
         }
         if (dayOneObjectiveStep < DAY_ONE_OBJECTIVES.size()) {
             return;
         }
+        if (gemRewardAnimationActive) {
+            return;
+        }
         if (dayNightManager.getPhase(now) != DayNightManager.Phase.DAY) {
             return;
         }
-        firstNightRewardTriggered = true;
+        int currentGems = Math.max(0, inventory.getAmount(SEAL_GEM_ITEM_ID));
+        int rewardableGems = Math.min(REQUIRED_SEAL_GEMS_FOR_BOSS, currentDay - 1);
+        if (currentGems >= rewardableGems) {
+            return;
+        }
         dayOneObjectiveCompleted = true;
         dayOneObjectiveCompletedAtNs = now;
-        startNightOneRewardDialogue();
+        startSealGemRewardDialogue();
     }
 
     private void updateGemRewardAnimation(long now) {
@@ -4259,7 +4269,7 @@ public class Game {
             gemRewardGranted = true;
             inventory.addItem(SEAL_GEM_ITEM_ID, 1);
             refreshBuildInventoryUi();
-            renderer.showToast("NhÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂºÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­n ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¹Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£c 1 viÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âªn NgÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âc Phong ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂºÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¤n.");
+            renderer.showToast("Nh\u1eadn \u0111\u01b0\u1ee3c 1 vi\u00ean Ng\u1ecdc Phong \u1ea4n.");
         }
     }
 
