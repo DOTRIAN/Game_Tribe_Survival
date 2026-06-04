@@ -26,14 +26,13 @@ public class AssetManager implements BuildAssetResolver {
     private static final int TORCH_SHEET_ROWS = 2;
     private static final Path ARCHER_SHEET_PATH = Path.of("assets", "thap_ban_cung", "thap_cung.png");
     private static final Path ARCHER_ARROW_PATH = Path.of("assets", "thap_ban_cung", "Arrow01(32x32).png");
-    private static final Path FRIENDLY_ARCHER_IDLE_PATH = Path.of("assets", "Skeleton_Archer", "Idle.png");
-    private static final Path FRIENDLY_ARCHER_WALK_PATH = Path.of("assets", "Skeleton_Archer", "Walk.png");
-    private static final Path FRIENDLY_ARCHER_ATTACK_PATH = Path.of("assets", "Skeleton_Archer", "Attack.png");
-    private static final Path FRIENDLY_ARCHER_SHOT_PATH = Path.of("assets", "Skeleton_Archer", "Shot.png");
-    private static final Path FRIENDLY_ARCHER_EVASION_PATH = Path.of("assets", "Skeleton_Archer", "Evasion.png");
-    private static final Path FRIENDLY_ARCHER_HURT_PATH = Path.of("assets", "Skeleton_Archer", "Hurt.png");
-    private static final Path FRIENDLY_ARCHER_DEAD_PATH = Path.of("assets", "Skeleton_Archer", "Dead.png");
-    private static final Path FRIENDLY_ARCHER_ARROW_PATH = Path.of("assets", "Skeleton_Archer", "Arrow.png");
+    private static final Path FRIENDLY_ARCHER_IDLE_PATH = Path.of("assets", "Samurai_Archer", "Idle.png");
+    private static final Path FRIENDLY_ARCHER_WALK_PATH = Path.of("assets", "Samurai_Archer", "Walk.png");
+    private static final Path FRIENDLY_ARCHER_ATTACK_PATH = Path.of("assets", "Samurai_Archer", "Attack_1.png");
+    private static final Path FRIENDLY_ARCHER_SHOT_PATH = Path.of("assets", "Samurai_Archer", "Shot.png");
+    private static final Path FRIENDLY_ARCHER_HURT_PATH = Path.of("assets", "Samurai_Archer", "Hurt.png");
+    private static final Path FRIENDLY_ARCHER_DEAD_PATH = Path.of("assets", "Samurai_Archer", "Dead.png");
+    private static final Path FRIENDLY_ARCHER_ARROW_PATH = Path.of("assets", "Samurai_Archer", "Arrow.png");
     private static final List<Path> BOMB_SHEET_CANDIDATES = List.of(
             Path.of("assets", "bom", "png"),
             Path.of("assets", "bom", "png", "bom.png"),
@@ -52,13 +51,12 @@ public class AssetManager implements BuildAssetResolver {
     private static final Path CHEST_DIR = Path.of("assets", "chest");
     private static final int ARCHER_SHEET_ROWS = 1;
     private static final int ARCHER_IDLE_FRAME_COUNT = 4;
-    private static final int FRIENDLY_ARCHER_IDLE_COLS = 7;
+    private static final int FRIENDLY_ARCHER_IDLE_COLS = 9;
     private static final int FRIENDLY_ARCHER_WALK_COLS = 8;
     private static final int FRIENDLY_ARCHER_ATTACK_COLS = 5;
-    private static final int FRIENDLY_ARCHER_SHOT_COLS = 15;
-    private static final int FRIENDLY_ARCHER_EVASION_COLS = 6;
-    private static final int FRIENDLY_ARCHER_HURT_COLS = 2;
-    private static final int FRIENDLY_ARCHER_DEAD_COLS = 6;
+    private static final int FRIENDLY_ARCHER_SHOT_COLS = 14;
+    private static final int FRIENDLY_ARCHER_HURT_COLS = 3;
+    private static final int FRIENDLY_ARCHER_DEAD_COLS = 5;
 
     // spriteCache:
     // - key la ten sprite logic.
@@ -668,7 +666,6 @@ public class AssetManager implements BuildAssetResolver {
         Image[] walk = loadFriendlyArcherStrip(FRIENDLY_ARCHER_WALK_PATH, FRIENDLY_ARCHER_WALK_COLS);
         Image[] attack = loadFriendlyArcherStrip(FRIENDLY_ARCHER_ATTACK_PATH, FRIENDLY_ARCHER_ATTACK_COLS);
         Image[] shot = loadFriendlyArcherStrip(FRIENDLY_ARCHER_SHOT_PATH, FRIENDLY_ARCHER_SHOT_COLS);
-        Image[] evasion = loadFriendlyArcherStrip(FRIENDLY_ARCHER_EVASION_PATH, FRIENDLY_ARCHER_EVASION_COLS);
         Image[] hurt = loadFriendlyArcherStrip(FRIENDLY_ARCHER_HURT_PATH, FRIENDLY_ARCHER_HURT_COLS);
         Image[] dead = loadFriendlyArcherStrip(FRIENDLY_ARCHER_DEAD_PATH, FRIENDLY_ARCHER_DEAD_COLS);
 
@@ -687,9 +684,6 @@ public class AssetManager implements BuildAssetResolver {
         }
         if (shot.length > 0) {
             animationCache.put("friendly_archer_shot", shot);
-        }
-        if (evasion.length > 0) {
-            animationCache.put("friendly_archer_evasion", evasion);
         }
         if (hurt.length > 0) {
             animationCache.put("friendly_archer_hurt", hurt);

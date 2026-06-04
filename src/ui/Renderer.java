@@ -114,6 +114,8 @@ public class Renderer {
     private String skillUnlockCelebrationTitle;
     private String skillUnlockCelebrationText;
     private Player.AttackAnimationType skillUnlockCelebrationType;
+    private String skillUnlockCelebrationHint;
+    private Image skillUnlockCelebrationPreviewImage;
     private String actionCountdownLabel;
     private double actionCountdownSeconds;
     private boolean gemRewardAnimationActive;
@@ -141,6 +143,8 @@ public class Renderer {
         this.skillUnlockCelebrationTitle = null;
         this.skillUnlockCelebrationText = null;
         this.skillUnlockCelebrationType = null;
+        this.skillUnlockCelebrationHint = null;
+        this.skillUnlockCelebrationPreviewImage = null;
         this.actionCountdownLabel = null;
         this.actionCountdownSeconds = 0.0;
         this.gemRewardAnimationActive = false;
@@ -317,10 +321,14 @@ public class Renderer {
 
     public void setSkillUnlockCelebration(String skillUnlockCelebrationTitle,
                                           String skillUnlockCelebrationText,
-                                          Player.AttackAnimationType skillUnlockCelebrationType) {
+                                          Player.AttackAnimationType skillUnlockCelebrationType,
+                                          String skillUnlockCelebrationHint,
+                                          Image skillUnlockCelebrationPreviewImage) {
         this.skillUnlockCelebrationTitle = skillUnlockCelebrationTitle;
         this.skillUnlockCelebrationText = skillUnlockCelebrationText;
         this.skillUnlockCelebrationType = skillUnlockCelebrationType;
+        this.skillUnlockCelebrationHint = skillUnlockCelebrationHint;
+        this.skillUnlockCelebrationPreviewImage = skillUnlockCelebrationPreviewImage;
     }
 
     public void setActionCountdown(String label, double remainingSeconds) {
@@ -669,10 +677,13 @@ public class Renderer {
     }
 
     private void renderSkillUnlockCelebration(Player player, long now, double viewportWidth) {
-        if (skillUnlockCelebrationText == null || skillUnlockCelebrationText.isBlank() || player == null) {
+        if (skillUnlockCelebrationText == null || skillUnlockCelebrationText.isBlank()) {
             return;
         }
-        Image frame = player.getSkillUnlockPreviewFrame(now, skillUnlockCelebrationType);
+        Image frame = skillUnlockCelebrationPreviewImage;
+        if (frame == null && player != null && skillUnlockCelebrationType != null) {
+            frame = player.getSkillUnlockPreviewFrame(now, skillUnlockCelebrationType);
+        }
         double panelWidth = 430;
         double panelHeight = 110;
         double panelX = (viewportWidth - panelWidth) * 0.5;
@@ -699,17 +710,21 @@ public class Renderer {
         );
         graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 12));
         graphicsContext.fillText(skillUnlockCelebrationText, panelX + 104, panelY + 58);
-        String keyHint;
-        if (skillUnlockCelebrationType == null) {
-            keyHint = "Nhấn F để dùng kỹ năng.";
-        } else {
-            keyHint = switch (skillUnlockCelebrationType) {
-                case CRUSH -> "Nhấn J để dùng kỹ năng.";
-                case PIERCE -> "Nhấn K để dùng kỹ năng.";
-                case HIT, SLICE -> "Nhấn F để dùng kỹ năng.";
-            };
+        String keyHint = skillUnlockCelebrationHint;
+        if (keyHint == null || keyHint.isBlank()) {
+            if (skillUnlockCelebrationType == null) {
+                keyHint = "";
+            } else {
+                keyHint = switch (skillUnlockCelebrationType) {
+                    case CRUSH -> "Press L to use skill.";
+                    case PIERCE -> "Press K to use skill.";
+                    case HIT, SLICE -> "Press F to use skill.";
+                };
+            }
         }
-        graphicsContext.fillText(keyHint, panelX + 104, panelY + 80);
+        if (keyHint != null && !keyHint.isBlank()) {
+            graphicsContext.fillText(keyHint, panelX + 104, panelY + 80);
+        }
     }
 
     private void renderSealGemBadge(Map<String, Integer> collectedResources, double viewportWidth) {
@@ -1525,4 +1540,3 @@ public class Renderer {
         }
     }
 }
-

@@ -6,8 +6,8 @@ public class FriendlyArcher extends AllyUnit {
     private static final boolean DEBUG_ARCHER = false;
     private static final double PLAYER_RENDER_HEIGHT = 58.0;
     private static final double ARCHER_RENDER_SCALE = 0.82;
-    private static final double FRAME_BASE_WIDTH = 46.0;
-    private static final double FRAME_BASE_HEIGHT = 52.0;
+    private static final double FRAME_BASE_WIDTH = 128.0;
+    private static final double FRAME_BASE_HEIGHT = 128.0;
 
     private final double renderWidth;
     private final double renderHeight;
@@ -104,12 +104,12 @@ public class FriendlyArcher extends AllyUnit {
 
     public int frameCountForState() {
         return switch (state) {
-            case SHOT -> 15;
+            case SHOT -> 14;
             case ATTACK -> 5;
-            case HURT -> 2;
-            case DEAD -> 6;
+            case HURT -> 3;
+            case DEAD -> 5;
             case WALK, RETURN_HOME -> 8;
-            case IDLE -> 7;
+            case IDLE -> 9;
         };
     }
 

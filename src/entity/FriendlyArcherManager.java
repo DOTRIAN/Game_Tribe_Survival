@@ -1,5 +1,7 @@
 package entity;
 
+import system.resource.ResourceNode;
+import system.resource.ResourceType;
 import system.DamageSystem;
 import system.MovementSlideSystem;
 
@@ -15,9 +17,12 @@ public class FriendlyArcherManager {
         int getTileHeight();
         double getWorldWidth();
         double getWorldHeight();
+        List<ResourceNode> getHarvestableResources(double x, double y, double width, double height);
+        void onArcherHarvestResource(FriendlyArcher archer, ResourceNode resource, int damage, long nowNs);
     }
 
     private static final double ARRIVE_DISTANCE = 4.0;
+    private static final double RESOURCE_SEARCH_PADDING_TILES = 3.0;
     private static final boolean DEBUG_ARCHER = false;
 
     private final List<FriendlyArcher> archers;
@@ -114,6 +119,13 @@ public class FriendlyArcherManager {
         }
 
         archer.setCurrentTargetEnemy(null);
+        ResourceNode resourceTarget = findNearestHarvestableResource(archer, worldQuery);
+        if (resourceTarget != null) {
+            archer.clearWanderTarget();
+            handleHarvesting(archer, resourceTarget, nowNs, deltaSeconds, worldQuery);
+            return;
+        }
+
         if (DEBUG_ARCHER) {
             System.out.println("[Archer] wander");
         }
@@ -179,6 +191,38 @@ public class FriendlyArcherManager {
 
         archer.setState(AllyUnit.AllyState.WALK);
         moveToward(archer, target.getX(), target.getY(), deltaSeconds, worldQuery);
+    }
+
+    private void handleHarvesting(FriendlyArcher archer,
+                                  ResourceNode resource,
+                                  long nowNs,
+                                  double deltaSeconds,
+                                  WorldQuery worldQuery) {
+        if (resource == null || !resource.isAlive()) {
+            archer.setState(AllyUnit.AllyState.IDLE);
+            return;
+        }
+        double targetX = resource.getCollisionX() + resource.getCollisionWidth() * 0.5;
+        double targetY = resource.getCollisionY() + resource.getCollisionHeight() * 0.5;
+        double distance = distance(archer.getCenterX(), archer.getCenterY(), targetX, targetY);
+        archer.faceTargetX(targetX);
+
+        if (distance <= archer.getMeleeRange() + 10.0) {
+            if (archer.getState() != AllyUnit.AllyState.ATTACK) {
+                archer.setState(AllyUnit.AllyState.ATTACK);
+            } else if (archer.hasFinishedNonLoopingAnimation()) {
+                archer.restartAnimationCycle();
+            }
+            if (!archer.isMeleeAppliedThisCycle() && archer.getFrameIndex() >= 2 && archer.canMelee(nowNs)) {
+                worldQuery.onArcherHarvestResource(archer, resource, archer.getMeleeDamage(), nowNs);
+                archer.markMelee(nowNs);
+                archer.setMeleeAppliedThisCycle(true);
+            }
+            return;
+        }
+
+        archer.setState(AllyUnit.AllyState.WALK);
+        moveToward(archer, resource.getX(), resource.getY(), deltaSeconds, worldQuery);
     }
 
     private void updateWander(FriendlyArcher archer, double deltaSeconds, WorldQuery worldQuery) {
@@ -321,6 +365,43 @@ public class FriendlyArcherManager {
             }
             nearestDistance = distance;
             nearest = enemy;
+        }
+        return nearest;
+    }
+
+    private ResourceNode findNearestHarvestableResource(FriendlyArcher archer, WorldQuery worldQuery) {
+        if (archer == null || worldQuery == null) {
+            return null;
+        }
+        double searchRadius = (archer.getWanderRadiusTiles() + RESOURCE_SEARCH_PADDING_TILES)
+                * Math.max(worldQuery.getTileWidth(), worldQuery.getTileHeight());
+        double searchX = archer.getHomeX() - searchRadius;
+        double searchY = archer.getHomeY() - searchRadius;
+        double searchSize = searchRadius * 2.0;
+        List<ResourceNode> candidates = worldQuery.getHarvestableResources(searchX, searchY, searchSize, searchSize);
+        if (candidates == null || candidates.isEmpty()) {
+            return null;
+        }
+
+        ResourceNode nearest = null;
+        double nearestDistance = Double.MAX_VALUE;
+        for (ResourceNode resource : candidates) {
+            if (resource == null || !resource.isAlive()) {
+                continue;
+            }
+            if (resource.getResourceType() != ResourceType.TREE && resource.getResourceType() != ResourceType.ROCK) {
+                continue;
+            }
+            double resourceDistanceToHome = distance(archer.getHomeX(), archer.getHomeY(), resource.getX(), resource.getY());
+            if (resourceDistanceToHome > searchRadius * 1.15) {
+                continue;
+            }
+            double distance = distance(archer.getCenterX(), archer.getCenterY(), resource.getCenterX(), resource.getCenterY());
+            if (distance >= nearestDistance) {
+                continue;
+            }
+            nearestDistance = distance;
+            nearest = resource;
         }
         return nearest;
     }

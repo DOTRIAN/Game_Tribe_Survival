@@ -12,6 +12,8 @@ import javafx.scene.image.Image;
 public class FireBombBurnZone {
     private static final long IMPACT_DURATION_NS = 180_000_000L;
     private static final long SPREAD_TO_FULL_NS = 900_000_000L;
+    private static final double VERTICAL_RADIUS_SCALE = 1.4;
+    private static final double RENDER_HEIGHT_SCALE = 1.22;
 
     private final double worldX;
     private final double worldY;
@@ -67,7 +69,10 @@ public class FireBombBurnZone {
     public boolean contains(double targetX, double targetY) {
         double dx = targetX - worldX;
         double dy = targetY - worldY;
-        return dx * dx + dy * dy <= damageRadius * damageRadius;
+        double verticalRadius = damageRadius * VERTICAL_RADIUS_SCALE;
+        double normalized = (dx * dx) / (damageRadius * damageRadius)
+                + (dy * dy) / (verticalRadius * verticalRadius);
+        return normalized <= 1.0;
     }
 
     public int resolveTickDamage(long nowNs) {
@@ -136,7 +141,7 @@ public class FireBombBurnZone {
             return;
         }
         double aspect = frame.getHeight() / Math.max(1.0, frame.getWidth());
-        double height = width * aspect;
+        double height = width * aspect * RENDER_HEIGHT_SCALE;
         graphics.save();
         graphics.setGlobalAlpha(alpha);
         graphics.drawImage(frame, centerX - width * 0.5, centerY - height * 0.58, width, height);

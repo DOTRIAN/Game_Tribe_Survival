@@ -47,7 +47,6 @@ public class UIManager {
     private final HBox hotbarContainer;
     private final ShopOverlay shopOverlay;
     private final InventoryOverlay inventoryOverlay;
-    private final ChestOverlay chestOverlay;
     private final StackPane guideOverlay;
     private final StackPane pauseOverlay;
     private final StackPane gameOverOverlay;
@@ -67,7 +66,6 @@ public class UIManager {
                 itemMetaMap.get("torch"),
                 itemMetaMap.get("archer_tower"),
                 itemMetaMap.get("friendly_archer"),
-                itemMetaMap.get("chest"),
                 itemMetaMap.get("bomb_trap"),
                 itemMetaMap.get("fire_bomb"),
                 itemMetaMap.get("potion"),
@@ -87,8 +85,7 @@ public class UIManager {
         this.hotbarContainer = new HBox(hotbarOverlay);
         this.shopOverlay = new ShopOverlay();
         this.inventoryOverlay = new InventoryOverlay();
-        this.chestOverlay = new ChestOverlay();
-        this.guideOverlay = buildSimpleOverlay("Guide", "WASD move\nSPACE run\nB shop\nI inventory\nC open chest nearby\nM minimap\nSelect bomb and press Q to throw\nESC close overlay");
+        this.guideOverlay = buildSimpleOverlay("Guide", "WASD move\nSPACE run\nJ attack\nF/L/K skills\nB shop\nI inventory\nM minimap\nSelect bomb and press Q to throw\nESC close overlay");
         this.pauseOverlay = buildSimpleOverlay("Paused", "Press P to resume\nESC returns to menu");
         this.gameOverOverlay = buildSimpleOverlay("Game Over", "Press R to restart");
         this.victoryOverlay = buildSimpleOverlay("Victory", "ENTER start new world\nESC save and back to menu");
@@ -112,7 +109,6 @@ public class UIManager {
                 hotbarContainer,
                 shopOverlay,
                 inventoryOverlay,
-                chestOverlay,
                 guideOverlay,
                 pauseOverlay,
                 gameOverOverlay,
@@ -129,7 +125,6 @@ public class UIManager {
         hotbarContainer.setVisible(false);
         shopOverlay.setVisible(false);
         inventoryOverlay.setVisible(false);
-        chestOverlay.setVisible(false);
         guideOverlay.setVisible(false);
         pauseOverlay.setVisible(false);
         gameOverOverlay.setVisible(false);
@@ -154,7 +149,6 @@ public class UIManager {
         bindOverlayToRoot(root, settingsScreen);
         bindOverlayToRoot(root, shopOverlay);
         bindOverlayToRoot(root, inventoryOverlay);
-        bindOverlayToRoot(root, chestOverlay);
         bindOverlayToRoot(root, guideOverlay);
         bindOverlayToRoot(root, pauseOverlay);
         bindOverlayToRoot(root, gameOverOverlay);
@@ -215,7 +209,7 @@ public class UIManager {
     }
 
     public void configureChestClose(Runnable onClose) {
-        chestOverlay.getCloseButton().setOnAction(event -> onClose.run());
+        // Chest overlay was removed.
     }
 
     public void setContinueEnabled(boolean enabled) {
@@ -286,7 +280,6 @@ public class UIManager {
         if (!gameplayHudVisible) {
             shopOverlay.setVisible(false);
             inventoryOverlay.setVisible(false);
-            chestOverlay.setVisible(false);
         }
 
         switch (gameState) {
@@ -328,7 +321,7 @@ public class UIManager {
     }
 
     public void setChestVisible(boolean visible) {
-        chestOverlay.setVisible(visible);
+        // Chest overlay was removed.
     }
 
     public void updateIntroDialogue(DialogueRunner runner, long nowNs) {
@@ -348,7 +341,7 @@ public class UIManager {
     }
 
     public boolean isChestVisible() {
-        return chestOverlay.isVisible();
+        return false;
     }
 
     public void toggleMinimap() {
@@ -370,10 +363,6 @@ public class UIManager {
             inventoryOverlay.setVisible(false);
             return true;
         }
-        if (chestOverlay.isVisible()) {
-            chestOverlay.setVisible(false);
-            return true;
-        }
         if (guideOverlay.isVisible()) {
             guideOverlay.setVisible(false);
             return true;
@@ -382,7 +371,7 @@ public class UIManager {
     }
 
     public boolean isBlockingOverlayVisible() {
-        return settingsScreen.isVisible() || shopOverlay.isVisible() || inventoryOverlay.isVisible() || chestOverlay.isVisible();
+        return settingsScreen.isVisible() || shopOverlay.isVisible() || inventoryOverlay.isVisible();
     }
 
     public boolean isMouseOverUi(double sceneX, double sceneY) {
@@ -510,3 +499,4 @@ public class UIManager {
         return itemMetaMap.get(itemId.trim().toLowerCase());
     }
 }
+
