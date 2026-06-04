@@ -38,15 +38,16 @@ public final class FinalBoss extends Enemy {
     }
 
     private static final String STATE_ROOT = "assets/boss_assets/fire_boss/boss_demon_slime_FREE_v1.0/state_boss";
-    private static final String LAO_SHEET = STATE_ROOT + "/lao.png";
     private static final String CHEM_SHEET = STATE_ROOT + "/chem.png";
     private static final String VU_NO_SHEET = STATE_ROOT + "/vu_no.png";
     private static final String PLACEHOLDER_FRAME = STATE_ROOT + "/01_demon_idle/demon_idle_1.png";
+    private static final String IDLE_FOLDER = STATE_ROOT + "/01_demon_idle";
+    private static final String WALK_FOLDER = STATE_ROOT + "/02_demon_walk";
 
     private static final long IDLE_FRAME_NS = 170_000_000L;
     private static final long WALK_FRAME_NS = 90_000_000L;
     private static final long LAO_FRAME_NS = 120_000_000L;
-    private static final long LAO_DASH_FRAME_NS = 120_000_000L;
+    private static final long LAO_DASH_FRAME_NS = 70_000_000L;
     private static final long LAO_SLAM_FRAME_NS = 150_000_000L;
     private static final long LAO_EXPLOSION_FRAME_NS = 180_000_000L;
     private static final long CLEAVE_FRAME_NS = 75_000_000L;
@@ -66,13 +67,11 @@ public final class FinalBoss extends Enemy {
     private static final double ATTACK_RADIUS_X = 14.0;
     private static final double ATTACK_RADIUS_Y = 8.0;
     private static final double APPROACH_SNAP_DISTANCE = 3.0;
-    private static final double LAO_PLAYER_TARGET_OFFSET_X = 34.0;
-    private static final double LAO_PLAYER_TARGET_OFFSET_Y = 18.0;
-    private static final double LAO_DASH_SPEED_MULTIPLIER = 3.6;
-    private static final double LAO_DASH_RENDER_SCALE = 1.08;
-    private static final double LAO_SLAM_RENDER_SCALE = 0.62;
-    private static final double LAO_EXPLOSION_BOSS_RENDER_SCALE = 0.62;
-    private static final double LAO_EXPLOSION_EFFECT_RENDER_SCALE = 0.76;
+    private static final double LAO_DASH_SPEED_MULTIPLIER = 14.0;
+    private static final double LAO_DASH_RENDER_SCALE = 1.05;
+    private static final double LAO_SLAM_RENDER_SCALE = 1.2;
+    private static final double LAO_EXPLOSION_BOSS_RENDER_SCALE = 1.2;
+    private static final double LAO_EXPLOSION_EFFECT_RENDER_SCALE = 0.52;
     private static final double EXPLOSION_RADIUS = 100.0;
     private static final double MATTE_BG_TOLERANCE = 0.18;
 
@@ -80,8 +79,6 @@ public final class FinalBoss extends Enemy {
     private static final int CLEAVE_DAMAGE = 14;
     private static final int DASH_DAMAGE = 12;
     private static final int EXPLOSION_DAMAGE = 30;
-    private static final int LAO_COLUMNS = 6;
-    private static final int LAO_ROWS = 3;
     private static final int LAO_DASH_START = 0;
     private static final int LAO_DASH_END = 5;
     private static final int LAO_SLAM_START = 6;
@@ -91,6 +88,7 @@ public final class FinalBoss extends Enemy {
     private static final int LAO_EXPLOSION_END = 15;
     private static final double LAO_EXPLOSION_KNOCKBACK = 26.0;
 
+    private static final Image[] BOSS_REFERENCE_FRAMES = BossSpriteLoader.loadSequence(IDLE_FOLDER);
     private static final Image[] LAO_BOSS_FRAMES = loadLaoBossFrames();
     private static final Image[] LAO_EXPLOSION_FRAMES = loadLaoExplosionFrames();
     private static final Map<BossState, Image[]> RAW_FRAMES = loadRawFrames();
@@ -237,6 +235,10 @@ public final class FinalBoss extends Enemy {
         double renderHeight = renderHeightForCurrentState();
         double drawX = Math.round(screenX + (width - renderWidth) * 0.5);
         double drawY = Math.round(screenY + (height - renderHeight));
+        if (state == BossState.LAO && laoPhase == LaoPhase.DASH) {
+            drawDashTrail(graphicsContext, cameraX, cameraY);
+        }
+
         if (frame == null || frame.isError()) {
             graphicsContext.setFill(Color.DARKRED);
             graphicsContext.fillRect(drawX, drawY, renderWidth, renderHeight);
@@ -251,7 +253,7 @@ public final class FinalBoss extends Enemy {
         }
 
         if (state == BossState.LAO && laoPhase == LaoPhase.EXPLOSION && slamImpactResolved) {
-            drawLaoExplosionEffect(graphicsContext, cameraX);
+            drawLaoExplosionEffect(graphicsContext, cameraX, cameraY);
         }
 
         if (isHitFlashActive(nowNs) && frame != null && !frame.isError()) {
@@ -261,10 +263,6 @@ public final class FinalBoss extends Enemy {
             graphicsContext.setFill(Color.rgb(255, 96, 96));
             graphicsContext.fillOval(drawX + 26, drawY + 18, Math.max(12.0, renderWidth - 52), Math.max(12.0, renderHeight - 24));
             graphicsContext.restore();
-        }
-
-        if (state == BossState.LAO && laoPhase == LaoPhase.DASH) {
-            drawDashTrail(graphicsContext, cameraX, cameraY);
         }
 
         if (nowNs <= barrageFlashUntilNs) {
@@ -398,8 +396,10 @@ public final class FinalBoss extends Enemy {
         int previousFrameIndex = animation.getCurrentFrameIndex();
         boolean finished = animation.updateOnce(now, laoFrameDurationFor(previousFrameIndex));
         int frameIndex = animation.getCurrentFrameIndex();
-        currentFrame = resolveLaoBossFrame(frameIndex);
         updateLaoPhase(frameIndex);
+        currentFrame = laoPhase == LaoPhase.EXPLOSION
+                ? resolveLaoHeldBossFrame()
+                : resolveLaoBossFrame(frameIndex);
         updateFacingDirection(laoDashDirX);
         updateAttackDirection(laoDashDirX, laoDashDirY);
         updateDashMovement(frameIndex, worldWidth, worldHeight);
@@ -691,10 +691,8 @@ public final class FinalBoss extends Enemy {
         if (player == null) {
             return new Point2D(x, y);
         }
-        double offsetX = ThreadLocalRandom.current().nextDouble(-LAO_PLAYER_TARGET_OFFSET_X, LAO_PLAYER_TARGET_OFFSET_X);
-        double offsetY = ThreadLocalRandom.current().nextDouble(-LAO_PLAYER_TARGET_OFFSET_Y, LAO_PLAYER_TARGET_OFFSET_Y);
-        double targetX = player.getCenterX() - width * 0.5 + offsetX;
-        double targetY = player.getCenterY() - height * FOOT_CENTER_Y_RATIO + offsetY;
+        double targetX = player.getCenterX() - width * 0.5;
+        double targetY = player.getCenterY() - height * FOOT_CENTER_Y_RATIO;
         targetX = clamp(targetX, 0.0, Math.max(0.0, worldWidth - width));
         targetY = clamp(targetY, 0.0, Math.max(0.0, worldHeight - height));
         return new Point2D(targetX, targetY);
@@ -745,7 +743,7 @@ public final class FinalBoss extends Enemy {
         graphicsContext.restore();
     }
 
-    private void drawLaoExplosionEffect(GraphicsContext graphicsContext, double cameraX) {
+    private void drawLaoExplosionEffect(GraphicsContext graphicsContext, double cameraX, double cameraY) {
         int frameIndex = animationFor(BossState.LAO).getCurrentFrameIndex();
         int explosionIndex = frameIndex - LAO_EXPLOSION_START;
         if (explosionIndex < 0 || explosionIndex >= LAO_EXPLOSION_FRAMES.length) {
@@ -755,23 +753,36 @@ public final class FinalBoss extends Enemy {
         if (effectFrame == null || effectFrame.isError()) {
             return;
         }
-        double drawWidth = effectFrame.getWidth() * LAO_EXPLOSION_EFFECT_RENDER_SCALE;
-        double drawHeight = effectFrame.getHeight() * LAO_EXPLOSION_EFFECT_RENDER_SCALE;
+        double aspect = effectFrame.getHeight() <= 0.0
+                ? 1.0
+                : effectFrame.getWidth() / effectFrame.getHeight();
+        double drawWidth = width * LAO_EXPLOSION_EFFECT_RENDER_SCALE;
+        double drawHeight = drawWidth / Math.max(0.01, aspect);
         double drawX = explosionCenter.getX() - drawWidth * 0.5 - cameraX;
-        double drawY = explosionCenter.getY() - drawHeight * 0.82;
+        double drawY = explosionCenter.getY() - drawHeight * 0.58 - cameraY;
         graphicsContext.drawImage(effectFrame, Math.round(drawX), Math.round(drawY), drawWidth, drawHeight);
     }
 
     private double renderWidthForCurrentState() {
         if (state == BossState.LAO) {
-            return width * laoBossRenderScaleForCurrentPhase();
+            Image frame = currentFrame;
+            if (frame != null && !frame.isError()) {
+                return width * laoBossRenderScaleForCurrentPhase();
+            }
         }
         return width;
     }
 
     private double renderHeightForCurrentState() {
         if (state == BossState.LAO) {
-            return height * laoBossRenderScaleForCurrentPhase();
+            Image frame = currentFrame;
+            if (frame != null && !frame.isError()) {
+                if (laoPhase == LaoPhase.DASH) {
+                    return height * laoBossRenderScaleForCurrentPhase();
+                }
+                double aspect = frame.getWidth() <= 0.0 ? 1.0 : frame.getHeight() / frame.getWidth();
+                return renderWidthForCurrentState() * Math.max(0.01, aspect);
+            }
         }
         return height;
     }
@@ -894,8 +905,8 @@ public final class FinalBoss extends Enemy {
 
     private static Map<BossState, Image[]> loadRawFrames() {
         Map<BossState, Image[]> frames = new EnumMap<>(BossState.class);
-        frames.put(BossState.IDLE, BossSpriteLoader.loadSequence(STATE_ROOT + "/01_demon_idle"));
-        frames.put(BossState.WALK, BossSpriteLoader.loadSequence(STATE_ROOT + "/02_demon_walk"));
+        frames.put(BossState.IDLE, BOSS_REFERENCE_FRAMES);
+        frames.put(BossState.WALK, BossSpriteLoader.loadSequence(WALK_FOLDER));
         frames.put(BossState.LAO, LAO_BOSS_FRAMES);
         frames.put(BossState.CLEAVE, BossSpriteLoader.loadSequence(STATE_ROOT + "/03_demon_cleave"));
         frames.put(BossState.BARRAGE, BossSpriteLoader.loadSequence(STATE_ROOT + "/01_demon_idle"));
@@ -905,14 +916,14 @@ public final class FinalBoss extends Enemy {
     }
 
     private static Image[] loadLaoBossFrames() {
-        Image[] dashFrames = SpriteSheetLoader.loadRowCells(LAO_SHEET, 0, LAO_ROWS, LAO_COLUMNS, 0, 6);
+        Image[] dashFrames = repeatFrames(BossSpriteLoader.loadSequence(WALK_FOLDER), LAO_DASH_END - LAO_DASH_START + 1);
+        dashFrames = BossSpriteLoader.removeNearBlackBackground(dashFrames);
         Image[] slamFrames = SpriteSheetLoader.loadHorizontalStrip(CHEM_SHEET, 5);
-        slamFrames = BossSpriteLoader.removeEdgeBackground(slamFrames, MATTE_BG_TOLERANCE);
-        slamFrames = BossSpriteLoader.trimTransparentVerticalKeepWidth(slamFrames);
+        slamFrames = BossSpriteLoader.trimNearBlackFrames(slamFrames);
         Image[] merged = new Image[dashFrames.length + slamFrames.length + 5];
         System.arraycopy(dashFrames, 0, merged, 0, dashFrames.length);
         System.arraycopy(slamFrames, 0, merged, dashFrames.length, slamFrames.length);
-        Image[] processed = BossSpriteLoader.trimNearBlackFrames(merged);
+        Image[] processed = merged;
         Image holdFrame = processed[Math.min(processed.length - 1, LAO_SLAM_END)];
         for (int index = LAO_EXPLOSION_START; index <= LAO_EXPLOSION_END; index++) {
             processed[index] = holdFrame;
@@ -933,6 +944,28 @@ public final class FinalBoss extends Enemy {
         }
         int safeIndex = Math.max(0, Math.min(LAO_BOSS_FRAMES.length - 1, frameIndex));
         return LAO_BOSS_FRAMES[safeIndex];
+    }
+
+    private Image resolveLaoHeldBossFrame() {
+        return resolveLaoBossFrame(LAO_SLAM_END);
+    }
+
+    private static Image[] repeatFrames(Image[] source, int targetCount) {
+        if (targetCount <= 0) {
+            return new Image[0];
+        }
+        Image[] fallback = BOSS_REFERENCE_FRAMES == null || BOSS_REFERENCE_FRAMES.length == 0
+                ? new Image[0]
+                : BOSS_REFERENCE_FRAMES;
+        Image[] usable = source == null || source.length == 0 ? fallback : source;
+        if (usable.length == 0) {
+            return new Image[0];
+        }
+        Image[] result = new Image[targetCount];
+        for (int index = 0; index < targetCount; index++) {
+            result[index] = usable[index % usable.length];
+        }
+        return result;
     }
 
     private boolean shouldStartLao(long nowNs) {
