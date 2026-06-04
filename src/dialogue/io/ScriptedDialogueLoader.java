@@ -26,6 +26,13 @@ public final class ScriptedDialogueLoader {
         return loadScript(path, playerName, BOSS_SCRIPT_ID, true);
     }
 
+    public static DialogueScript loadCustomScript(Path path,
+                                                  String playerName,
+                                                  String scriptId,
+                                                  boolean ignoreBracketDirectives) {
+        return loadScript(path, playerName, scriptId, ignoreBracketDirectives);
+    }
+
     private static DialogueScript loadScript(Path path,
                                              String playerName,
                                              String scriptId,

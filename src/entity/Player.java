@@ -291,6 +291,12 @@ public class Player extends Entity {
     public Image getSkillUnlockPreviewFrame(long nowNs, AttackAnimationType attackType) {
         AttackAnimationType resolvedType = attackType == null ? AttackAnimationType.SLICE : attackType;
         SpriteAnimation previewAnimation = switch (resolvedType) {
+            case ATTACK_TWO -> bossAttackTwoAnimation;
+            case DASH_ATTACK -> bossDashAttackAnimation;
+            case DEFEND -> bossDefendAnimation;
+            case THROW -> bossThrowAnimation;
+            case STRONG_ATTACK -> bossStrongAttackAnimation;
+            case JUMP -> bossJumpAnimation;
             case CRUSH -> crushDownAnimation;
             case PIERCE -> pierceDownAnimation;
             case HIT -> hitDownAnimation;
@@ -298,6 +304,12 @@ public class Player extends Entity {
             default -> sliceDownAnimation;
         };
         long frameDurationNs = switch (resolvedType) {
+            case ATTACK_TWO -> BOSS_ATTACK_FRAME_NS;
+            case DASH_ATTACK -> BOSS_DASH_ATTACK_FRAME_NS;
+            case DEFEND -> BOSS_DEFEND_FRAME_NS;
+            case THROW -> BOSS_THROW_FRAME_NS;
+            case STRONG_ATTACK -> BOSS_ATTACK_FRAME_NS;
+            case JUMP -> BOSS_JUMP_FRAME_NS;
             case CRUSH -> CRUSH_FRAME_NS;
             case PIERCE -> PIERCE_FRAME_NS;
             case HIT -> HIT_FRAME_NS;

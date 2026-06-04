@@ -89,8 +89,10 @@ import world.InfiniteWorldManager;
 import world.WorldChunk;
 
 import java.util.ArrayList;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.text.Normalizer;
 import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -112,6 +114,11 @@ public class Game {
     private record ObjectiveStep(String title, int targetAmount, boolean foodObjective, String itemId) {}
     private record SkillUnlockInfo(int level, String name, Player.AttackAnimationType attackType) {}
     private record TutorialHintInfo(String title, String description, String keyHint, String itemId) {}
+    private record FormUnlockInfo(String title,
+                                  String description,
+                                  String keyHint,
+                                  Player.AttackAnimationType previewType,
+                                  boolean epic) {}
 
     private enum GameOverReason {
         PLAYER_DIED,
@@ -146,6 +153,9 @@ public class Game {
     private static final String SURVIVAL_SAVE_FILE = "data/survival_world.json";
     private static final String DAY_ONE_DIALOGUE_SCRIPT_PATH = "tongquanproject/scriptday1.txt";
     private static final String BOSS_DIALOGUE_SCRIPT_PATH = "tongquanproject/boss.txt";
+    private static final String BOSS_LOST_DIALOGUE_SCRIPT_PATH = "tongquanproject/boss_lost.txt";
+    private static final String BOSS_NINJA_AWAKENING_SCRIPT_ID = "boss_ninja_awakening";
+    private static final String ENDING_DIALOGUE_SCRIPT_PATH = "tongquanproject/ending.txt";
     private static final int DEFAULT_BASE_CAMP_HP = 100;
     private static final int INITIAL_FENCE_PADDING_X_TILES = 10;
     private static final int INITIAL_FENCE_PADDING_Y_TILES = 8;
@@ -157,8 +167,10 @@ public class Game {
     private final InputHandler inputHandler;
     private DialogueRunner introDialogueRunner;
     private boolean bossIntroActive;
+    private boolean bossDefeatDialogueShown;
     private long bossFightBannerUntilNs;
     private boolean pendingBossReturnToMainMapEntrance;
+    private boolean pendingEndingDialogueAfterBossReturn;
     private final AssetManager wallAssetManager;
     private final BuildManager buildManager;
     private final BuildController buildController;
@@ -210,7 +222,6 @@ public class Game {
     private long lastAutoSaveAtNs;
     private long lastUpdateNowNs;
     private long eatingNikuUntilNs;
-    private long nextEmptyEnergyDamageAtNs;
     private long victoryAtNs;
     private long perfLastReportNs;
     private long perfFrames;
@@ -247,8 +258,6 @@ public class Game {
     private static final double SKILL_F_ENERGY_COST = 3.0;
     private static final double FOOD_ENERGY_BONUS = 50.0;
     private static final long NIKU_EAT_DURATION_NS = 2_000_000_000L;
-    private static final long EMPTY_ENERGY_DAMAGE_INTERVAL_NS = 800_000_000L;
-    private static final int EMPTY_ENERGY_DAMAGE = 1;
     private static final long DAMAGE_TEXT_LIFETIME_NS = 650_000_000L;
     // Hotbar hien tai de mo rong dan:
     // - Slot dau tien thuong la Wood Fence neu inventory dang co item nay.
@@ -280,6 +289,7 @@ public class Game {
     private static final String NIKU_ITEM_ID = "niku";
     private static final String SEAL_GEM_ITEM_ID = "seal_gem";
     private static final int REQUIRED_SEAL_GEMS_FOR_BOSS = 2;
+    private static final boolean DEBUG_ALLOW_BOSS_ENTRY_WITHOUT_GEMS = true;
     private static final List<ObjectiveStep> DAY_ONE_OBJECTIVES = List.of(
             new ObjectiveStep("Nhi\u1ec7m v\u1ee5 1", DAY_ONE_OBJECTIVE_WOOD, false, "wood"),
             new ObjectiveStep("Nhi\u1ec7m v\u1ee5 2", DAY_ONE_OBJECTIVE_ROCK, false, "rock"),
@@ -386,6 +396,8 @@ public class Game {
     private int dayOneObjectiveStep;
     private long axeSkillCelebrationUntilNs;
     private SkillUnlockInfo pendingSkillUnlockCelebration;
+    private long formUnlockCelebrationUntilNs;
+    private FormUnlockInfo pendingFormUnlockCelebration;
     private int dayOneEnemyKillCount;
     private TutorialHintInfo activeShopTutorialHint;
     private int nextShopTutorialHintIndex;
@@ -395,6 +407,9 @@ public class Game {
     private boolean gemRewardGranted;
     private long gemRewardAnimationStartedAtNs;
     private long gemRewardAnimationDurationNs;
+    private boolean bossNinjaAwakeningUnlocked;
+    private boolean finalEndingOverlayActive;
+    private long finalEndingOverlayStartedAtNs;
 
     public Game(Stage stage) {
         // Constructor:
@@ -435,8 +450,10 @@ public class Game {
         this.playerNameBuffer = new StringBuilder("Player");
         this.introDialogueRunner = null;
         this.bossIntroActive = false;
+        this.bossDefeatDialogueShown = false;
         this.bossFightBannerUntilNs = -1L;
         this.pendingBossReturnToMainMapEntrance = false;
+        this.pendingEndingDialogueAfterBossReturn = false;
 
         // World size tam thoi; neu load duoc map se bi ghi de bang kich thuoc map pixel that.
         this.worldWidth = 1_000_000;
@@ -452,7 +469,6 @@ public class Game {
         this.lastAutoSaveAtNs = 0L;
         this.lastUpdateNowNs = -1L;
         this.eatingNikuUntilNs = -1L;
-        this.nextEmptyEnergyDamageAtNs = -1L;
         this.victoryAtNs = -1L;
         this.perfLastReportNs = 0L;
         this.perfFrames = 0L;
@@ -480,6 +496,8 @@ public class Game {
         this.dayOneObjectiveStep = 0;
         this.axeSkillCelebrationUntilNs = -1L;
         this.pendingSkillUnlockCelebration = null;
+        this.formUnlockCelebrationUntilNs = -1L;
+        this.pendingFormUnlockCelebration = null;
         this.dayOneEnemyKillCount = 0;
         this.activeShopTutorialHint = null;
         this.nextShopTutorialHintIndex = 0;
@@ -489,6 +507,9 @@ public class Game {
         this.gemRewardGranted = false;
         this.gemRewardAnimationStartedAtNs = -1L;
         this.gemRewardAnimationDurationNs = 2_000_000_000L;
+        this.bossNinjaAwakeningUnlocked = false;
+        this.finalEndingOverlayActive = false;
+        this.finalEndingOverlayStartedAtNs = -1L;
 
         MapData loadedMap = tryLoadMap();
         this.mapData = loadedMap;
@@ -782,14 +803,24 @@ public class Game {
                         : 0.0
         );
         SkillUnlockInfo activeCelebration = now < axeSkillCelebrationUntilNs ? pendingSkillUnlockCelebration : null;
+        FormUnlockInfo activeFormCelebration = now < formUnlockCelebrationUntilNs ? pendingFormUnlockCelebration : null;
         TutorialHintInfo activeTutorialHint = activeShopTutorialHint;
         ItemUiMeta tutorialMeta = activeTutorialHint == null ? null : renderer.getItemMeta(activeTutorialHint.itemId());
         renderer.setSkillUnlockCelebration(
-                activeCelebration == null ? (activeTutorialHint == null ? null : activeTutorialHint.title()) : "LEVEL " + activeCelebration.level() + " UNLOCK",
-                activeCelebration == null ? (activeTutorialHint == null ? null : activeTutorialHint.description()) : "Ch\u00fac m\u1eebng! M\u1edf kh\u00f3a k\u1ef9 n\u0103ng m\u1edbi \"" + activeCelebration.name() + "\"",
-                activeCelebration == null ? null : activeCelebration.attackType(),
-                activeCelebration == null ? (activeTutorialHint == null ? null : activeTutorialHint.keyHint()) : null,
-                activeCelebration == null ? (tutorialMeta == null ? null : tutorialMeta.getImageIcon()) : null
+                activeFormCelebration != null
+                        ? activeFormCelebration.title()
+                        : activeCelebration == null ? (activeTutorialHint == null ? null : activeTutorialHint.title()) : "LEVEL " + activeCelebration.level() + " UNLOCK",
+                activeFormCelebration != null
+                        ? activeFormCelebration.description()
+                        : activeCelebration == null ? (activeTutorialHint == null ? null : activeTutorialHint.description()) : "Ch\u00fac m\u1eebng! M\u1edf kh\u00f3a k\u1ef9 n\u0103ng m\u1edbi \"" + activeCelebration.name() + "\"",
+                activeFormCelebration != null
+                        ? activeFormCelebration.previewType()
+                        : activeCelebration == null ? null : activeCelebration.attackType(),
+                activeFormCelebration != null
+                        ? activeFormCelebration.keyHint()
+                        : activeCelebration == null ? (activeTutorialHint == null ? null : activeTutorialHint.keyHint()) : null,
+                activeFormCelebration == null && activeCelebration == null ? (tutorialMeta == null ? null : tutorialMeta.getImageIcon()) : null,
+                activeFormCelebration != null && activeFormCelebration.epic()
         );
         boolean bossMode = mapManager.getCurrentMapType() == MapType.BOSS_MAP;
         String objectiveStatus = buildObjectiveStatusV2(now);
@@ -805,6 +836,12 @@ public class Game {
                 eatingNikuUntilNs > now ? Math.max(0.0, (eatingNikuUntilNs - now) / 1_000_000_000.0) : 0.0
         );
         renderer.setFightBanner(now < bossFightBannerUntilNs, getBossFightBannerProgress(now));
+        renderer.setFinalEndingOverlay(
+                finalEndingOverlayActive,
+                finalEndingOverlayActive && finalEndingOverlayStartedAtNs > 0L
+                        ? Math.max(0.0, Math.min(1.0, (double) (now - finalEndingOverlayStartedAtNs) / 2_400_000_000.0))
+                        : 0.0
+        );
 
         long renderStartNs = System.nanoTime();
         renderer.render(
@@ -1018,7 +1055,8 @@ public class Game {
             return;
         }
         if (currentType == MapType.MAIN_MAP) {
-            if (inventory.getAmount(SEAL_GEM_ITEM_ID) < REQUIRED_SEAL_GEMS_FOR_BOSS) {
+            if (!DEBUG_ALLOW_BOSS_ENTRY_WITHOUT_GEMS
+                    && inventory.getAmount(SEAL_GEM_ITEM_ID) < REQUIRED_SEAL_GEMS_FOR_BOSS) {
                 renderer.showToast("C\u1ea7n \u0111\u1ee7 " + REQUIRED_SEAL_GEMS_FOR_BOSS + " vi\u00ean Ng\u1ecdc Phong \u1ea4n \u0111\u1ec3 v\u00e0o c\u1eeda boss.");
                 return;
             }
@@ -1028,6 +1066,9 @@ public class Game {
 
     private void tryReturnFromBossGate() {
         if (!bossManager.isVictory()) {
+            return;
+        }
+        if (!bossDefeatDialogueShown || introDialogueRunner != null) {
             return;
         }
         Rectangle2D bossExitTrigger = buildBossExitTrigger();
@@ -1046,6 +1087,7 @@ public class Game {
             return;
         }
         pendingBossReturnToMainMapEntrance = true;
+        pendingEndingDialogueAfterBossReturn = true;
         mapManager.changeMap(MapType.MAIN_MAP);
     }
 
@@ -1142,6 +1184,9 @@ public class Game {
         }
         if (definition.type() == MapType.BOSS_MAP) {
             startBossDialogue();
+        } else if (definition.type() == MapType.MAIN_MAP && pendingEndingDialogueAfterBossReturn) {
+            pendingEndingDialogueAfterBossReturn = false;
+            startEndingDialogue();
         }
     }
 
@@ -1738,12 +1783,19 @@ public class Game {
         updateObjectiveProgressionV2(now);
         updateShopTutorialHints(now);
         updateGemRewardAnimation(now);
+        updateBossNinjaAwakeningFlow(now);
         cleanupExpiredDamageTexts(now);
         cleanupExpiredExplosionEffects(now);
         updateScreenImpulse(now);
         long aiStartNs = System.nanoTime();
         if (bossMode && !bossCombatLocked) {
             bossManager.update(now, player, enemies, worldWidth, worldHeight, this::blocksFireOrb);
+        }
+        if (bossMode && bossManager.isVictory() && !bossDefeatDialogueShown && introDialogueRunner == null) {
+            bossDefeatDialogueShown = true;
+            startBossLostDialogue();
+            updateCamera();
+            return false;
         }
         if (isEnemySpawningEnabled()) {
             updateEnemySpawning(now);
@@ -1808,6 +1860,9 @@ public class Game {
     private void handleVictoryState(long now) {
         if (inputHandler.isJustPressed(KeyCode.F11)) {
             renderer.toggleFullscreen();
+        }
+        if (finalEndingOverlayActive) {
+            return;
         }
         // Neu co trigger chien thang khac trong tuong lai: Enter tao world moi, ESC quay menu.
         if (inputHandler.isJustPressed(KeyCode.ENTER)) {
@@ -1969,6 +2024,27 @@ public class Game {
                 gameState = GameState.PLAYING;
                 return;
             }
+            if ("boss_lost".equals(scriptId)) {
+                introDialogueRunner = null;
+                gameState = GameState.PLAYING;
+                return;
+            }
+            if (BOSS_NINJA_AWAKENING_SCRIPT_ID.equals(scriptId)) {
+                introDialogueRunner = null;
+                triggerBossNinjaAwakeningCelebration(System.nanoTime());
+                gameState = GameState.PLAYING;
+                return;
+            }
+            if ("ending_open".equals(scriptId)) {
+                triggerEndingRumble(System.nanoTime());
+                startEndingEpilogueDialogue();
+                return;
+            }
+            if ("ending_epilogue".equals(scriptId)) {
+                introDialogueRunner = null;
+                startFinalEndingOverlay(System.nanoTime());
+                return;
+            }
             if ("seal_gem_reward".equals(scriptId)) {
                 introDialogueRunner = null;
                 activateGemRewardAnimation(System.nanoTime());
@@ -2020,6 +2096,239 @@ public class Game {
         renderer.setShopVisible(false);
         renderer.setChestVisible(false);
         gameState = GameState.DIALOGUE;
+    }
+
+    private void startBossLostDialogue() {
+        introDialogueRunner = new DialogueRunner(
+                ScriptedDialogueLoader.loadCustomScript(
+                        Path.of(BOSS_LOST_DIALOGUE_SCRIPT_PATH),
+                        player.getPlayerName(),
+                        "boss_lost",
+                        false
+                )
+        );
+        renderer.hideToast();
+        renderer.setInventoryVisible(false);
+        renderer.setShopVisible(false);
+        renderer.setChestVisible(false);
+        gameState = GameState.DIALOGUE;
+    }
+
+    private void startBossNinjaAwakeningDialogue() {
+        introDialogueRunner = new DialogueRunner(createBossNinjaAwakeningScript());
+        renderer.hideToast();
+        renderer.setInventoryVisible(false);
+        renderer.setShopVisible(false);
+        renderer.setChestVisible(false);
+        gameState = GameState.DIALOGUE;
+    }
+
+    private void startEndingDialogue() {
+        introDialogueRunner = new DialogueRunner(createEndingOpeningScript());
+        renderer.hideToast();
+        renderer.setInventoryVisible(false);
+        renderer.setShopVisible(false);
+        renderer.setChestVisible(false);
+        gameState = GameState.DIALOGUE;
+    }
+
+    private void startEndingEpilogueDialogue() {
+        introDialogueRunner = new DialogueRunner(createEndingEpilogueScript());
+        renderer.hideToast();
+        renderer.setInventoryVisible(false);
+        renderer.setShopVisible(false);
+        renderer.setChestVisible(false);
+        gameState = GameState.DIALOGUE;
+    }
+
+    private void startFinalEndingOverlay(long now) {
+        introDialogueRunner = null;
+        finalEndingOverlayActive = true;
+        finalEndingOverlayStartedAtNs = now;
+        victoryAtNs = -1L;
+        renderer.hideToast();
+        renderer.setInventoryVisible(false);
+        renderer.setShopVisible(false);
+        renderer.setChestVisible(false);
+        gameState = GameState.LEVEL_COMPLETE;
+    }
+
+    private void triggerEndingRumble(long now) {
+        cameraShakeUntilNs = Math.max(cameraShakeUntilNs, now + 1_200_000_000L);
+        screenFlashUntilNs = Math.max(screenFlashUntilNs, now + 220_000_000L);
+    }
+
+    private void triggerBossNinjaAwakeningCelebration(long now) {
+        pendingFormUnlockCelebration = new FormUnlockInfo(
+                "NINJA AWAKENING",
+                "Hai vi\u00ean Ng\u1ecdc Phong \u1ea4n \u0111\u00e3 \u0111\u00e1nh th\u1ee9c chi\u1ebfn y phong \u1ea5n.",
+                "B\u01b0\u1edbc qua c\u1ed5ng boss \u0111\u1ec3 h\u00f3a th\u00e2n th\u00e0nh Ninja chi\u1ebfn tr\u1eadn.",
+                Player.AttackAnimationType.STRONG_ATTACK,
+                true
+        );
+        formUnlockCelebrationUntilNs = now + 5_800_000_000L;
+        cameraShakeUntilNs = Math.max(cameraShakeUntilNs, now + 750_000_000L);
+        screenFlashUntilNs = Math.max(screenFlashUntilNs, now + 280_000_000L);
+        renderer.showToast("M\u1edf kh\u00f3a Ninja chi\u1ebfn tr\u1eadn.");
+    }
+
+    private DialogueScript createBossNinjaAwakeningScript() {
+        return new DialogueScript(
+                BOSS_NINJA_AWAKENING_SCRIPT_ID,
+                List.of(
+                        new DialoguePage(
+                                "Th\u1ed5 \u0110\u1ecba",
+                                "assets/phuthuy.png",
+                                List.of(
+                                        "Hai vi\u00ean Ng\u1ecdc Phong \u1ea4n \u0111\u00e3 c\u1ed9ng h\u01b0\u1edfng.",
+                                        "C\u1ed5ng boss s\u1ebd kh\u00f4ng ch\u1ec9 m\u1edf l\u1ed1i, n\u00f3 c\u00f2n \u0111\u00e1nh th\u1ee9c chi\u1ebfn y Ninja b\u1ecb phong \u1ea5n b\u00ean trong ng\u01b0\u01a1i."
+                                )
+                        ),
+                        new DialoguePage(
+                                player.getPlayerName(),
+                                "",
+                                List.of(
+                                        "V\u1eady n\u00ean khi b\u01b0\u1edbc v\u00e0o chi\u1ebfn \u0111\u1ecba \u1ea5y, ta s\u1ebd mang m\u1ed9t h\u00ecnh d\u1ea1ng kh\u00e1c..."
+                                )
+                        ),
+                        new DialoguePage(
+                                "Th\u1ed5 \u0110\u1ecba",
+                                "assets/phuthuy.png",
+                                List.of(
+                                        "\u0110\u00fang. Ch\u1ec9 trong tr\u1eadn chi\u1ebfn cu\u1ed1i c\u00f9ng, s\u1ee9c m\u1ea1nh \u0111\u00f3 m\u1edbi th\u1ef1c s\u1ef1 hi\u1ec7n h\u00ecnh.",
+                                        "H\u00e3y chu\u1ea9n b\u1ecb \u0111i. Khi ch\u1ea1m t\u1edbi c\u1ed5ng phong \u1ea5n, ng\u01b0\u01a1i s\u1ebd hi\u1ec3u v\u00ec sao m\u00ecnh \u0111\u01b0\u1ee3c ch\u1ecdn."
+                                )
+                        )
+                )
+        );
+    }
+
+    private DialogueScript createEndingOpeningScript() {
+        List<String> rawLines = readEndingScriptLines();
+        List<DialoguePage> pages = new ArrayList<>();
+        List<String> currentLines = new ArrayList<>();
+        String currentSpeaker = "";
+        String currentPortrait = "";
+        for (String rawLine : rawLines) {
+            String line = normalizeEndingLine(rawLine);
+            if (line.isBlank()) {
+                continue;
+            }
+            if (isEndingEpilogueMarker(line)) {
+                break;
+            }
+            if (line.endsWith(":")) {
+                flushEndingPage(pages, currentSpeaker, currentPortrait, currentLines);
+                currentLines = new ArrayList<>();
+                String speakerToken = line.substring(0, line.length() - 1).trim();
+                currentSpeaker = resolveEndingSpeakerName(speakerToken);
+                currentPortrait = resolveEndingPortrait(speakerToken);
+                continue;
+            }
+            if (isQuotedDialogueLine(line) && !currentSpeaker.isBlank()) {
+                currentLines.add(stripDialogueQuotes(line));
+            }
+        }
+        flushEndingPage(pages, currentSpeaker, currentPortrait, currentLines);
+        if (pages.isEmpty()) {
+            throw new IllegalStateException("Ending opening dialogue contains no quoted pages.");
+        }
+        return new DialogueScript("ending_open", pages);
+    }
+
+    private DialogueScript createEndingEpilogueScript() {
+        List<String> rawLines = readEndingScriptLines();
+        List<String> lines = new ArrayList<>();
+        boolean collecting = false;
+        for (String rawLine : rawLines) {
+            String line = normalizeEndingLine(rawLine);
+            if (line.isBlank()) {
+                continue;
+            }
+            if (!collecting) {
+                if (isEndingEpilogueMarker(line)) {
+                    collecting = true;
+                }
+                continue;
+            }
+            if (isQuotedDialogueLine(line)) {
+                lines.add(stripDialogueQuotes(line));
+            }
+        }
+        if (lines.isEmpty()) {
+            throw new IllegalStateException("Ending epilogue dialogue contains no quoted lines.");
+        }
+        return new DialogueScript(
+                "ending_epilogue",
+                List.of(new DialoguePage("Th\u1ed5 \u0110\u1ecba", "assets/phuthuy.png", lines))
+        );
+    }
+
+    private List<String> readEndingScriptLines() {
+        try {
+            return Files.readAllLines(Path.of(ENDING_DIALOGUE_SCRIPT_PATH), StandardCharsets.UTF_8);
+        } catch (Exception exception) {
+            throw new IllegalStateException("Cannot read ending dialogue script: " + ENDING_DIALOGUE_SCRIPT_PATH, exception);
+        }
+    }
+
+    private void flushEndingPage(List<DialoguePage> pages, String speaker, String portrait, List<String> lines) {
+        if (lines == null || lines.isEmpty()) {
+            return;
+        }
+        pages.add(new DialoguePage(speaker, portrait, List.copyOf(lines)));
+    }
+
+    private String normalizeEndingLine(String line) {
+        return line == null ? "" : line.trim();
+    }
+
+    private boolean isQuotedDialogueLine(String line) {
+        String value = normalizeEndingLine(line);
+        if (value.length() < 2) {
+            return false;
+        }
+        char first = value.charAt(0);
+        char last = value.charAt(value.length() - 1);
+        return (first == '"' && last == '"') || (first == '\u201C' && last == '\u201D');
+    }
+
+    private String stripDialogueQuotes(String line) {
+        String value = normalizeEndingLine(line);
+        return isQuotedDialogueLine(value) ? value.substring(1, value.length() - 1).trim() : value;
+    }
+
+    private boolean isEndingEpilogueMarker(String line) {
+        String normalized = Normalizer.normalize(normalizeEndingLine(line), Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "")
+                .replace('\u0111', 'd')
+                .replace('\u0110', 'D')
+                .toUpperCase();
+        return normalized.contains("THO DIA") && normalized.contains("XUAT HIEN");
+    }
+
+    private String resolveEndingSpeakerName(String token) {
+        String normalized = Normalizer.normalize(token == null ? "" : token.trim(), Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "")
+                .replace('\u0111', 'd')
+                .replace('\u0110', 'D')
+                .toUpperCase();
+        if ("PLAYER".equals(normalized)) {
+            return player.getPlayerName();
+        }
+        if ("THO DIA".equals(normalized)) {
+            return "Th\u1ed5 \u0110\u1ecba";
+        }
+        return token == null ? "" : token.trim();
+    }
+
+    private String resolveEndingPortrait(String token) {
+        String normalized = Normalizer.normalize(token == null ? "" : token.trim(), Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "")
+                .replace('\u0111', 'd')
+                .replace('\u0110', 'D')
+                .toUpperCase();
+        return "THO DIA".equals(normalized) ? "assets/phuthuy.png" : "";
     }
 
     private boolean isBossCombatLocked(long now) {
@@ -2144,8 +2453,10 @@ public class Game {
     private void restartSurvival() {
         introDialogueRunner = null;
         bossIntroActive = false;
+        bossDefeatDialogueShown = false;
         bossFightBannerUntilNs = -1L;
         pendingBossReturnToMainMapEntrance = false;
+        pendingEndingDialogueAfterBossReturn = false;
         dayOneObjectiveUnlocked = false;
         dayOneObjectiveCompleted = false;
         dayOneObjectiveCompletedAtNs = -1L;
@@ -2153,6 +2464,8 @@ public class Game {
         dayOneObjectiveStep = 0;
         axeSkillCelebrationUntilNs = -1L;
         pendingSkillUnlockCelebration = null;
+        formUnlockCelebrationUntilNs = -1L;
+        pendingFormUnlockCelebration = null;
         dayOneEnemyKillCount = 0;
         activeShopTutorialHint = null;
         nextShopTutorialHintIndex = 0;
@@ -2161,6 +2474,9 @@ public class Game {
         gemRewardAnimationActive = false;
         gemRewardGranted = false;
         gemRewardAnimationStartedAtNs = -1L;
+        bossNinjaAwakeningUnlocked = false;
+        finalEndingOverlayActive = false;
+        finalEndingOverlayStartedAtNs = -1L;
         clearPersistentProgressForFreshStart();
         mapManager.setCurrentMap(MapType.MAIN_MAP);
         applyMapDefinition(mapManager.getDefinition(MapType.MAIN_MAP), true);
@@ -2194,7 +2510,6 @@ public class Game {
         nextGolemSpawnAtNs = 0L;
         lastUpdateNowNs = -1L;
         eatingNikuUntilNs = -1L;
-        nextEmptyEnergyDamageAtNs = -1L;
         selectedHotbarIndex = 0;
         setSelectedHotbarIndex(selectedHotbarIndex);
         hasLoadedSaveSnapshot = false;
@@ -3622,17 +3937,6 @@ public class Game {
             double drainRate = sprinting ? MOVE_ENERGY_DRAIN_PER_SECOND * 2.0 : MOVE_ENERGY_DRAIN_PER_SECOND;
             player.consumeEnergy(drainRate * deltaSeconds);
         }
-
-        if (player.getEnergy() <= 0.01 && player.isAlive()) {
-            if (nextEmptyEnergyDamageAtNs <= 0L) {
-                nextEmptyEnergyDamageAtNs = now + EMPTY_ENERGY_DAMAGE_INTERVAL_NS;
-            } else if (now >= nextEmptyEnergyDamageAtNs) {
-                DamageSystem.applyDamage(null, player, EMPTY_ENERGY_DAMAGE, now);
-                nextEmptyEnergyDamageAtNs = now + EMPTY_ENERGY_DAMAGE_INTERVAL_NS;
-            }
-        } else {
-            nextEmptyEnergyDamageAtNs = -1L;
-        }
     }
 
     private void injectChunkResources(WorldChunk chunk) {
@@ -4326,6 +4630,23 @@ public class Game {
             refreshBuildInventoryUi();
             renderer.showToast("Nh\u1eadn \u0111\u01b0\u1ee3c 1 vi\u00ean Ng\u1ecdc Phong \u1ea4n.");
         }
+    }
+
+    private void updateBossNinjaAwakeningFlow(long now) {
+        if (bossNinjaAwakeningUnlocked) {
+            return;
+        }
+        if (mapManager.getCurrentMapType() != MapType.MAIN_MAP) {
+            return;
+        }
+        if (inventory.getAmount(SEAL_GEM_ITEM_ID) < REQUIRED_SEAL_GEMS_FOR_BOSS) {
+            return;
+        }
+        if (gemRewardAnimationActive || introDialogueRunner != null) {
+            return;
+        }
+        bossNinjaAwakeningUnlocked = true;
+        startBossNinjaAwakeningDialogue();
     }
 
     private String buildActiveObjectiveStatus(long now) {

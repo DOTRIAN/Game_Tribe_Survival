@@ -118,12 +118,15 @@ public class Renderer {
     private Player.AttackAnimationType skillUnlockCelebrationType;
     private String skillUnlockCelebrationHint;
     private Image skillUnlockCelebrationPreviewImage;
+    private boolean skillUnlockCelebrationEpic;
     private String actionCountdownLabel;
     private double actionCountdownSeconds;
     private boolean fightBannerVisible;
     private double fightBannerProgress;
     private boolean gemRewardAnimationActive;
     private double gemRewardAnimationProgress;
+    private boolean finalEndingOverlayVisible;
+    private double finalEndingOverlayProgress;
     private MapRenderer mapRenderer;
     private Image worldBackgroundImage;
     private boolean showBaseCamp;
@@ -156,12 +159,15 @@ public class Renderer {
         this.skillUnlockCelebrationType = null;
         this.skillUnlockCelebrationHint = null;
         this.skillUnlockCelebrationPreviewImage = null;
+        this.skillUnlockCelebrationEpic = false;
         this.actionCountdownLabel = null;
         this.actionCountdownSeconds = 0.0;
         this.fightBannerVisible = false;
         this.fightBannerProgress = 0.0;
         this.gemRewardAnimationActive = false;
         this.gemRewardAnimationProgress = 0.0;
+        this.finalEndingOverlayVisible = false;
+        this.finalEndingOverlayProgress = 0.0;
         this.worldBackgroundImage = null;
         this.showBaseCamp = true;
 
@@ -327,6 +333,7 @@ public class Renderer {
 
         drawFightBanner(viewportWidth, viewportHeight);
         drawActionCountdown(viewportWidth, viewportHeight);
+        drawFinalEndingOverlay(viewportWidth, viewportHeight, now);
     }
 
     public void setContinueAvailable(boolean enabled) {
@@ -349,12 +356,14 @@ public class Renderer {
                                           String skillUnlockCelebrationText,
                                           Player.AttackAnimationType skillUnlockCelebrationType,
                                           String skillUnlockCelebrationHint,
-                                          Image skillUnlockCelebrationPreviewImage) {
+                                          Image skillUnlockCelebrationPreviewImage,
+                                          boolean skillUnlockCelebrationEpic) {
         this.skillUnlockCelebrationTitle = skillUnlockCelebrationTitle;
         this.skillUnlockCelebrationText = skillUnlockCelebrationText;
         this.skillUnlockCelebrationType = skillUnlockCelebrationType;
         this.skillUnlockCelebrationHint = skillUnlockCelebrationHint;
         this.skillUnlockCelebrationPreviewImage = skillUnlockCelebrationPreviewImage;
+        this.skillUnlockCelebrationEpic = skillUnlockCelebrationEpic;
     }
 
     public void setActionCountdown(String label, double remainingSeconds) {
@@ -375,6 +384,12 @@ public class Renderer {
     public void setGemRewardAnimation(boolean active, double progress) {
         this.gemRewardAnimationActive = active;
         this.gemRewardAnimationProgress = Math.max(0.0, Math.min(1.0, progress));
+    }
+
+    public void setFinalEndingOverlay(boolean visible, double progress) {
+        this.finalEndingOverlayVisible = visible;
+        this.finalEndingOverlayProgress = Math.max(0.0, Math.min(1.0, progress));
+        uiManager.setSuppressVictoryOverlay(visible);
     }
 
     public boolean isIntroPageFullyRevealed(long nowNs) {
@@ -557,6 +572,53 @@ public class Renderer {
         graphicsContext.strokeText("FIGHT", 0.0, 0.0);
         graphicsContext.setFill(Color.color(1.0, 0.90, 0.66, alpha));
         graphicsContext.fillText("FIGHT", 0.0, 0.0);
+        graphicsContext.restore();
+    }
+
+    private void drawFinalEndingOverlay(double viewportWidth, double viewportHeight, long now) {
+        if (!finalEndingOverlayVisible) {
+            return;
+        }
+        double reveal = Math.max(0.0, Math.min(1.0, finalEndingOverlayProgress));
+        double easedReveal = 1.0 - Math.pow(1.0 - reveal, 3.0);
+        double pulse = 0.88 + 0.12 * Math.sin(now / 240_000_000.0);
+        double shimmer = 0.5 + 0.5 * Math.sin(now / 180_000_000.0);
+        double titleAlpha = Math.max(0.0, Math.min(1.0, easedReveal * pulse));
+        double subtitleAlpha = Math.max(0.0, Math.min(1.0, (0.30 + 0.70 * easedReveal) * (0.82 + 0.18 * shimmer)));
+        double overlayAlpha = 0.62 + (0.26 * easedReveal);
+        double victorySize = 50.0 + (22.0 * easedReveal);
+        double continuedSize = 26.0 + (12.0 * easedReveal);
+        double centerY = viewportHeight * 0.42;
+        double victoryY = centerY - 20.0;
+        double continuedY = centerY + 48.0;
+
+        graphicsContext.save();
+        graphicsContext.setFill(Color.color(0.0, 0.0, 0.0, overlayAlpha));
+        graphicsContext.fillRect(0, 0, viewportWidth, viewportHeight);
+        graphicsContext.setTextAlign(javafx.scene.text.TextAlignment.CENTER);
+        graphicsContext.setTextBaseline(javafx.geometry.VPos.CENTER);
+
+        graphicsContext.setFill(Color.color(0.18, 0.05, 0.02, 0.55 * titleAlpha));
+        graphicsContext.setFont(Font.font("Georgia", FontWeight.BLACK, victorySize));
+        graphicsContext.fillText("VICTORY", viewportWidth * 0.5, victoryY + 4.0);
+
+        graphicsContext.setStroke(Color.color(0.28, 0.08, 0.02, 0.92 * titleAlpha));
+        graphicsContext.setLineWidth(5.0);
+        graphicsContext.setFont(Font.font("Georgia", FontWeight.BLACK, victorySize));
+        graphicsContext.strokeText("VICTORY", viewportWidth * 0.5, victoryY);
+        graphicsContext.setFill(Color.color(1.0, 0.95, 0.84, titleAlpha));
+        graphicsContext.fillText("VICTORY", viewportWidth * 0.5, victoryY);
+
+        graphicsContext.setFill(Color.color(0.20, 0.08, 0.02, 0.45 * subtitleAlpha));
+        graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, continuedSize));
+        graphicsContext.fillText("--> TO BE CONTINUED", viewportWidth * 0.5, continuedY + 3.0);
+
+        graphicsContext.setStroke(Color.color(0.32, 0.12, 0.04, 0.72 * subtitleAlpha));
+        graphicsContext.setLineWidth(2.0);
+        graphicsContext.strokeText("--> TO BE CONTINUED", viewportWidth * 0.5, continuedY);
+        graphicsContext.setFill(Color.color(0.98, 0.86, 0.58, subtitleAlpha));
+        graphicsContext.fillText("--> TO BE CONTINUED", viewportWidth * 0.5, continuedY);
+
         graphicsContext.restore();
     }
 
@@ -805,6 +867,10 @@ public class Renderer {
         Image frame = skillUnlockCelebrationType == null
                 ? skillUnlockCelebrationPreviewImage
                 : player.getSkillUnlockPreviewFrame(now, skillUnlockCelebrationType);
+        if (skillUnlockCelebrationEpic) {
+            renderEpicSkillUnlockCelebration(frame, viewportWidth, now);
+            return;
+        }
         double panelWidth = 430;
         double panelHeight = 110;
         double panelX = (viewportWidth - panelWidth) * 0.5;
@@ -848,6 +914,57 @@ public class Renderer {
         graphicsContext.fillText(keyHint, panelX + 104, panelY + 80);
     }
 
+    private void renderEpicSkillUnlockCelebration(Image frame, double viewportWidth, long now) {
+        double panelWidth = 560.0;
+        double panelHeight = 152.0;
+        double panelX = (viewportWidth - panelWidth) * 0.5;
+        double panelY = 72.0;
+        double pulse = 0.88 + 0.12 * Math.sin(now / 220_000_000.0);
+        double shimmer = 0.5 + 0.5 * Math.sin(now / 150_000_000.0);
+
+        graphicsContext.save();
+        graphicsContext.setFill(Color.color(0.05, 0.03, 0.02, 0.92));
+        graphicsContext.fillRoundRect(panelX, panelY, panelWidth, panelHeight, 26, 26);
+        graphicsContext.setStroke(Color.color(0.94, 0.76, 0.40, 0.76));
+        graphicsContext.setLineWidth(1.6);
+        graphicsContext.strokeRoundRect(panelX, panelY, panelWidth, panelHeight, 26, 26);
+
+        graphicsContext.setFill(Color.color(0.95, 0.76, 0.34, 0.12 + 0.08 * shimmer));
+        graphicsContext.fillOval(panelX - 18.0, panelY + 12.0, 170.0, 126.0);
+        graphicsContext.setFill(Color.color(0.96, 0.82, 0.48, 0.10 + 0.06 * pulse));
+        graphicsContext.fillOval(panelX + 26.0, panelY + 6.0, 118.0, 138.0);
+
+        if (frame != null && !frame.isError()) {
+            graphicsContext.drawImage(frame, panelX + 30.0, panelY + 16.0, 118.0, 118.0);
+        }
+
+        graphicsContext.setFill(Color.color(0.22, 0.08, 0.02, 0.62));
+        graphicsContext.setFont(Font.font("Georgia", FontWeight.BLACK, 26));
+        graphicsContext.fillText(
+                skillUnlockCelebrationTitle == null || skillUnlockCelebrationTitle.isBlank() ? "AWAKENING" : skillUnlockCelebrationTitle,
+                panelX + 182.0,
+                panelY + 42.0
+        );
+        graphicsContext.setFill(Color.color(1.0, 0.94, 0.84, 0.98));
+        graphicsContext.setFont(Font.font("Georgia", FontWeight.BLACK, 25));
+        graphicsContext.fillText(
+                skillUnlockCelebrationTitle == null || skillUnlockCelebrationTitle.isBlank() ? "AWAKENING" : skillUnlockCelebrationTitle,
+                panelX + 180.0,
+                panelY + 40.0
+        );
+
+        graphicsContext.setFill(Color.web("#f2e3c2"));
+        graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 13));
+        graphicsContext.fillText(skillUnlockCelebrationText, panelX + 180.0, panelY + 78.0);
+
+        if (skillUnlockCelebrationHint != null && !skillUnlockCelebrationHint.isBlank()) {
+            graphicsContext.setFill(Color.color(0.98, 0.84, 0.56, 0.94));
+            graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 12));
+            graphicsContext.fillText(skillUnlockCelebrationHint, panelX + 180.0, panelY + 112.0);
+        }
+        graphicsContext.restore();
+    }
+
     private void renderSealGemBadge(Map<String, Integer> collectedResources, double viewportWidth) {
         int gemCount = collectedResources == null ? 0 : Math.max(0, collectedResources.getOrDefault("seal_gem", 0));
         if (gemCount <= 0 && !gemRewardAnimationActive) {
@@ -871,9 +988,9 @@ public class Renderer {
         graphicsContext.drawImage(sealGemImage, badgeX + 12.0, badgeY + 9.0, 36.0, 36.0);
         graphicsContext.setFill(Color.web("#f6edc7"));
         graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 13));
-        graphicsContext.fillText("NGÃƒÆ’Ã‚Â¡Ãƒâ€šÃ‚Â»Ãƒâ€¦Ã¢â‚¬â„¢C PHONG ÃƒÆ’Ã‚Â¡Ãƒâ€šÃ‚ÂºÃƒâ€šÃ‚Â¤N", badgeX + 58.0, badgeY + 22.0);
+        graphicsContext.fillText("NG\u1eccC PHONG \u1ea4N", badgeX + 58.0, badgeY + 22.0);
         graphicsContext.setFont(Font.font("Consolas", FontWeight.NORMAL, 12));
-        graphicsContext.fillText("SÃƒÆ’Ã‚Â¡Ãƒâ€šÃ‚Â»ÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“ lÃƒÆ’Ã¢â‚¬Â Ãƒâ€šÃ‚Â°ÃƒÆ’Ã‚Â¡Ãƒâ€šÃ‚Â»Ãƒâ€šÃ‚Â£ng: " + gemCount, badgeX + 58.0, badgeY + 40.0);
+        graphicsContext.fillText("S\u1ed1 l\u01b0\u1ee3ng: " + gemCount, badgeX + 58.0, badgeY + 40.0);
         graphicsContext.restore();
     }
 
@@ -902,7 +1019,7 @@ public class Renderer {
         graphicsContext.drawImage(sealGemImage, x, y, size, size);
         graphicsContext.setFill(Color.web("#f6edc7"));
         graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 14));
-        graphicsContext.fillText("NgÃƒÆ’Ã‚Â¡Ãƒâ€šÃ‚Â»Ãƒâ€šÃ‚Âc Phong ÃƒÆ’Ã‚Â¡Ãƒâ€šÃ‚ÂºÃƒâ€šÃ‚Â¤n", startX - 28.0, startY - 14.0);
+        graphicsContext.fillText("Ng\u1ecdc Phong \u1ea4n", startX - 28.0, startY - 14.0);
         graphicsContext.restore();
     }
 

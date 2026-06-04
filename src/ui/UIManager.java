@@ -57,6 +57,7 @@ public class UIManager {
     private final Map<String, ItemUiMeta> itemMetaMap;
     private final List<ItemUiMeta> shopItems;
     private final GameSettings settings;
+    private boolean suppressVictoryOverlay;
 
     public UIManager(Stage stage, Scene scene, AnchorPane root, AssetManager assetManager, GameSettings settings) {
         this.assetManager = assetManager;
@@ -94,6 +95,7 @@ public class UIManager {
         this.victoryOverlay = buildSimpleOverlay("Victory", "ENTER start new world\nESC save and back to menu");
         this.toastLabel = new Label("");
         this.toastContainer = new HBox(toastLabel);
+        this.suppressVictoryOverlay = false;
 
         toastLabel.getStyleClass().add("toast-label");
         toastLabel.setVisible(false);
@@ -297,9 +299,16 @@ public class UIManager {
             case GUIDE -> guideOverlay.setVisible(true);
             case PAUSED -> pauseOverlay.setVisible(true);
             case GAME_OVER -> gameOverOverlay.setVisible(true);
-            case LEVEL_COMPLETE -> victoryOverlay.setVisible(true);
+            case LEVEL_COMPLETE -> victoryOverlay.setVisible(!suppressVictoryOverlay);
             default -> {
             }
+        }
+    }
+
+    public void setSuppressVictoryOverlay(boolean suppressVictoryOverlay) {
+        this.suppressVictoryOverlay = suppressVictoryOverlay;
+        if (suppressVictoryOverlay) {
+            victoryOverlay.setVisible(false);
         }
     }
 

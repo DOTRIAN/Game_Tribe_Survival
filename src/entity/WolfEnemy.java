@@ -71,7 +71,7 @@ public class WolfEnemy extends Enemy {
     private static final double WALK_SPEED = 1.00;
     private static final double RUN_SPEED = 1.70;
     private static final double JUMP_SPEED = 2.00;
-    private static final int MAX_HP = 20;
+    private static final int MAX_HP = 15;
     private static final int DAMAGE = 5;
     private static final double DETECTION_RANGE = 220.0;
     private static final double DISENGAGE_RANGE = 260.0;
