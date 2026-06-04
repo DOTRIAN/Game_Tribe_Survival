@@ -797,83 +797,173 @@ public class Renderer {
                                         double cameraY) {
         graphicsContext.save();
         graphicsContext.setLineWidth(1.0);
+        graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 9));
 
         if (mapCollisions != null) {
-            graphicsContext.setStroke(Color.color(1.0, 0.2, 0.2, 0.70));
             for (MapObjectData object : mapCollisions) {
                 if (object == null || !"Collision".equalsIgnoreCase(object.getType())) {
                     continue;
                 }
-                graphicsContext.strokeRect(object.getX() - cameraX, object.getY() - cameraY, object.getWidth(), object.getHeight());
+                drawDebugBounds(
+                        "COL",
+                        object.getX(),
+                        object.getY(),
+                        object.getWidth(),
+                        object.getHeight(),
+                        null,
+                        Color.color(1.0, 0.22, 0.22, 0.88),
+                        cameraX,
+                        cameraY
+                );
             }
         }
 
         if (mapTransitionTrigger != null && mapTransitionTrigger.getWidth() > 0 && mapTransitionTrigger.getHeight() > 0) {
-            graphicsContext.setStroke(Color.color(1.0, 0.78, 0.12, 0.95));
-            graphicsContext.setLineWidth(1.6);
-            graphicsContext.strokeRect(
-                    mapTransitionTrigger.getMinX() - cameraX,
-                    mapTransitionTrigger.getMinY() - cameraY,
+            drawDebugBounds(
+                    "TRIGGER",
+                    mapTransitionTrigger.getMinX(),
+                    mapTransitionTrigger.getMinY(),
                     mapTransitionTrigger.getWidth(),
-                    mapTransitionTrigger.getHeight()
+                    mapTransitionTrigger.getHeight(),
+                    null,
+                    Color.color(1.0, 0.78, 0.12, 0.95),
+                    cameraX,
+                    cameraY
             );
-            graphicsContext.setFill(Color.color(1.0, 0.78, 0.12, 0.16));
-            graphicsContext.fillRect(
-                    mapTransitionTrigger.getMinX() - cameraX,
-                    mapTransitionTrigger.getMinY() - cameraY,
-                    mapTransitionTrigger.getWidth(),
-                    mapTransitionTrigger.getHeight()
-            );
-            graphicsContext.setFill(Color.color(1.0, 0.95, 0.72, 0.96));
-            graphicsContext.setFont(Font.font("Consolas", FontWeight.BOLD, 11));
-            graphicsContext.fillText(
-                    "MAP TRIGGER",
-                    mapTransitionTrigger.getMinX() - cameraX,
-                    mapTransitionTrigger.getMinY() - cameraY - 4.0
-            );
-            graphicsContext.setLineWidth(1.0);
         }
 
         if (buildManager != null) {
-            graphicsContext.setStroke(Color.color(0.25, 1.0, 1.0, 0.90));
             for (BuildObject object : buildManager.getPlacedObjects()) {
                 if (object == null) {
                     continue;
                 }
-                strokeWorldRect(object.getCollisionX(), object.getCollisionY(), object.getCollisionWidth(), object.getCollisionHeight(), cameraX, cameraY);
+                drawDebugBounds(
+                        resolveBuildDebugLabel(object),
+                        object.getRenderX(),
+                        object.getRenderY(),
+                        object.getRenderWidth(),
+                        object.getRenderHeight(),
+                        new double[]{
+                                object.getCollisionX(),
+                                object.getCollisionY(),
+                                object.getCollisionWidth(),
+                                object.getCollisionHeight()
+                        },
+                        Color.color(0.20, 0.95, 1.0, 0.92),
+                        cameraX,
+                        cameraY
+                );
             }
         }
 
         if (baseCamp != null) {
-            graphicsContext.setStroke(Color.color(1.0, 0.25, 0.9, 0.95));
-            strokeWorldRect(baseCamp.getCollisionX(), baseCamp.getCollisionY(), baseCamp.getCollisionWidth(), baseCamp.getCollisionHeight(), cameraX, cameraY);
+            drawDebugBounds(
+                    "BASE",
+                    baseCamp.getX(),
+                    baseCamp.getY(),
+                    baseCamp.getWidth(),
+                    baseCamp.getHeight(),
+                    new double[]{
+                            baseCamp.getCollisionX(),
+                            baseCamp.getCollisionY(),
+                            baseCamp.getCollisionWidth(),
+                            baseCamp.getCollisionHeight()
+                    },
+                    Color.color(1.0, 0.25, 0.90, 0.95),
+                    cameraX,
+                    cameraY
+            );
         }
 
         if (player != null) {
-            graphicsContext.setStroke(Color.color(0.2, 1.0, 0.25, 0.95));
-            strokeWorldRect(player.getCollisionX(), player.getCollisionY(), player.getCollisionWidth(), player.getCollisionHeight(), cameraX, cameraY);
+            drawDebugBounds(
+                    "P",
+                    player.getX(),
+                    player.getY(),
+                    player.getWidth(),
+                    player.getHeight(),
+                    new double[]{
+                            player.getCollisionX(),
+                            player.getCollisionY(),
+                            player.getCollisionWidth(),
+                            player.getCollisionHeight()
+                    },
+                    Color.color(0.18, 1.0, 0.25, 0.95),
+                    cameraX,
+                    cameraY
+            );
         }
 
         if (friendlyArchers != null) {
-            graphicsContext.setStroke(Color.color(0.2, 0.85, 1.0, 0.95));
             for (FriendlyArcher archer : friendlyArchers) {
                 if (archer == null || !archer.isAlive()) {
                     continue;
                 }
-                strokeWorldRect(archer.getCollisionX(), archer.getCollisionY(), archer.getCollisionWidth(), archer.getCollisionHeight(), cameraX, cameraY);
+                drawDebugBounds(
+                        "ARCH",
+                        archer.getRenderX(),
+                        archer.getRenderY(),
+                        archer.getRenderWidth(),
+                        archer.getRenderHeight(),
+                        new double[]{
+                                archer.getCollisionX(),
+                                archer.getCollisionY(),
+                                archer.getCollisionWidth(),
+                                archer.getCollisionHeight()
+                        },
+                        Color.color(0.24, 0.86, 1.0, 0.95),
+                        cameraX,
+                        cameraY
+                );
+            }
+        }
+
+        if (resources != null) {
+            for (ResourceNode resource : resources) {
+                if (resource == null || !resource.isAlive()) {
+                    continue;
+                }
+                drawDebugBounds(
+                        resource.getResourceType().name(),
+                        resource.getX(),
+                        resource.getY(),
+                        resource.getWidth(),
+                        resource.getHeight(),
+                        new double[]{
+                                resource.getCollisionX(),
+                                resource.getCollisionY(),
+                                resource.getCollisionWidth(),
+                                resource.getCollisionHeight()
+                        },
+                        Color.color(1.0, 0.64, 0.18, 0.95),
+                        cameraX,
+                        cameraY
+                );
             }
         }
 
         if (enemies != null) {
-            graphicsContext.setStroke(Color.color(1.0, 0.15, 0.15, 0.95));
             for (Enemy enemy : enemies) {
                 if (enemy == null || !enemy.isAlive() || enemy.shouldRemoveFromWorld()) {
                     continue;
                 }
                 if (enemy instanceof FinalBoss boss) {
-                    graphicsContext.setStroke(Color.color(0.2, 0.85, 1.0, 0.98));
-                    graphicsContext.setLineWidth(1.4);
-                    strokeWorldRect(enemy.getCollisionX(), enemy.getCollisionY(), enemy.getCollisionWidth(), enemy.getCollisionHeight(), cameraX, cameraY);
+                    drawDebugBounds(
+                            "BOSS",
+                            enemy.getX(),
+                            enemy.getY(),
+                            enemy.getWidth(),
+                            enemy.getHeight(),
+                            new double[]{
+                                    enemy.getCollisionX(),
+                                    enemy.getCollisionY(),
+                                    enemy.getCollisionWidth(),
+                                    enemy.getCollisionHeight()
+                            },
+                            Color.color(0.2, 0.85, 1.0, 0.98),
+                            cameraX,
+                            cameraY
+                    );
                     graphicsContext.setFill(Color.color(1.0, 0.12, 0.12, 0.18));
                     graphicsContext.fillOval(
                             boss.getDebugAttackHitboxCenterX() - boss.getDebugAttackRadiusX() - cameraX,
@@ -897,10 +987,24 @@ public class Renderer {
                             6.0
                     );
                     graphicsContext.setLineWidth(1.0);
-                    graphicsContext.setStroke(Color.color(1.0, 0.15, 0.15, 0.95));
                     continue;
                 }
-                strokeWorldRect(enemy.getCollisionX(), enemy.getCollisionY(), enemy.getCollisionWidth(), enemy.getCollisionHeight(), cameraX, cameraY);
+                drawDebugBounds(
+                        "E",
+                        enemy.getX(),
+                        enemy.getY(),
+                        enemy.getWidth(),
+                        enemy.getHeight(),
+                        new double[]{
+                                enemy.getCollisionX(),
+                                enemy.getCollisionY(),
+                                enemy.getCollisionWidth(),
+                                enemy.getCollisionHeight()
+                        },
+                        Color.color(1.0, 0.18, 0.18, 0.95),
+                        cameraX,
+                        cameraY
+                );
             }
         }
 
@@ -909,6 +1013,52 @@ public class Renderer {
 
     private void strokeWorldRect(double worldX, double worldY, double width, double height, double cameraX, double cameraY) {
         graphicsContext.strokeRect(worldX - cameraX, worldY - cameraY, width, height);
+    }
+
+    private void drawDebugBounds(String label,
+                                 double renderX,
+                                 double renderY,
+                                 double renderWidth,
+                                 double renderHeight,
+                                 double[] collisionBounds,
+                                 Color color,
+                                 double cameraX,
+                                 double cameraY) {
+        if (renderWidth <= 0 || renderHeight <= 0) {
+            return;
+        }
+        Color renderColor = color == null ? Color.WHITE : color;
+        graphicsContext.setLineWidth(0.8);
+        graphicsContext.setStroke(Color.color(renderColor.getRed(), renderColor.getGreen(), renderColor.getBlue(), 0.38));
+        strokeWorldRect(renderX, renderY, renderWidth, renderHeight, cameraX, cameraY);
+
+        if (collisionBounds != null && collisionBounds.length >= 4) {
+            graphicsContext.setLineWidth(1.4);
+            graphicsContext.setStroke(renderColor);
+            strokeWorldRect(collisionBounds[0], collisionBounds[1], collisionBounds[2], collisionBounds[3], cameraX, cameraY);
+        }
+
+        if (label != null && !label.isBlank()) {
+            graphicsContext.setFill(renderColor);
+            graphicsContext.fillText(label, renderX - cameraX, renderY - cameraY - 2.0);
+        }
+        graphicsContext.setLineWidth(1.0);
+    }
+
+    private String resolveBuildDebugLabel(BuildObject object) {
+        if (object == null || object.getType() == null) {
+            return "BUILD";
+        }
+        return switch (object.getType()) {
+            case FENCE -> "FENCE";
+            case WOOD_WALL -> "WALL";
+            case STONE_WALL -> "STONE";
+            case DOOR -> "DOOR";
+            case TORCH -> "TORCH";
+            case ARCHER_TOWER -> "TOWER";
+            case BOMB_TRAP -> "BOMB";
+            default -> object.getType().name();
+        };
     }
 
     private List<ArcherTower> renderPlacedBuildObjects(BuildManager buildManager, double cameraX, double cameraY, long nowNs) {
