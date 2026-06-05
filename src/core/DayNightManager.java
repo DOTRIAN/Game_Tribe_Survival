@@ -11,10 +11,10 @@ public class DayNightManager {
 
     private static final long SECOND_NS = 1_000_000_000L;
     private static final long DAY_DURATION_NS = 300L * SECOND_NS;
-    private static final long WARNING_DURATION_NS = 60L * SECOND_NS;
-    private static final long WAVE_1_DURATION_NS = 90L * SECOND_NS;
-    private static final long WAVE_2_DURATION_NS = 90L * SECOND_NS;
-    private static final long DAWN_DURATION_NS = 30L * SECOND_NS;
+    private static final long WARNING_DURATION_NS = 30L * SECOND_NS;
+    private static final long WAVE_1_DURATION_NS = 45L * SECOND_NS;
+    private static final long WAVE_2_DURATION_NS = 45L * SECOND_NS;
+    private static final long DAWN_DURATION_NS = 20L * SECOND_NS;
     private static final long CYCLE_DURATION_NS = DAY_DURATION_NS
             + WARNING_DURATION_NS
             + WAVE_1_DURATION_NS
