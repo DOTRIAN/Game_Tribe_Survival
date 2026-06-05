@@ -31,7 +31,7 @@ public class WildlifeEnemy extends Enemy {
                         new SheetDefinition("Boar_Death_with_shadow", 6)
                 ),
                 20.0,
-                24,
+                10,
                 3,
                 true,
                 72.0,
@@ -52,7 +52,7 @@ public class WildlifeEnemy extends Enemy {
                         new SheetDefinition("Deer_Death_with_shadow", 7)
                 ),
                 28.0,
-                18,
+                10,
                 0,
                 false,
                 0.0,
@@ -73,7 +73,7 @@ public class WildlifeEnemy extends Enemy {
                         new SheetDefinition("Fox_Death_with_shadow", 6)
                 ),
                 30.0,
-                16,
+                10,
                 0,
                 false,
                 0.0,
@@ -94,7 +94,7 @@ public class WildlifeEnemy extends Enemy {
                         new SheetDefinition("Hare_Death_with_shadow", 6)
                 ),
                 34.0,
-                12,
+                10,
                 0,
                 false,
                 0.0,

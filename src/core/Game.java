@@ -134,6 +134,7 @@ public class Game {
     private static final long GOLEM_SPAWN_MIN_INTERVAL_NS = 7_500_000_000L;
     private static final long GOLEM_SPAWN_MAX_INTERVAL_NS = 11_500_000_000L;
     private static final long AUTOSAVE_INTERVAL_NS = 20_000_000_000L;
+    private static final long DAY_PASSIVE_HEAL_INTERVAL_NS = 12_000_000_000L;
     private static final long FLOW_FIELD_REBUILD_DEBOUNCE_NS = 500_000_000L;
     private static final long FLOW_FIELD_DESTROY_REBUILD_DEBOUNCE_NS = 300_000_000L;
     private static final int WALL_JUMPER_MAX_ALIVE = 5;
@@ -374,6 +375,7 @@ public class Game {
     private static final double BOSS_EXIT_TRIGGER_WIDTH = 168.0;
     private static final double BOSS_EXIT_TRIGGER_HEIGHT = 120.0;
     private static final double BOSS_EXIT_TRIGGER_Y = 48.0;
+    private static final int DAY_PASSIVE_HEAL_AMOUNT = 1;
 
     // selectedHotbarIndex:
     // - Luu slot nguoi choi dang chon tren thanh hotbar.
@@ -408,6 +410,8 @@ public class Game {
     private long gemRewardAnimationStartedAtNs;
     private long gemRewardAnimationDurationNs;
     private boolean bossNinjaAwakeningUnlocked;
+    private long lastDayPassiveHealAtNs;
+    private boolean dayTwoDaytimeFullHealGranted;
     private boolean finalEndingOverlayActive;
     private long finalEndingOverlayStartedAtNs;
 
@@ -508,6 +512,8 @@ public class Game {
         this.gemRewardAnimationStartedAtNs = -1L;
         this.gemRewardAnimationDurationNs = 2_000_000_000L;
         this.bossNinjaAwakeningUnlocked = false;
+        this.lastDayPassiveHealAtNs = 0L;
+        this.dayTwoDaytimeFullHealGranted = false;
         this.finalEndingOverlayActive = false;
         this.finalEndingOverlayStartedAtNs = -1L;
 
@@ -1780,6 +1786,7 @@ public class Game {
 
         resourceManager.update(now);
         updateDroppedItemPickup();
+        updateDaytimeHealthRecovery(now, bossMode);
         updateObjectiveProgressionV2(now);
         updateShopTutorialHints(now);
         updateGemRewardAnimation(now);
@@ -2475,6 +2482,8 @@ public class Game {
         gemRewardGranted = false;
         gemRewardAnimationStartedAtNs = -1L;
         bossNinjaAwakeningUnlocked = false;
+        lastDayPassiveHealAtNs = 0L;
+        dayTwoDaytimeFullHealGranted = false;
         finalEndingOverlayActive = false;
         finalEndingOverlayStartedAtNs = -1L;
         clearPersistentProgressForFreshStart();
@@ -4647,6 +4656,33 @@ public class Game {
         }
         bossNinjaAwakeningUnlocked = true;
         startBossNinjaAwakeningDialogue();
+    }
+
+    private void updateDaytimeHealthRecovery(long now, boolean bossMode) {
+        if (bossMode || !isBaseCampActive() || !baseCamp.isAlive()) {
+            return;
+        }
+        int currentDay = dayNightManager.getDay(now);
+        DayNightManager.Phase phase = dayNightManager.getPhase(now);
+
+        if (phase == DayNightManager.Phase.DAY) {
+            if (lastDayPassiveHealAtNs <= 0L) {
+                lastDayPassiveHealAtNs = now;
+            } else if (now - lastDayPassiveHealAtNs >= DAY_PASSIVE_HEAL_INTERVAL_NS) {
+                baseCamp.heal(DAY_PASSIVE_HEAL_AMOUNT);
+                lastDayPassiveHealAtNs = now;
+            }
+            return;
+        }
+
+        lastDayPassiveHealAtNs = 0L;
+        if (!dayTwoDaytimeFullHealGranted
+                && currentDay == 2
+                && phase == DayNightManager.Phase.WARNING) {
+            baseCamp.setHpForLoad(baseCamp.getMaxHp());
+            dayTwoDaytimeFullHealGranted = true;
+            renderer.showToast("L\u1ec1u ch\u00ednh \u0111\u00e3 \u0111\u01b0\u1ee3c gia c\u1ed1, HP h\u1ed3i \u0111\u1ea7y.");
+        }
     }
 
     private String buildActiveObjectiveStatus(long now) {

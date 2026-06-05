@@ -85,7 +85,7 @@ public class BlackGrouseEnemy extends Enemy {
                 maxFrameWidth(),
                 maxFrameHeight(),
                 PATROL_SPEED_PX_PER_SEC,
-                20,
+                10,
                 0,
                 1L,
                 resolveAssetPath(WALK_ASSET),
