@@ -5,9 +5,9 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.game.test</groupId>
-    <artifactId>game-test</artifactId>
+    <artifactId>game-tribe-survival</artifactId>
     <version>1.0-SNAPSHOT</version>
-    <name>Game__TEST</name>
+    <name>Game_Tribe_Survival</name>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -48,7 +48,7 @@
                 <version>0.0.8</version>
                 <configuration>
                     <mainClass>${main.class}</mainClass>
-                    <launcher>Game__TEST</launcher>
+                    <launcher>Game_Tribe_Survival</launcher>
                     <workingDirectory>${project.basedir}</workingDirectory>
                 </configuration>
             </plugin>
