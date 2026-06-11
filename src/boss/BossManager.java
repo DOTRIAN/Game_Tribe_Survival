@@ -9,7 +9,7 @@ import map.MapType;
 import java.util.List;
 
 public final class BossManager {
-    public static final String BOSS_MAP_IMAGE_PATH = "boss2.jpg";
+    public static final String BOSS_MAP_IMAGE_PATH = "assets/boss2.jpg";
 
     private final FireOrbManager fireOrbManager;
     private BossFightController activeFight;

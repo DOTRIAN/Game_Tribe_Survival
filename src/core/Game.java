@@ -15,11 +15,8 @@ import buildsystem.object.BombTrap;
 import buildsystem.object.BuildObject;
 import buildsystem.object.Chest;
 import buildsystem.sprite.AssetManager;
-import dialogue.model.DialoguePage;
-import dialogue.model.DialogueScript;
-import dialogue.io.ScriptedDialogueLoader;
+import dialogue.runtime.GameDialogueFlowService;
 import dialogue.runtime.DialogueRunner;
-import dialogue.script.OpeningIntroFactory;
 import drop.AnimatedDropItem;
 import drop.BombDropItem;
 import drop.DropItemType;
@@ -49,7 +46,9 @@ import event.GameEvent;
 import event.GameEventBus;
 import event.GameEventType;
 import input.InputHandler;
+import inventory.HotbarService;
 import inventory.Inventory;
+import inventory.ShopService;
 import javafx.application.Platform;
 import javafx.geometry.Point2D;
 import javafx.geometry.Rectangle2D;
@@ -57,14 +56,19 @@ import javafx.scene.image.Image;
 import javafx.scene.input.KeyCode;
 import javafx.stage.Stage;
 import map.GameMapDefinition;
+import map.GameMapFactory;
 import map.MapData;
 import map.MapManager;
 import map.MapObjectData;
+import map.MapRuntimeApplier;
+import map.MapRuntimeData;
 import map.MapType;
+import map.BaseCampLocator;
 import map.TileLayerData;
 import map.TileCollisionResolver;
 import map.TilePropertyCatalog;
 import map.TiledMapLoader;
+import progression.SurvivalProgressionService;
 import system.CollisionSystem;
 import system.DamageResult;
 import system.DamageSystem;
@@ -81,18 +85,15 @@ import system.bomb.BombSystem;
 import system.bomb.ExplosionEffect;
 import system.bomb.FireBombBurnZone;
 import system.save.WorldSaveService;
+import system.save.WorldSnapshotHelper;
 import ui.FloatingDamageText;
-import ui.HotbarItemStack;
 import ui.ItemUiMeta;
 import ui.Renderer;
 import world.InfiniteWorldManager;
 import world.WorldChunk;
 
 import java.util.ArrayList;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.Path;
-import java.text.Normalizer;
 import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -108,17 +109,7 @@ import java.util.Set;
  * - Co save/load session de thoat game vao lai choi tiep.
  */
 public class Game {
-    private record TileCoord(int x, int y) {}
-    private record TileBounds(int minX, int minY, int maxX, int maxY, int tileCount) {}
     private record FencePerimeter(int left, int top, int right, int bottom, int centerX, int centerY) {}
-    private record ObjectiveStep(String title, int targetAmount, boolean foodObjective, String itemId) {}
-    private record SkillUnlockInfo(int level, String name, Player.AttackAnimationType attackType) {}
-    private record TutorialHintInfo(String title, String description, String keyHint, String itemId) {}
-    private record FormUnlockInfo(String title,
-                                  String description,
-                                  String keyHint,
-                                  Player.AttackAnimationType previewType,
-                                  boolean epic) {}
 
     private enum GameOverReason {
         PLAYER_DIED,
@@ -165,6 +156,7 @@ public class Game {
 
     private final GameLoop gameLoop;
     private final Renderer renderer;
+    private final GameDialogueFlowService dialogueFlowService;
     private final InputHandler inputHandler;
     private DialogueRunner introDialogueRunner;
     private boolean bossIntroActive;
@@ -200,8 +192,11 @@ public class Game {
     private final List<ExplosionEffect> explosionEffects;
     private final List<FireBombBurnZone> fireBombBurnZones;
     private final BombSystem bombSystem;
-    private final List<HotbarItemStack> hotbarItems;
+    private final HotbarService hotbarService;
+    private final ShopService shopService;
+    private final SurvivalProgressionService progressionService;
     private final BossManager bossManager;
+    private final BaseCampLocator baseCampLocator;
 
     // Inventory la state gameplay chinh cho he thu thap/craft.
     private final Inventory inventory;
@@ -264,7 +259,6 @@ public class Game {
     // - Slot dau tien thuong la Wood Fence neu inventory dang co item nay.
     // - Cac slot khac de trong cho item build/craft sau nay.
     private static final String WOOD_FENCE_ITEM_ID = "wood_fence";
-    private static final String WALL_ITEM_ALIAS = "wall";
     private static final String COIN_ITEM_ID = "coin";
     private static final String WOOD_WALL_ITEM_ID = "wood_wall";
     private static final String POTION_ITEM_ID = "potion";
@@ -278,12 +272,6 @@ public class Game {
     private static final String PICKAXE_ITEM_ID = "pickaxe";
     private static final String AXE_ITEM_ID = "axe";
     private static final String CARROT_ITEM_ID = "carrot";
-    private static final int DAY_ONE_OBJECTIVE_WOOD = 10;
-    private static final int DAY_ONE_OBJECTIVE_ROCK = 10;
-    private static final int DAY_ONE_OBJECTIVE_FOOD = 5;
-    private static final int DAY_ONE_OBJECTIVE_ENEMY_KILL = 1;
-    private static final int DAY_ONE_OBJECTIVE_REWARD_GOLD = 10;
-    private static final long SHOP_TUTORIAL_CELEBRATION_DURATION_NS = 6_500_000_000L;
     private static final int AXE_SKILL_UNLOCK_LEVEL = 2;
     private static final int STORMBREAKER_UNLOCK_LEVEL = 3;
     private static final int DEATH_SPEAR_UNLOCK_LEVEL = 4;
@@ -291,22 +279,6 @@ public class Game {
     private static final String SEAL_GEM_ITEM_ID = "seal_gem";
     private static final int REQUIRED_SEAL_GEMS_FOR_BOSS = 2;
     private static final boolean DEBUG_ALLOW_BOSS_ENTRY_WITHOUT_GEMS = true;
-    private static final List<ObjectiveStep> DAY_ONE_OBJECTIVES = List.of(
-            new ObjectiveStep("Nhi\u1ec7m v\u1ee5 1", DAY_ONE_OBJECTIVE_WOOD, false, "wood"),
-            new ObjectiveStep("Nhi\u1ec7m v\u1ee5 2", DAY_ONE_OBJECTIVE_ROCK, false, "rock"),
-            new ObjectiveStep("Nhi\u1ec7m v\u1ee5 3", DAY_ONE_OBJECTIVE_FOOD, true, ""),
-            new ObjectiveStep("Nhi\u1ec7m v\u1ee5 4", DAY_ONE_OBJECTIVE_ENEMY_KILL, false, "enemy_kill")
-    );
-    private static final List<SkillUnlockInfo> SKILL_UNLOCKS = List.of(
-            new SkillUnlockInfo(AXE_SKILL_UNLOCK_LEVEL, "Ti\u1ec1u phu ch\u00e9m c\u1ee7i", Player.AttackAnimationType.SLICE),
-            new SkillUnlockInfo(STORMBREAKER_UNLOCK_LEVEL, "StormBreaker", Player.AttackAnimationType.CRUSH),
-            new SkillUnlockInfo(DEATH_SPEAR_UNLOCK_LEVEL, "Ng\u1ecdn gi\u00e1o t\u1eed th\u1ea7n", Player.AttackAnimationType.PIERCE)
-    );
-    private static final List<TutorialHintInfo> SHOP_TUTORIAL_HINTS = List.of(
-            new TutorialHintInfo("ARCHER", "\u0110\u1ed3ng minh", "M\u1edf shop [B] v\u00e0 mua Archer.", FRIENDLY_ARCHER_ITEM_ID),
-            new TutorialHintInfo("FIRE BOMB", "Bomb c\u00f4ng ph\u00e1.", "Nh\u1ea5n [Q] \u0111\u1ec3 n\u00e9m.", FIRE_BOMB_ITEM_ID),
-            new TutorialHintInfo("ARCHER TOWER", "Th\u00e1p \u0111\u1ed3ng minh.", "\u0110\u1eb7t \u0111\u1ec3 th\u1ee7 tr\u1ea1i.", ARCHER_TOWER_ITEM_ID)
-    );
     private static final String[] HOTBAR_PRIORITY = {
             WOOD_FENCE_ITEM_ID,
             TORCH_ITEM_ID,
@@ -342,14 +314,7 @@ public class Game {
             new DropSpec(DropItemType.NIKU, 2),
             new DropSpec(DropItemType.GOLD, 2)
     );
-    private static final int WOOD_FENCE_PRICE = GameBalance.WOOD_FENCE_PRICE;
-    private static final int WOOD_WALL_PRICE = GameBalance.WOOD_WALL_PRICE;
-    private static final int TORCH_PRICE = GameBalance.TORCH_PRICE;
     private static final int ARCHER_TOWER_PRICE = GameBalance.ARCHER_TOWER_PRICE;
-    private static final int FRIENDLY_ARCHER_PRICE = GameBalance.FRIENDLY_ARCHER_PRICE;
-    private static final int BOMB_TRAP_PRICE = GameBalance.BOMB_TRAP_PRICE;
-    private static final int FIRE_BOMB_PRICE = GameBalance.FIRE_BOMB_PRICE;
-    private static final int CHEST_PRICE = GameBalance.CHEST_PRICE;
     private static final int AXE_WOOD_COST = 5;
     private static final int AXE_STONE_COST = 2;
     private static final double BOMB_TRAP_THROW_SPEED = 7.6;
@@ -380,7 +345,6 @@ public class Game {
     // selectedHotbarIndex:
     // - Luu slot nguoi choi dang chon tren thanh hotbar.
     // - Tac dong gameplay: sau nay build mode va item use se dua vao slot nay.
-    private int selectedHotbarIndex;
     private boolean hasLoadedSaveSnapshot;
     private boolean pendingStartFreshWorld;
     private long cameraShakeUntilNs;
@@ -391,25 +355,6 @@ public class Game {
     private boolean skipWorldPrimaryClickOnce;
     private boolean debugCollisionOverlayEnabled;
     private Chest openedChest;
-    private boolean dayOneObjectiveUnlocked;
-    private boolean dayOneObjectiveCompleted;
-    private long dayOneObjectiveCompletedAtNs;
-    private boolean axeSkillUnlockAnnounced;
-    private int dayOneObjectiveStep;
-    private long axeSkillCelebrationUntilNs;
-    private SkillUnlockInfo pendingSkillUnlockCelebration;
-    private long formUnlockCelebrationUntilNs;
-    private FormUnlockInfo pendingFormUnlockCelebration;
-    private int dayOneEnemyKillCount;
-    private TutorialHintInfo activeShopTutorialHint;
-    private int nextShopTutorialHintIndex;
-    private long activeShopTutorialHintUntilNs;
-    private long nextShopTutorialHintAtNs;
-    private boolean gemRewardAnimationActive;
-    private boolean gemRewardGranted;
-    private long gemRewardAnimationStartedAtNs;
-    private long gemRewardAnimationDurationNs;
-    private boolean bossNinjaAwakeningUnlocked;
     private long lastDayPassiveHealAtNs;
     private boolean dayTwoDaytimeFullHealGranted;
     private boolean finalEndingOverlayActive;
@@ -438,8 +383,11 @@ public class Game {
         this.explosionEffects = new ArrayList<>();
         this.fireBombBurnZones = new ArrayList<>();
         this.bombSystem = new BombSystem();
-        this.hotbarItems = new ArrayList<>();
+        this.hotbarService = new HotbarService(List.of(HOTBAR_PRIORITY));
+        this.shopService = new ShopService();
+        this.progressionService = new SurvivalProgressionService();
         this.bossManager = new BossManager();
+        this.baseCampLocator = new BaseCampLocator();
         this.inventory = new Inventory();
         this.eventBus = new GameEventBus();
         this.worldSaveService = new WorldSaveService(SURVIVAL_SAVE_FILE);
@@ -481,7 +429,6 @@ public class Game {
         this.perfAiNs = 0L;
         this.perfRenderNs = 0L;
         this.gameOverReason = GameOverReason.PLAYER_DIED;
-        this.selectedHotbarIndex = 0;
         this.navigationBatchFrame = 0L;
         this.hasLoadedSaveSnapshot = false;
         this.pendingStartFreshWorld = false;
@@ -493,38 +440,24 @@ public class Game {
         this.skipWorldPrimaryClickOnce = false;
         this.debugCollisionOverlayEnabled = false;
         this.openedChest = null;
-        this.dayOneObjectiveUnlocked = false;
-        this.dayOneObjectiveCompleted = false;
-        this.dayOneObjectiveCompletedAtNs = -1L;
-        this.axeSkillUnlockAnnounced = false;
-        this.dayOneObjectiveStep = 0;
-        this.axeSkillCelebrationUntilNs = -1L;
-        this.pendingSkillUnlockCelebration = null;
-        this.formUnlockCelebrationUntilNs = -1L;
-        this.pendingFormUnlockCelebration = null;
-        this.dayOneEnemyKillCount = 0;
-        this.activeShopTutorialHint = null;
-        this.nextShopTutorialHintIndex = 0;
-        this.activeShopTutorialHintUntilNs = -1L;
-        this.nextShopTutorialHintAtNs = -1L;
-        this.gemRewardAnimationActive = false;
-        this.gemRewardGranted = false;
-        this.gemRewardAnimationStartedAtNs = -1L;
-        this.gemRewardAnimationDurationNs = 2_000_000_000L;
-        this.bossNinjaAwakeningUnlocked = false;
         this.lastDayPassiveHealAtNs = 0L;
         this.dayTwoDaytimeFullHealGranted = false;
         this.finalEndingOverlayActive = false;
         this.finalEndingOverlayStartedAtNs = -1L;
 
-        MapData loadedMap = tryLoadMap();
+        MapData loadedMap = GameMapFactory.tryLoadMainMap();
         this.mapData = loadedMap;
         if (loadedMap != null) {
             // Neu map load thanh cong, world boundary phai khop map de camera/player nam dung vi tri.
             this.worldWidth = loadedMap.getPixelWidth();
             this.worldHeight = loadedMap.getPixelHeight();
         }
-        this.mapManager = createMapManager(loadedMap);
+        this.mapManager = GameMapFactory.createMapManager(
+                loadedMap,
+                player.getWidth(),
+                player.getHeight(),
+                BossManager.BOSS_MAP_IMAGE_PATH
+        );
         List<MapObjectData> runtimeObjects = new ArrayList<>();
         if (loadedMap != null) {
             runtimeObjects.addAll(loadedMap.getCollisionObjects());
@@ -676,6 +609,7 @@ public class Game {
         );
         this.buildController = new BuildController(buildManager);
         this.renderer = new Renderer(stage, inputHandler, wallAssetManager);
+        this.dialogueFlowService = new GameDialogueFlowService(this.renderer);
         this.renderer.setMapData(loadedMap);
         this.renderer.setWorldBackgroundImage(null);
         this.renderer.setShowBaseCamp(true);
@@ -803,14 +737,12 @@ public class Game {
     public void render(long now) {
         renderer.setIntroDialogueRunner(introDialogueRunner);
         renderer.setGemRewardAnimation(
-                gemRewardAnimationActive,
-                gemRewardAnimationActive
-                        ? Math.max(0.0, Math.min(1.0, (double) (now - gemRewardAnimationStartedAtNs) / gemRewardAnimationDurationNs))
-                        : 0.0
+                progressionService.isGemRewardAnimationActive(),
+                progressionService.getGemRewardAnimationProgress(now)
         );
-        SkillUnlockInfo activeCelebration = now < axeSkillCelebrationUntilNs ? pendingSkillUnlockCelebration : null;
-        FormUnlockInfo activeFormCelebration = now < formUnlockCelebrationUntilNs ? pendingFormUnlockCelebration : null;
-        TutorialHintInfo activeTutorialHint = activeShopTutorialHint;
+        SurvivalProgressionService.SkillUnlockInfo activeCelebration = progressionService.getActiveSkillCelebration(now);
+        SurvivalProgressionService.FormUnlockInfo activeFormCelebration = progressionService.getActiveFormCelebration(now);
+        SurvivalProgressionService.TutorialHintInfo activeTutorialHint = progressionService.getActiveTutorialHint(now);
         ItemUiMeta tutorialMeta = activeTutorialHint == null ? null : renderer.getItemMeta(activeTutorialHint.itemId());
         renderer.setSkillUnlockCelebration(
                 activeFormCelebration != null
@@ -829,7 +761,14 @@ public class Game {
                 activeFormCelebration != null && activeFormCelebration.epic()
         );
         boolean bossMode = mapManager.getCurrentMapType() == MapType.BOSS_MAP;
-        String objectiveStatus = buildObjectiveStatusV2(now);
+        String objectiveStatus = progressionService.buildObjectiveStatus(
+                bossMode,
+                bossManager.buildObjectiveStatus(player),
+                player.getLevel(),
+                inventory.getAmount("wood"),
+                inventory.getAmount("rock"),
+                getCurrentFoodAmount()
+        );
         double darknessAlpha = bossMode ? 0.0 : dayNightManager.getDarknessAlpha(now);
         boolean isNight = !bossMode && dayNightManager.isNight(now);
         String dayNightPhase = bossMode ? "Boss Chamber" : dayNightManager.getScheduleDebugText(now);
@@ -874,11 +813,11 @@ public class Game {
                 getCurrentMapDefinition() == null ? null : getCurrentMapDefinition().transitionTrigger(),
                 resourceManager.getAllResources(),
                 inventory.snapshot(),
-                selectedHotbarIndex,
+                hotbarService.getSelectedIndex(),
                 inventory.getAmount(WOOD_FENCE_ITEM_ID),
                 bossMode,
                 buildManager,
-                hotbarItems,
+                hotbarService.getItems(),
                 arrowProjectiles,
                 bossManager.getActiveFireOrbs(),
                 bossManager.getFireOrbManager().getFrames(),
@@ -910,87 +849,6 @@ public class Game {
 
     public Player getPlayer() {
         return player;
-    }
-
-    private MapData tryLoadMap() {
-        String preferredPath = resolveMainMapPath();
-        if (preferredPath != null && !preferredPath.isBlank()) {
-            try {
-                return new TiledMapLoader().load(preferredPath);
-            } catch (Exception error) {
-                System.out.println("Cannot load main map " + preferredPath + ": " + error.getMessage());
-            }
-        }
-        return null;
-    }
-
-    private String resolveMainMapPath() {
-        List<String> candidates = List.of(
-                "assets/Map_Game/mapdep.tmx",
-                "assets/Map_Game/map.tmx",
-                "assets/maps/mapdemo.tmx"
-        );
-        for (String candidate : candidates) {
-            if (candidate != null && Files.exists(Path.of(candidate))) {
-                return candidate;
-            }
-        }
-        return candidates.get(0);
-    }
-
-    private MapManager createMapManager(MapData loadedMainMap) {
-        int tileWidth = loadedMainMap == null ? 16 : Math.max(1, loadedMainMap.getTileWidth());
-        // Trigger dat truc tiep trong long cua hang theo vi tri da xac dinh tu map render.
-        int triggerX = tileWidth * 112;
-        int triggerY = tileWidth * 8;
-        Rectangle2D bossEntranceTrigger = new Rectangle2D(triggerX, triggerY, tileWidth * 3.0, tileWidth * 6.0);
-        double[] bossSize = readImageSize(BossManager.BOSS_MAP_IMAGE_PATH);
-        double bossSpawnX = Math.max(32.0, bossSize[0] * 0.5 - player.getWidth() * 0.5);
-        double bossSpawnY = Math.max(32.0, bossSize[1] - player.getHeight() - 96.0);
-        return new MapManager(
-                MapType.MAIN_MAP,
-                List.of(
-                        new GameMapDefinition(
-                                MapType.MAIN_MAP,
-                                resolveMainMapPath(),
-                                null,
-                                0,
-                                0,
-                                true,
-                                true,
-                                true,
-                                true,
-                                true,
-                                bossEntranceTrigger,
-                                MapType.BOSS_MAP
-                        ),
-                        new GameMapDefinition(
-                                MapType.BOSS_MAP,
-                                null,
-                                BossManager.BOSS_MAP_IMAGE_PATH,
-                                bossSpawnX,
-                                bossSpawnY,
-                                false,
-                                false,
-                                false,
-                                false,
-                                false,
-                                null,
-                                null
-                        )
-                )
-        );
-    }
-
-    private double[] readImageSize(String imagePath) {
-        try {
-            Image image = new Image(Path.of(imagePath).toUri().toString(), false);
-            if (!image.isError() && image.getWidth() > 0 && image.getHeight() > 0) {
-                return new double[]{image.getWidth(), image.getHeight()};
-            }
-        } catch (Exception ignored) {
-        }
-        return new double[]{1280.0, 720.0};
     }
 
     private void validateResourceContracts() {
@@ -1128,22 +986,16 @@ public class Game {
             return;
         }
 
-        MapData loadedMap = loadMapData(definition.tiledMapPath());
+        MapRuntimeData runtimeData = MapRuntimeApplier.prepare(definition, resourceManager);
+        MapData loadedMap = runtimeData.mapData();
         mapData = loadedMap;
         mapCollisions.clear();
-        if (loadedMap != null) {
-            mapCollisions.addAll(loadedMap.getCollisionObjects());
-            mapCollisions.addAll(new TileResourceAdapter().buildResourceObjects(loadedMap));
-            worldWidth = loadedMap.getPixelWidth();
-            worldHeight = loadedMap.getPixelHeight();
-        } else {
-            double[] imageSize = readImageSize(definition.backgroundImagePath());
-            worldWidth = imageSize[0];
-            worldHeight = imageSize[1];
-        }
+        mapCollisions.addAll(runtimeData.runtimeObjects());
+        worldWidth = runtimeData.worldWidth();
+        worldHeight = runtimeData.worldHeight();
 
         resourceManager.loadFromMapObjects(mapCollisions);
-        tileCollisionResolver = loadedMap == null ? null : new TileCollisionResolver(loadedMap, resourceManager);
+        tileCollisionResolver = runtimeData.tileCollisionResolver();
         buildCollisionManager.reconfigure(loadedMap, mapCollisions, tileCollisionResolver, resourceManager, worldWidth, worldHeight);
         buildManager.clearObjects();
         enemies.clear();
@@ -1196,23 +1048,18 @@ public class Game {
         }
     }
 
-    private MapData loadMapData(String tmxPath) {
-        if (tmxPath == null || tmxPath.isBlank()) {
-            return null;
-        }
-        try {
-            return new TiledMapLoader().load(tmxPath);
-        } catch (Exception error) {
-            System.out.println("Cannot load map " + tmxPath + ": " + error.getMessage());
-            return null;
-        }
-    }
-
     private void resetWorldPosition() {
-        MapObjectData baseCampMarker = resolveBaseCampMarker();
+        MapObjectData baseCampMarker = baseCampLocator.resolveBaseCampMarker(mapData, mapCollisions, DEFAULT_BASE_CAMP_HP);
         if (baseCampMarker != null) {
             configureBaseCampFromMarker(baseCampMarker);
-            double[] safeSpawn = findPlayerSpawnNearBaseCamp(baseCampMarker);
+            double[] safeSpawn = baseCampLocator.findPlayerSpawnNearBaseCamp(
+                    baseCampMarker,
+                    player.getWidth(),
+                    player.getHeight(),
+                    buildCollisionManager.getTileWidth(),
+                    buildCollisionManager.getTileHeight(),
+                    this::findNearestSafeSpawn
+            );
             player.reset(safeSpawn[0], safeSpawn[1]);
         } else {
             double centerX = worldWidth * 0.5;
@@ -1234,237 +1081,6 @@ public class Game {
         // Base camp HP duoc chot ve 100 de giu can bang on dinh giua cac map/session.
         baseCamp.configure(marker.getX(), marker.getY(), marker.getWidth(), marker.getHeight(), DEFAULT_BASE_CAMP_HP);
         baseCamp.clampPosition(0, 0, worldWidth, worldHeight);
-    }
-
-    private double[] findPlayerSpawnNearBaseCamp(MapObjectData marker) {
-        double gap = Math.max(buildCollisionManager.getTileWidth(), buildCollisionManager.getTileHeight());
-        double markerCenterX = marker.getX() + marker.getWidth() * 0.5;
-        double markerCenterY = marker.getY() + marker.getHeight() * 0.5;
-        double[][] candidates = {
-                {markerCenterX - player.getWidth() * 0.5, marker.getY() + marker.getHeight() + gap},
-                {markerCenterX - player.getWidth() * 0.5, marker.getY() - player.getHeight() - gap},
-                {marker.getX() - player.getWidth() - gap, markerCenterY - player.getHeight() * 0.5},
-                {marker.getX() + marker.getWidth() + gap, markerCenterY - player.getHeight() * 0.5}
-        };
-        for (double[] candidate : candidates) {
-            double[] safeSpawn = findNearestSafeSpawn(candidate[0], candidate[1]);
-            if (!CollisionSystem.intersects(
-                    marker.getX(),
-                    marker.getY(),
-                    marker.getWidth(),
-                    marker.getHeight(),
-                    safeSpawn[0],
-                    safeSpawn[1],
-                    player.getWidth(),
-                    player.getHeight())) {
-                return safeSpawn;
-            }
-        }
-        return findNearestSafeSpawn(markerCenterX - player.getWidth() * 0.5, marker.getY() + marker.getHeight() + gap);
-    }
-
-    private MapObjectData resolveBaseCampMarker() {
-        MapObjectData objectMarker = findBaseCampObjectMarker();
-        if (objectMarker != null) {
-            return objectMarker;
-        }
-        return detectBaseCampTileBounds();
-    }
-
-    private MapObjectData findBaseCampObjectMarker() {
-        for (MapObjectData object : mapCollisions) {
-            if (object == null) {
-                continue;
-            }
-            if (isBaseCampMarker(object.getName(), object.getType(), object.getProperties())) {
-                return object;
-            }
-        }
-        return null;
-    }
-
-    private MapObjectData detectBaseCampTileBounds() {
-        if (mapData == null) {
-            return null;
-        }
-        TilePropertyCatalog catalog = new TilePropertyCatalog(mapData);
-        int tileW = Math.max(1, mapData.getTileWidth());
-        int tileH = Math.max(1, mapData.getTileHeight());
-        Set<TileCoord> baseCampTiles = new LinkedHashSet<>();
-
-        for (TileLayerData layer : mapData.getTileLayers()) {
-            if (layer == null) {
-                continue;
-            }
-            for (int y = 0; y < layer.getHeight(); y++) {
-                for (int x = 0; x < layer.getWidth(); x++) {
-                    int gid = layer.getGidAt(x, y);
-                    if (gid <= 0) {
-                        continue;
-                    }
-                    if (!isBaseCampTile(catalog.getPropertiesForGid(gid))) {
-                        continue;
-                    }
-                    baseCampTiles.add(new TileCoord(x, y));
-                }
-            }
-        }
-
-        TileBounds bounds = selectBaseCampBounds(baseCampTiles);
-        if (bounds == null) {
-            return null;
-        }
-
-        double x = bounds.minX() * tileW;
-        double y = bounds.minY() * tileH;
-        double width = (bounds.maxX() - bounds.minX() + 1) * tileW;
-        double height = (bounds.maxY() - bounds.minY() + 1) * tileH;
-        return new MapObjectData(-999, "BaseCamp", "BaseCamp", x, y, width, height, Map.of("Hp_tent", String.valueOf(DEFAULT_BASE_CAMP_HP)));
-    }
-
-    private TileBounds selectBaseCampBounds(Set<TileCoord> baseCampTiles) {
-        if (baseCampTiles == null || baseCampTiles.isEmpty()) {
-            return null;
-        }
-
-        Set<TileCoord> remaining = new LinkedHashSet<>(baseCampTiles);
-        TileBounds bestBounds = null;
-        double mapCenterX = mapData.getWidthInTiles() * 0.5;
-        double mapCenterY = mapData.getHeightInTiles() * 0.5;
-
-        while (!remaining.isEmpty()) {
-            TileCoord start = remaining.iterator().next();
-            TileBounds candidate = extractBaseCampClusterBounds(start, remaining);
-            if (candidate == null) {
-                continue;
-            }
-            if (bestBounds == null || isPreferredBaseCampBounds(candidate, bestBounds, mapCenterX, mapCenterY)) {
-                bestBounds = candidate;
-            }
-        }
-        return bestBounds;
-    }
-
-    private TileBounds extractBaseCampClusterBounds(TileCoord start, Set<TileCoord> remaining) {
-        if (start == null || remaining == null || !remaining.remove(start)) {
-            return null;
-        }
-
-        List<TileCoord> frontier = new ArrayList<>();
-        frontier.add(start);
-        int minX = start.x();
-        int minY = start.y();
-        int maxX = start.x();
-        int maxY = start.y();
-        int count = 0;
-
-        for (int index = 0; index < frontier.size(); index++) {
-            TileCoord current = frontier.get(index);
-            count++;
-            minX = Math.min(minX, current.x());
-            minY = Math.min(minY, current.y());
-            maxX = Math.max(maxX, current.x());
-            maxY = Math.max(maxY, current.y());
-
-            collectAdjacentBaseCampTile(new TileCoord(current.x() + 1, current.y()), remaining, frontier);
-            collectAdjacentBaseCampTile(new TileCoord(current.x() - 1, current.y()), remaining, frontier);
-            collectAdjacentBaseCampTile(new TileCoord(current.x(), current.y() + 1), remaining, frontier);
-            collectAdjacentBaseCampTile(new TileCoord(current.x(), current.y() - 1), remaining, frontier);
-        }
-
-        return new TileBounds(minX, minY, maxX, maxY, count);
-    }
-
-    private void collectAdjacentBaseCampTile(TileCoord candidate, Set<TileCoord> remaining, List<TileCoord> frontier) {
-        if (candidate == null || remaining == null || frontier == null) {
-            return;
-        }
-        if (remaining.remove(candidate)) {
-            frontier.add(candidate);
-        }
-    }
-
-    private boolean isPreferredBaseCampBounds(TileBounds candidate,
-                                              TileBounds currentBest,
-                                              double mapCenterX,
-                                              double mapCenterY) {
-        if (candidate.tileCount() != currentBest.tileCount()) {
-            return candidate.tileCount() > currentBest.tileCount();
-        }
-        return distanceToMapCenter(candidate, mapCenterX, mapCenterY) < distanceToMapCenter(currentBest, mapCenterX, mapCenterY);
-    }
-
-    private double distanceToMapCenter(TileBounds bounds, double mapCenterX, double mapCenterY) {
-        double centerX = (bounds.minX() + bounds.maxX()) * 0.5;
-        double centerY = (bounds.minY() + bounds.maxY()) * 0.5;
-        double dx = centerX - mapCenterX;
-        double dy = centerY - mapCenterY;
-        return Math.sqrt(dx * dx + dy * dy);
-    }
-
-    private boolean isBaseCampTile(Map<String, String> properties) {
-        if (properties == null || properties.isEmpty()) {
-            return false;
-        }
-        if (hasTruthyProperty(properties, "isBaseCamp", "baseCamp", "BaseCamp")) {
-            return true;
-        }
-        return parsePositiveInt(-1, properties.get("Hp_tent")) > 0;
-    }
-
-    private boolean isBaseCampMarker(String name, String type, Map<String, String> properties) {
-        if (hasTruthyProperty(properties, "isBaseCamp", "baseCamp", "BaseCamp")) {
-            return true;
-        }
-        return isBaseCampToken(name) || isBaseCampToken(type);
-    }
-
-    private boolean isBaseCampToken(String value) {
-        if (value == null) {
-            return false;
-        }
-        String normalized = value.trim().toLowerCase();
-        return normalized.equals("basecamp")
-                || normalized.equals("mainhouse")
-                || normalized.equals("main_house")
-                || normalized.equals("main-house");
-    }
-
-    private boolean hasTruthyProperty(Map<String, String> properties, String... keys) {
-        if (properties == null || keys == null) {
-            return false;
-        }
-        for (String key : keys) {
-            String raw = properties.get(key);
-            if (raw == null) {
-                continue;
-            }
-            String normalized = raw.trim().toLowerCase();
-            if (normalized.equals("true") || normalized.equals("on") || normalized.equals("1") || normalized.equals("yes")) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private int parsePositiveInt(int fallback, String... values) {
-        if (values == null) {
-            return fallback;
-        }
-        for (String value : values) {
-            if (value == null || value.isBlank()) {
-                continue;
-            }
-            try {
-                int parsed = Integer.parseInt(value.trim());
-                if (parsed > 0) {
-                    return parsed;
-                }
-            } catch (Exception ignored) {
-                // thÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­ key tiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂºÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¿p theo
-            }
-        }
-        return fallback;
     }
 
     // findNearestSafeSpawn:
@@ -2005,11 +1621,7 @@ public class Game {
     }
 
     private void startOpeningIntro() {
-        introDialogueRunner = new DialogueRunner(OpeningIntroFactory.create(player.getPlayerName()));
-        renderer.hideToast();
-        renderer.setInventoryVisible(false);
-        renderer.setShopVisible(false);
-        renderer.setChestVisible(false);
+        introDialogueRunner = dialogueFlowService.startOpeningIntro(player.getPlayerName());
         gameState = GameState.INTRO;
     }
 
@@ -2059,92 +1671,45 @@ public class Game {
                 return;
             }
             introDialogueRunner = null;
-            dayOneObjectiveUnlocked = true;
-            dayOneObjectiveCompleted = false;
-            dayOneObjectiveCompletedAtNs = -1L;
-            dayOneObjectiveStep = 0;
-            dayOneEnemyKillCount = 0;
-            activeShopTutorialHint = null;
-            nextShopTutorialHintIndex = 0;
-            activeShopTutorialHintUntilNs = -1L;
-            nextShopTutorialHintAtNs = -1L;
+            progressionService.unlockDayOneObjectiveChain();
             gameState = GameState.PLAYING;
         }
     }
 
     private void startDayOneDialogue() {
-        introDialogueRunner = new DialogueRunner(
-                ScriptedDialogueLoader.loadDayOneScript(Path.of(DAY_ONE_DIALOGUE_SCRIPT_PATH), player.getPlayerName())
-        );
-        renderer.hideToast();
-        renderer.setInventoryVisible(false);
-        renderer.setShopVisible(false);
-        renderer.setChestVisible(false);
+        introDialogueRunner = dialogueFlowService.startDayOneDialogue(DAY_ONE_DIALOGUE_SCRIPT_PATH, player.getPlayerName());
         gameState = GameState.DIALOGUE;
     }
 
     private void startSealGemRewardDialogue() {
-        introDialogueRunner = new DialogueRunner(createSealGemRewardScript());
-        renderer.hideToast();
-        renderer.setInventoryVisible(false);
-        renderer.setShopVisible(false);
-        renderer.setChestVisible(false);
+        introDialogueRunner = dialogueFlowService.startSealGemRewardDialogue(REQUIRED_SEAL_GEMS_FOR_BOSS);
         gameState = GameState.DIALOGUE;
     }
 
     private void startBossDialogue() {
-        introDialogueRunner = new DialogueRunner(
-                ScriptedDialogueLoader.loadBossScript(Path.of(BOSS_DIALOGUE_SCRIPT_PATH), player.getPlayerName())
-        );
+        introDialogueRunner = dialogueFlowService.startBossDialogue(BOSS_DIALOGUE_SCRIPT_PATH, player.getPlayerName());
         bossIntroActive = true;
         bossFightBannerUntilNs = -1L;
-        renderer.hideToast();
-        renderer.setInventoryVisible(false);
-        renderer.setShopVisible(false);
-        renderer.setChestVisible(false);
         gameState = GameState.DIALOGUE;
     }
 
     private void startBossLostDialogue() {
-        introDialogueRunner = new DialogueRunner(
-                ScriptedDialogueLoader.loadCustomScript(
-                        Path.of(BOSS_LOST_DIALOGUE_SCRIPT_PATH),
-                        player.getPlayerName(),
-                        "boss_lost",
-                        false
-                )
-        );
-        renderer.hideToast();
-        renderer.setInventoryVisible(false);
-        renderer.setShopVisible(false);
-        renderer.setChestVisible(false);
+        introDialogueRunner = dialogueFlowService.startBossLostDialogue(BOSS_LOST_DIALOGUE_SCRIPT_PATH, player.getPlayerName());
         gameState = GameState.DIALOGUE;
     }
 
     private void startBossNinjaAwakeningDialogue() {
-        introDialogueRunner = new DialogueRunner(createBossNinjaAwakeningScript());
-        renderer.hideToast();
-        renderer.setInventoryVisible(false);
-        renderer.setShopVisible(false);
-        renderer.setChestVisible(false);
+        introDialogueRunner = dialogueFlowService.startBossNinjaAwakeningDialogue(player.getPlayerName());
         gameState = GameState.DIALOGUE;
     }
 
     private void startEndingDialogue() {
-        introDialogueRunner = new DialogueRunner(createEndingOpeningScript());
-        renderer.hideToast();
-        renderer.setInventoryVisible(false);
-        renderer.setShopVisible(false);
-        renderer.setChestVisible(false);
+        introDialogueRunner = dialogueFlowService.startEndingOpeningDialogue(ENDING_DIALOGUE_SCRIPT_PATH, player.getPlayerName());
         gameState = GameState.DIALOGUE;
     }
 
     private void startEndingEpilogueDialogue() {
-        introDialogueRunner = new DialogueRunner(createEndingEpilogueScript());
-        renderer.hideToast();
-        renderer.setInventoryVisible(false);
-        renderer.setShopVisible(false);
-        renderer.setChestVisible(false);
+        introDialogueRunner = dialogueFlowService.startEndingEpilogueDialogue(ENDING_DIALOGUE_SCRIPT_PATH);
         gameState = GameState.DIALOGUE;
     }
 
@@ -2166,176 +1731,10 @@ public class Game {
     }
 
     private void triggerBossNinjaAwakeningCelebration(long now) {
-        pendingFormUnlockCelebration = new FormUnlockInfo(
-                "NINJA AWAKENING",
-                "Hai vi\u00ean Ng\u1ecdc Phong \u1ea4n \u0111\u00e3 \u0111\u00e1nh th\u1ee9c chi\u1ebfn y phong \u1ea5n.",
-                "B\u01b0\u1edbc qua c\u1ed5ng boss \u0111\u1ec3 h\u00f3a th\u00e2n th\u00e0nh Ninja chi\u1ebfn tr\u1eadn.",
-                Player.AttackAnimationType.STRONG_ATTACK,
-                true
-        );
-        formUnlockCelebrationUntilNs = now + 5_800_000_000L;
+        progressionService.triggerBossNinjaAwakeningCelebration(now);
         cameraShakeUntilNs = Math.max(cameraShakeUntilNs, now + 750_000_000L);
         screenFlashUntilNs = Math.max(screenFlashUntilNs, now + 280_000_000L);
         renderer.showToast("M\u1edf kh\u00f3a Ninja chi\u1ebfn tr\u1eadn.");
-    }
-
-    private DialogueScript createBossNinjaAwakeningScript() {
-        return new DialogueScript(
-                BOSS_NINJA_AWAKENING_SCRIPT_ID,
-                List.of(
-                        new DialoguePage(
-                                "Th\u1ed5 \u0110\u1ecba",
-                                "assets/phuthuy.png",
-                                List.of(
-                                        "Hai vi\u00ean Ng\u1ecdc Phong \u1ea4n \u0111\u00e3 c\u1ed9ng h\u01b0\u1edfng.",
-                                        "C\u1ed5ng boss s\u1ebd kh\u00f4ng ch\u1ec9 m\u1edf l\u1ed1i, n\u00f3 c\u00f2n \u0111\u00e1nh th\u1ee9c chi\u1ebfn y Ninja b\u1ecb phong \u1ea5n b\u00ean trong ng\u01b0\u01a1i."
-                                )
-                        ),
-                        new DialoguePage(
-                                player.getPlayerName(),
-                                "",
-                                List.of(
-                                        "V\u1eady n\u00ean khi b\u01b0\u1edbc v\u00e0o chi\u1ebfn \u0111\u1ecba \u1ea5y, ta s\u1ebd mang m\u1ed9t h\u00ecnh d\u1ea1ng kh\u00e1c..."
-                                )
-                        ),
-                        new DialoguePage(
-                                "Th\u1ed5 \u0110\u1ecba",
-                                "assets/phuthuy.png",
-                                List.of(
-                                        "\u0110\u00fang. Ch\u1ec9 trong tr\u1eadn chi\u1ebfn cu\u1ed1i c\u00f9ng, s\u1ee9c m\u1ea1nh \u0111\u00f3 m\u1edbi th\u1ef1c s\u1ef1 hi\u1ec7n h\u00ecnh.",
-                                        "H\u00e3y chu\u1ea9n b\u1ecb \u0111i. Khi ch\u1ea1m t\u1edbi c\u1ed5ng phong \u1ea5n, ng\u01b0\u01a1i s\u1ebd hi\u1ec3u v\u00ec sao m\u00ecnh \u0111\u01b0\u1ee3c ch\u1ecdn."
-                                )
-                        )
-                )
-        );
-    }
-
-    private DialogueScript createEndingOpeningScript() {
-        List<String> rawLines = readEndingScriptLines();
-        List<DialoguePage> pages = new ArrayList<>();
-        List<String> currentLines = new ArrayList<>();
-        String currentSpeaker = "";
-        String currentPortrait = "";
-        for (String rawLine : rawLines) {
-            String line = normalizeEndingLine(rawLine);
-            if (line.isBlank()) {
-                continue;
-            }
-            if (isEndingEpilogueMarker(line)) {
-                break;
-            }
-            if (line.endsWith(":")) {
-                flushEndingPage(pages, currentSpeaker, currentPortrait, currentLines);
-                currentLines = new ArrayList<>();
-                String speakerToken = line.substring(0, line.length() - 1).trim();
-                currentSpeaker = resolveEndingSpeakerName(speakerToken);
-                currentPortrait = resolveEndingPortrait(speakerToken);
-                continue;
-            }
-            if (isQuotedDialogueLine(line) && !currentSpeaker.isBlank()) {
-                currentLines.add(stripDialogueQuotes(line));
-            }
-        }
-        flushEndingPage(pages, currentSpeaker, currentPortrait, currentLines);
-        if (pages.isEmpty()) {
-            throw new IllegalStateException("Ending opening dialogue contains no quoted pages.");
-        }
-        return new DialogueScript("ending_open", pages);
-    }
-
-    private DialogueScript createEndingEpilogueScript() {
-        List<String> rawLines = readEndingScriptLines();
-        List<String> lines = new ArrayList<>();
-        boolean collecting = false;
-        for (String rawLine : rawLines) {
-            String line = normalizeEndingLine(rawLine);
-            if (line.isBlank()) {
-                continue;
-            }
-            if (!collecting) {
-                if (isEndingEpilogueMarker(line)) {
-                    collecting = true;
-                }
-                continue;
-            }
-            if (isQuotedDialogueLine(line)) {
-                lines.add(stripDialogueQuotes(line));
-            }
-        }
-        if (lines.isEmpty()) {
-            throw new IllegalStateException("Ending epilogue dialogue contains no quoted lines.");
-        }
-        return new DialogueScript(
-                "ending_epilogue",
-                List.of(new DialoguePage("Th\u1ed5 \u0110\u1ecba", "assets/phuthuy.png", lines))
-        );
-    }
-
-    private List<String> readEndingScriptLines() {
-        try {
-            return Files.readAllLines(Path.of(ENDING_DIALOGUE_SCRIPT_PATH), StandardCharsets.UTF_8);
-        } catch (Exception exception) {
-            throw new IllegalStateException("Cannot read ending dialogue script: " + ENDING_DIALOGUE_SCRIPT_PATH, exception);
-        }
-    }
-
-    private void flushEndingPage(List<DialoguePage> pages, String speaker, String portrait, List<String> lines) {
-        if (lines == null || lines.isEmpty()) {
-            return;
-        }
-        pages.add(new DialoguePage(speaker, portrait, List.copyOf(lines)));
-    }
-
-    private String normalizeEndingLine(String line) {
-        return line == null ? "" : line.trim();
-    }
-
-    private boolean isQuotedDialogueLine(String line) {
-        String value = normalizeEndingLine(line);
-        if (value.length() < 2) {
-            return false;
-        }
-        char first = value.charAt(0);
-        char last = value.charAt(value.length() - 1);
-        return (first == '"' && last == '"') || (first == '\u201C' && last == '\u201D');
-    }
-
-    private String stripDialogueQuotes(String line) {
-        String value = normalizeEndingLine(line);
-        return isQuotedDialogueLine(value) ? value.substring(1, value.length() - 1).trim() : value;
-    }
-
-    private boolean isEndingEpilogueMarker(String line) {
-        String normalized = Normalizer.normalize(normalizeEndingLine(line), Normalizer.Form.NFD)
-                .replaceAll("\\p{M}+", "")
-                .replace('\u0111', 'd')
-                .replace('\u0110', 'D')
-                .toUpperCase();
-        return normalized.contains("THO DIA") && normalized.contains("XUAT HIEN");
-    }
-
-    private String resolveEndingSpeakerName(String token) {
-        String normalized = Normalizer.normalize(token == null ? "" : token.trim(), Normalizer.Form.NFD)
-                .replaceAll("\\p{M}+", "")
-                .replace('\u0111', 'd')
-                .replace('\u0110', 'D')
-                .toUpperCase();
-        if ("PLAYER".equals(normalized)) {
-            return player.getPlayerName();
-        }
-        if ("THO DIA".equals(normalized)) {
-            return "Th\u1ed5 \u0110\u1ecba";
-        }
-        return token == null ? "" : token.trim();
-    }
-
-    private String resolveEndingPortrait(String token) {
-        String normalized = Normalizer.normalize(token == null ? "" : token.trim(), Normalizer.Form.NFD)
-                .replaceAll("\\p{M}+", "")
-                .replace('\u0111', 'd')
-                .replace('\u0110', 'D')
-                .toUpperCase();
-        return "THO DIA".equals(normalized) ? "assets/phuthuy.png" : "";
     }
 
     private boolean isBossCombatLocked(long now) {
@@ -2352,26 +1751,7 @@ public class Game {
     }
 
     private void activateGemRewardAnimation(long now) {
-        gemRewardAnimationActive = true;
-        gemRewardGranted = false;
-        gemRewardAnimationStartedAtNs = now;
-    }
-
-    private DialogueScript createSealGemRewardScript() {
-        return new DialogueScript(
-                "seal_gem_reward",
-                List.of(
-                        new DialoguePage(
-                                "Ph\u00f9 Th\u1ee7y",
-                                "assets/phuthuy.png",
-                                List.of(
-                                        "Kh\u00e1 l\u1eafm, ng\u01b0\u01a1i l\u1ea1i s\u1ed1ng s\u00f3t th\u00eam m\u1ed9t \u0111\u00eam n\u1eefa.",
-                                        "C\u1ea7m l\u1ea5y 1 vi\u00ean Ng\u1ecdc Phong \u1ea4n.",
-                                        "Thu th\u1eadp \u0111\u1ee7 " + REQUIRED_SEAL_GEMS_FOR_BOSS + " vi\u00ean, r\u1ed3i h\u00e3y \u0111\u1ebfn c\u1ed5ng boss."
-                                )
-                        )
-                )
-        );
+        progressionService.activateGemRewardAnimation(now);
     }
 
     /**
@@ -2386,21 +1766,21 @@ public class Game {
         }
 
         String requestedItemId = itemId.trim().toLowerCase();
-        String resolvedItemId = normalizeShopItemId(requestedItemId);
-        Map<String, Integer> purchaseCosts = resolveShopPurchaseCosts(resolvedItemId);
+        String resolvedItemId = shopService.normalizeShopItemId(requestedItemId);
+        Map<String, Integer> purchaseCosts = shopService.resolvePurchaseCosts(resolvedItemId);
         if (purchaseCosts.isEmpty()) {
             logShopPurchase(requestedItemId, resolvedItemId, purchaseCosts, false, "unknown-item");
             renderer.showToast("Unknown item");
             return;
         }
 
-        if (!hasEnoughResources(purchaseCosts)) {
+        if (!shopService.hasEnoughResources(inventory, purchaseCosts)) {
             logShopPurchase(requestedItemId, resolvedItemId, purchaseCosts, false, "not-enough-resources");
             renderer.showToast("Not enough resources");
             return;
         }
 
-        if (!consumePurchaseCosts(purchaseCosts)) {
+        if (!shopService.consumePurchaseCosts(inventory, purchaseCosts)) {
             logShopPurchase(requestedItemId, resolvedItemId, purchaseCosts, false, "consume-failed");
             renderer.showToast("Resource sync failed");
             return;
@@ -2409,7 +1789,7 @@ public class Game {
         if (FRIENDLY_ARCHER_ITEM_ID.equals(resolvedItemId)) {
             boolean spawned = spawnFriendlyArcherNearPlayer();
             if (!spawned) {
-                refundPurchaseCosts(purchaseCosts);
+                shopService.refundPurchaseCosts(inventory, purchaseCosts);
                 logShopPurchase(requestedItemId, resolvedItemId, purchaseCosts, false, "spawn-failed");
                 renderer.showToast("No valid tile for Archer");
                 return;
@@ -2421,7 +1801,7 @@ public class Game {
         }
         if (CHEST_ITEM_ID.equals(resolvedItemId)) {
             if (hasAnyAliveChest() || inventory.getAmount(CHEST_ITEM_ID) > 0) {
-                refundPurchaseCosts(purchaseCosts);
+                shopService.refundPurchaseCosts(inventory, purchaseCosts);
                 logShopPurchase(requestedItemId, resolvedItemId, purchaseCosts, false, "already-exists");
                 renderer.showToast("Chest already exists");
                 return;
@@ -2437,7 +1817,7 @@ public class Game {
         inventory.addItem(resolvedItemId, 1);
         boolean inventoryAddResult = inventory.getAmount(resolvedItemId) == beforeAmount + 1;
         if (!inventoryAddResult) {
-            refundPurchaseCosts(purchaseCosts);
+            shopService.refundPurchaseCosts(inventory, purchaseCosts);
             logShopPurchase(requestedItemId, resolvedItemId, purchaseCosts, false, "inventory-add-failed");
             renderer.showToast("Inventory add failed");
             return;
@@ -2464,24 +1844,7 @@ public class Game {
         bossFightBannerUntilNs = -1L;
         pendingBossReturnToMainMapEntrance = false;
         pendingEndingDialogueAfterBossReturn = false;
-        dayOneObjectiveUnlocked = false;
-        dayOneObjectiveCompleted = false;
-        dayOneObjectiveCompletedAtNs = -1L;
-        axeSkillUnlockAnnounced = false;
-        dayOneObjectiveStep = 0;
-        axeSkillCelebrationUntilNs = -1L;
-        pendingSkillUnlockCelebration = null;
-        formUnlockCelebrationUntilNs = -1L;
-        pendingFormUnlockCelebration = null;
-        dayOneEnemyKillCount = 0;
-        activeShopTutorialHint = null;
-        nextShopTutorialHintIndex = 0;
-        activeShopTutorialHintUntilNs = -1L;
-        nextShopTutorialHintAtNs = -1L;
-        gemRewardAnimationActive = false;
-        gemRewardGranted = false;
-        gemRewardAnimationStartedAtNs = -1L;
-        bossNinjaAwakeningUnlocked = false;
+        progressionService.reset();
         lastDayPassiveHealAtNs = 0L;
         dayTwoDaytimeFullHealGranted = false;
         finalEndingOverlayActive = false;
@@ -2497,7 +1860,7 @@ public class Game {
         buildManager.clearObjects();
         inventory.restore(Map.of());
         seedStartingBuildItems();
-        selectedHotbarIndex = 0;
+        hotbarService.setSelectedIndex(0);
         refreshBuildInventoryUi();
         floatingDamageTexts.clear();
         droppedItems.clear();
@@ -2519,8 +1882,7 @@ public class Game {
         nextGolemSpawnAtNs = 0L;
         lastUpdateNowNs = -1L;
         eatingNikuUntilNs = -1L;
-        selectedHotbarIndex = 0;
-        setSelectedHotbarIndex(selectedHotbarIndex);
+        setSelectedHotbarIndex(0);
         hasLoadedSaveSnapshot = false;
         renderer.setContinueAvailable(false);
         loadMapWoodFences();
@@ -4000,7 +3362,8 @@ public class Game {
             // Initial map fences are not serialized, so restore them after loading saved player-built objects.
             loadMapWoodFences();
         }
-        restoreDroppedItems(save.get("droppedItems"));
+        droppedItems.clear();
+        droppedItems.addAll(WorldSnapshotHelper.restoreDroppedItems(save.get("droppedItems")));
         refreshBuildInventoryUi();
         lastBuildObjectCount = buildManager.getPlacedObjects().size();
 
@@ -4016,17 +3379,18 @@ public class Game {
     }
 
     private void saveWorldSnapshot() {
-        Map<String, Object> snapshot = new LinkedHashMap<>();
-        snapshot.put("mapType", mapManager.getCurrentMapType().name());
-        snapshot.put("playerX", player.getX());
-        snapshot.put("playerY", player.getY());
-        snapshot.put("playerHp", player.getHp());
-        snapshot.put("playerEnergy", player.getEnergy());
-        snapshot.put("baseCampHp", baseCamp.getHp());
-        snapshot.put("elapsedNs", Math.max(0L, System.nanoTime() - worldStartedAtNs));
-        snapshot.put("inventory", WorldSaveService.buildInventorySnapshot(inventory));
-        snapshot.put("buildObjects", buildManager.exportSaveData());
-        snapshot.put("droppedItems", exportDroppedItems());
+        Map<String, Object> snapshot = WorldSnapshotHelper.createSnapshot(
+                mapManager.getCurrentMapType(),
+                player.getX(),
+                player.getY(),
+                player.getHp(),
+                player.getEnergy(),
+                baseCamp.getHp(),
+                System.nanoTime() - worldStartedAtNs,
+                inventory,
+                new ArrayList<>(buildManager.exportSaveData()),
+                droppedItems
+        );
 
         if (worldSaveService.save(snapshot)) {
             hasLoadedSaveSnapshot = true;
@@ -4434,207 +3798,17 @@ public class Game {
         }
         return new double[]{x, y};
     }
-
-    private String buildSurvivalObjectiveStatus(long now) {
-        if (!dayOneObjectiveUnlocked) {
-            return "";
-        }
-        if (dayOneObjectiveCompleted) {
-            return "ChuÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Âi nhiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡m vÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¥ hoÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â n thÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â nh!\n"
-                    + "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£ ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¹Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂºÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡t level " + player.getLevel() + "\n"
-                    + "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ KÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¹ nÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ng F ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¹Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£ mÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ khÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³a";
-        }
-        return switch (dayOneObjectiveStep) {
-            case 0 -> "NhiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡m vÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¥ 1:\nÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ " + inventory.getAmount("wood") + "/" + DAY_ONE_OBJECTIVE_WOOD + " gÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â";
-            case 1 -> "NhiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡m vÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¥ 2:\nÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ " + inventory.getAmount("rock") + "/" + DAY_ONE_OBJECTIVE_ROCK + " ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¹Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡";
-            default -> "NhiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡m vÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¥ 3:\nÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ " + getCurrentFoodAmount() + "/" + DAY_ONE_OBJECTIVE_FOOD + " thÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©c ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢n";
-        };
-    }
-
-    private int getCurrentFoodAmount() {
-        return Math.max(0, inventory.getAmount("niku")) + Math.max(0, inventory.getAmount(CARROT_ITEM_ID));
-    }
-
-    private void updateProgressionObjectives(long now) {
-        if (!dayOneObjectiveUnlocked || dayOneObjectiveCompleted) {
-            return;
-        }
-        switch (dayOneObjectiveStep) {
-            case 0 -> {
-                if (inventory.getAmount("wood") >= DAY_ONE_OBJECTIVE_WOOD) {
-                    completeDayOneObjectiveStep(now, 0);
-                }
-            }
-            case 1 -> {
-                if (inventory.getAmount("rock") >= DAY_ONE_OBJECTIVE_ROCK) {
-                    completeDayOneObjectiveStep(now, 1);
-                }
-            }
-            default -> {
-                if (getCurrentFoodAmount() >= DAY_ONE_OBJECTIVE_FOOD) {
-                    completeDayOneObjectiveStep(now, 2);
-                }
-            }
-        }
-    }
-
-    private void completeDayOneObjectiveStep(long now, int step) {
-        inventory.addItem(COIN_ITEM_ID, DAY_ONE_OBJECTIVE_REWARD_GOLD);
-        if (step == 0 || step == 2) {
-            player.addExperience(player.getExperienceToNextLevel());
-        }
-        refreshBuildInventoryUi();
-        if (step >= 2) {
-            dayOneObjectiveCompleted = true;
-            dayOneObjectiveCompletedAtNs = now;
-        } else {
-            dayOneObjectiveStep++;
-        }
-        if (isAxeSkillUnlocked() && !axeSkillUnlockAnnounced) {
-            axeSkillUnlockAnnounced = true;
-            axeSkillCelebrationUntilNs = now + 3_000_000_000L;
-            renderer.showToast("MÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ khÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³a kÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¹ nÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ng \"TiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âu phu ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¹Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¹Ãƒâ€¦Ã¢â‚¬Å“n cÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§i\" [F]");
-            return;
-        }
-        renderer.showToast("HoÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â n thÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â nh nhiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡m vÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¥! +10 vÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ng");
-    }
-
-    private void updateSkillUnlockState() {
-        if (axeSkillUnlockAnnounced || !isAxeSkillUnlocked()) {
-            return;
-        }
-        axeSkillUnlockAnnounced = true;
-        renderer.showToast("Unlocked Axe Skill [F]");
-    }
-
-    private boolean isAxeSkillUnlocked() {
-        return player.getLevel() >= AXE_SKILL_UNLOCK_LEVEL;
-    }
-
-    private String buildCurrentObjectiveStatus(long now) {
-        if (!dayOneObjectiveUnlocked) {
-            return "";
-        }
-        if (dayOneObjectiveCompleted) {
-            return "ChuÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Âi nhiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡m vÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¥ hoÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â n thÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â nh!\n"
-                    + "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£ ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¹Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂºÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡t level " + player.getLevel() + "\n"
-                    + "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ ChÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â sÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¹Ãƒâ€¦Ã¢â‚¬Å“ng sÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³t qua ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¹Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âªm ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¹Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂºÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§u tiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âªn";
-        }
-
-        ObjectiveStep currentStep = getCurrentObjectiveStep();
-        if (currentStep == null) {
-            return "";
-        }
-        return currentStep.title() + ":\nÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ "
-                + getObjectiveProgress(currentStep) + "/" + currentStep.targetAmount()
-                + " " + getObjectiveLabel(currentStep);
-    }
-
-    private ObjectiveStep getCurrentObjectiveStep() {
-        if (dayOneObjectiveStep < 0 || dayOneObjectiveStep >= DAY_ONE_OBJECTIVES.size()) {
-            return null;
-        }
-        return DAY_ONE_OBJECTIVES.get(dayOneObjectiveStep);
-    }
-
-    private int getObjectiveProgress(ObjectiveStep objectiveStep) {
-        if (objectiveStep == null) {
-            return 0;
-        }
-        if (objectiveStep.foodObjective()) {
-            return getCurrentFoodAmount();
-        }
-        if ("enemy_kill".equals(objectiveStep.itemId())) {
-            return Math.max(0, dayOneEnemyKillCount);
-        }
-        return Math.max(0, inventory.getAmount(objectiveStep.itemId()));
-    }
-
-    private String getObjectiveLabel(ObjectiveStep objectiveStep) {
-        if (objectiveStep == null) {
-            return "";
-        }
-        if (objectiveStep.foodObjective()) {
-            return "th\u1ee9c \u0103n";
-        }
-        return switch (objectiveStep.itemId()) {
-            case "wood" -> "g\u1ed7";
-            case "rock" -> "\u0111\u00e1";
-            case "enemy_kill" -> "qu\u00e1i";
-            default -> objectiveStep.itemId();
-        };
-    }
-
-    private void updateDayOneObjectiveChain(long now) {
-        if (!dayOneObjectiveUnlocked || dayOneObjectiveCompleted) {
-            return;
-        }
-        ObjectiveStep currentStep = getCurrentObjectiveStep();
-        if (currentStep == null) {
-            return;
-        }
-        if (getObjectiveProgress(currentStep) >= currentStep.targetAmount()) {
-            completeObjectiveStep(now, currentStep);
-        }
-    }
-
-    private void completeObjectiveStep(long now, ObjectiveStep completedStep) {
-        inventory.addItem(COIN_ITEM_ID, DAY_ONE_OBJECTIVE_REWARD_GOLD);
-        player.addExperience(player.getExperienceToNextLevel());
-        refreshBuildInventoryUi();
-
-        dayOneObjectiveStep++;
-        if (dayOneObjectiveStep >= DAY_ONE_OBJECTIVES.size()) {
-            dayOneObjectiveCompleted = true;
-            dayOneObjectiveCompletedAtNs = now;
-        }
-
-        String rewardText = "Ho\u00e0n th\u00e0nh " + completedStep.title() + "! +10 v\u00e0ng, +1 level";
-        if (isAxeSkillUnlocked() && !axeSkillUnlockAnnounced) {
-            axeSkillUnlockAnnounced = true;
-            axeSkillCelebrationUntilNs = now + 3_000_000_000L;
-            renderer.showToast(rewardText + ". MÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ khÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³a \"TiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âu phu ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¹Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¹Ãƒâ€¦Ã¢â‚¬Å“n cÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§i\" [F]");
-            return;
-        }
-        renderer.showToast(rewardText);
-    }
-
-    private void updateNightRewardFlow(long now) {
-        int currentDay = dayNightManager.getDay(now);
-        if (currentDay < 2) {
-            return;
-        }
-        if (dayOneObjectiveStep < DAY_ONE_OBJECTIVES.size()) {
-            return;
-        }
-        if (gemRewardAnimationActive) {
-            return;
-        }
-        if (dayNightManager.getPhase(now) != DayNightManager.Phase.DAY) {
-            return;
-        }
-        int currentGems = Math.max(0, inventory.getAmount(SEAL_GEM_ITEM_ID));
-        int rewardableGems = Math.min(REQUIRED_SEAL_GEMS_FOR_BOSS, currentDay - 1);
-        if (currentGems >= rewardableGems) {
-            return;
-        }
-        dayOneObjectiveCompleted = true;
-        dayOneObjectiveCompletedAtNs = now;
-        startSealGemRewardDialogue();
-    }
-
     private void updateGemRewardAnimation(long now) {
-        updateNightRewardFlow(now);
-        if (!gemRewardAnimationActive || gemRewardAnimationStartedAtNs < 0L) {
+        if (progressionService.shouldStartSealGemRewardDialogue(
+                dayNightManager.getDay(now),
+                dayNightManager.getPhase(now) == DayNightManager.Phase.DAY,
+                inventory.getAmount(SEAL_GEM_ITEM_ID),
+                REQUIRED_SEAL_GEMS_FOR_BOSS
+        )) {
+            startSealGemRewardDialogue();
             return;
         }
-        if (now - gemRewardAnimationStartedAtNs < gemRewardAnimationDurationNs) {
-            return;
-        }
-        gemRewardAnimationActive = false;
-        gemRewardAnimationStartedAtNs = -1L;
-        if (!gemRewardGranted) {
-            gemRewardGranted = true;
+        if (progressionService.updateGemRewardAnimation(now)) {
             inventory.addItem(SEAL_GEM_ITEM_ID, 1);
             refreshBuildInventoryUi();
             renderer.showToast("Nh\u1eadn \u0111\u01b0\u1ee3c 1 vi\u00ean Ng\u1ecdc Phong \u1ea4n.");
@@ -4642,20 +3816,14 @@ public class Game {
     }
 
     private void updateBossNinjaAwakeningFlow(long now) {
-        if (bossNinjaAwakeningUnlocked) {
-            return;
+        if (progressionService.shouldTriggerBossNinjaAwakening(
+                mapManager.getCurrentMapType() == MapType.MAIN_MAP,
+                inventory.getAmount(SEAL_GEM_ITEM_ID),
+                REQUIRED_SEAL_GEMS_FOR_BOSS,
+                introDialogueRunner != null
+        )) {
+            startBossNinjaAwakeningDialogue();
         }
-        if (mapManager.getCurrentMapType() != MapType.MAIN_MAP) {
-            return;
-        }
-        if (inventory.getAmount(SEAL_GEM_ITEM_ID) < REQUIRED_SEAL_GEMS_FOR_BOSS) {
-            return;
-        }
-        if (gemRewardAnimationActive || introDialogueRunner != null) {
-            return;
-        }
-        bossNinjaAwakeningUnlocked = true;
-        startBossNinjaAwakeningDialogue();
     }
 
     private void updateDaytimeHealthRecovery(long now, boolean bossMode) {
@@ -4684,194 +3852,27 @@ public class Game {
             renderer.showToast("L\u1ec1u ch\u00ednh \u0111\u00e3 \u0111\u01b0\u1ee3c gia c\u1ed1, HP h\u1ed3i \u0111\u1ea7y.");
         }
     }
-
-    private String buildActiveObjectiveStatus(long now) {
-        if (!dayOneObjectiveUnlocked) {
-            return "";
-        }
-        if (dayOneObjectiveCompleted) {
-            return "ChuÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Âi nhiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡m vÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¥ hoÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â n thÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â nh!\n"
-                    + "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£ ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¹Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂºÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡t level " + player.getLevel() + "\n"
-                    + "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£ sÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¹Ãƒâ€¦Ã¢â‚¬Å“ng sÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³t qua ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¹Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âªm ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¹Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂºÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§u tiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âªn";
-        }
-
-        ObjectiveStep currentStep = getCurrentObjectiveStep();
-        if (currentStep == null) {
-            return "NhiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡m vÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¥ 4:\nÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ SÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¹Ãƒâ€¦Ã¢â‚¬Å“ng sÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³t qua ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¹Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âªm";
-        }
-        return currentStep.title() + ":\nÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ "
-                + getObjectiveProgress(currentStep) + "/" + currentStep.targetAmount()
-                + " " + getActiveObjectiveLabel(currentStep);
-    }
-
-    private String getActiveObjectiveLabel(ObjectiveStep objectiveStep) {
-        if (objectiveStep == null) {
-            return "";
-        }
-        if (objectiveStep.foodObjective()) {
-            return "thÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©c ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢n";
-        }
-        return switch (objectiveStep.itemId()) {
-            case "wood" -> "gÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â";
-            case "rock" -> "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¹Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡";
-            default -> objectiveStep.itemId();
-        };
-    }
-
-    private void updateActiveObjectiveChain(long now) {
-        if (!dayOneObjectiveUnlocked || dayOneObjectiveCompleted) {
-            return;
-        }
-        ObjectiveStep currentStep = getCurrentObjectiveStep();
-        if (currentStep == null) {
-            return;
-        }
-        if (getObjectiveProgress(currentStep) >= currentStep.targetAmount()) {
-            completeActiveObjectiveStep(now, currentStep);
-        }
-    }
-
-    private void completeActiveObjectiveStep(long now, ObjectiveStep completedStep) {
-        inventory.addItem(COIN_ITEM_ID, DAY_ONE_OBJECTIVE_REWARD_GOLD);
-        player.addExperience(player.getExperienceToNextLevel());
-        refreshBuildInventoryUi();
-
-        dayOneObjectiveStep++;
-
-        String rewardText = "Ho\u00e0n th\u00e0nh " + completedStep.title() + "! +10 v\u00e0ng, +1 level";
-        if (isAxeSkillUnlocked() && !axeSkillUnlockAnnounced) {
-            axeSkillUnlockAnnounced = true;
-            axeSkillCelebrationUntilNs = now + 3_000_000_000L;
-            renderer.showToast(rewardText + ". MÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ khÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³a \"TiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âu phu ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¹Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¹Ãƒâ€¦Ã¢â‚¬Å“n cÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â»ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§i\" [F]");
-            return;
-        }
-        renderer.showToast(rewardText);
-    }
-    private String buildObjectiveStatusV2(long now) {
-        if (mapManager.getCurrentMapType() == MapType.BOSS_MAP) {
-            return bossManager.buildObjectiveStatus(player);
-        }
-        if (!dayOneObjectiveUnlocked) {
-            return "";
-        }
-        if (dayOneObjectiveCompleted) {
-            return "Chu\u1ed7i nhi\u1ec7m v\u1ee5 hi\u1ec7n t\u1ea1i \u0111\u00e3 ho\u00e0n th\u00e0nh!\n"
-                    + "- \u0110\u1ea1t c\u1ea5p \u0111\u1ed9 hi\u1ec7n t\u1ea1i: level " + player.getLevel() + "\n"
-                    + "- S\u1eb5n s\u00e0ng s\u1ed1ng s\u00f3t qua \u0111\u00eam \u0111\u1ea7u ti\u00ean";
-        }
-
-        ObjectiveStep currentStep = getCurrentObjectiveStep();
-        if (currentStep == null) {
-            return "Nhi\u1ec7m v\u1ee5 5:\n- S\u1ed1ng s\u00f3t qua \u0111\u00eam \u0111\u1ea7u ti\u00ean";
-        }
-        return currentStep.title() + ":\n- "
-                + getObjectiveProgress(currentStep) + "/" + currentStep.targetAmount()
-                + " " + getObjectiveLabelV2(currentStep);
-    }
-
-    private String getObjectiveLabelV2(ObjectiveStep objectiveStep) {
-        if (objectiveStep == null) {
-            return "";
-        }
-        if (objectiveStep.foodObjective()) {
-            return "th\u1ee9c \u0103n";
-        }
-        return switch (objectiveStep.itemId()) {
-            case "wood" -> "g\u1ed7";
-            case "rock" -> "\u0111\u00e1";
-            case "enemy_kill" -> "qu\u00e1i";
-            default -> objectiveStep.itemId();
-        };
-    }
-
     private void updateObjectiveProgressionV2(long now) {
-        if (!dayOneObjectiveUnlocked || dayOneObjectiveCompleted) {
-            return;
-        }
-        ObjectiveStep currentStep = getCurrentObjectiveStep();
-        if (currentStep == null) {
-            return;
-        }
-        if (getObjectiveProgress(currentStep) >= currentStep.targetAmount()) {
-            completeObjectiveStepV2(now, currentStep);
+        SurvivalProgressionService.ObjectiveCompletion completion = progressionService.advanceObjectiveIfReady(
+                now,
+                inventory.getAmount("wood"),
+                inventory.getAmount("rock"),
+                getCurrentFoodAmount()
+        );
+        if (completion != null) {
+            inventory.addItem(COIN_ITEM_ID, progressionService.getObjectiveRewardGold());
+            player.addExperience(player.getExperienceToNextLevel());
+            refreshBuildInventoryUi();
+            renderer.showToast(progressionService.finalizeObjectiveReward(completion.stepTitle(), now, player.getLastLeveledUpTo()));
         }
     }
 
-    private void completeObjectiveStepV2(long now, ObjectiveStep completedStep) {
-        inventory.addItem(COIN_ITEM_ID, DAY_ONE_OBJECTIVE_REWARD_GOLD);
-        player.addExperience(player.getExperienceToNextLevel());
-        refreshBuildInventoryUi();
-        dayOneObjectiveStep++;
-
-        String rewardText = "Ho\u00e0n th\u00e0nh " + completedStep.title() + "! +10 v\u00e0ng, +1 level";
-        SkillUnlockInfo unlockedSkill = findSkillUnlockedAtLevel(player.getLastLeveledUpTo());
-        if (dayOneObjectiveStep >= DAY_ONE_OBJECTIVES.size()) {
-            scheduleShopTutorialHints(now, unlockedSkill != null);
-        }
-        if (unlockedSkill != null) {
-            triggerSkillUnlockCelebration(unlockedSkill, now);
-            renderer.showToast(rewardText + ". M\u1edf kh\u00f3a \"" + unlockedSkill.name() + "\" [" + getSkillKeyLabel(unlockedSkill.attackType()) + "]");
-            return;
-        }
-        renderer.showToast(rewardText);
-    }
-
-    private void scheduleShopTutorialHints(long now, boolean delayedForSkillCelebration) {
-        activeShopTutorialHint = null;
-        nextShopTutorialHintIndex = 0;
-        activeShopTutorialHintUntilNs = -1L;
-        nextShopTutorialHintAtNs = now + (delayedForSkillCelebration ? 3_000_000_000L : 0L);
+    private int getCurrentFoodAmount() {
+        return Math.max(0, inventory.getAmount(NIKU_ITEM_ID)) + Math.max(0, inventory.getAmount(CARROT_ITEM_ID));
     }
 
     private void updateShopTutorialHints(long now) {
-        if (activeShopTutorialHint != null && now >= activeShopTutorialHintUntilNs) {
-            activeShopTutorialHint = null;
-            activeShopTutorialHintUntilNs = -1L;
-            nextShopTutorialHintAtNs = now;
-        }
-        if (activeShopTutorialHint != null || nextShopTutorialHintAtNs < 0L) {
-            return;
-        }
-        if (now < nextShopTutorialHintAtNs) {
-            return;
-        }
-        if (nextShopTutorialHintIndex >= SHOP_TUTORIAL_HINTS.size()) {
-            nextShopTutorialHintAtNs = -1L;
-            return;
-        }
-        activeShopTutorialHint = SHOP_TUTORIAL_HINTS.get(nextShopTutorialHintIndex++);
-        activeShopTutorialHintUntilNs = now + SHOP_TUTORIAL_CELEBRATION_DURATION_NS;
-    }
-
-    private SkillUnlockInfo findSkillUnlockedAtLevel(int level) {
-        for (SkillUnlockInfo skillUnlock : SKILL_UNLOCKS) {
-            if (skillUnlock.level() == level) {
-                return skillUnlock;
-            }
-        }
-        return null;
-    }
-
-    private Player.AttackAnimationType getHighestUnlockedSkillType() {
-        SkillUnlockInfo highest = null;
-        for (SkillUnlockInfo skillUnlock : SKILL_UNLOCKS) {
-            if (player.getLevel() < skillUnlock.level()) {
-                continue;
-            }
-            if (highest == null || skillUnlock.level() > highest.level()) {
-                highest = skillUnlock;
-            }
-        }
-        return highest == null ? null : highest.attackType();
-    }
-
-    private void triggerSkillUnlockCelebration(SkillUnlockInfo unlockedSkill, long now) {
-        if (unlockedSkill == null) {
-            return;
-        }
-        pendingSkillUnlockCelebration = unlockedSkill;
-        axeSkillUnlockAnnounced = true;
-        axeSkillCelebrationUntilNs = now + 3_000_000_000L;
+        progressionService.updateShopTutorialHints(now);
     }
 
     private void tryUseUnlockedSkill(long now,
@@ -4879,26 +3880,13 @@ public class Game {
                                      String skillName,
                                      int unlockLevel,
                                      String keyLabel) {
-        if (player.getLevel() < unlockLevel) {
+        if (!progressionService.isSkillUnlocked(player.getLevel(), unlockLevel)) {
             renderer.showToast("M\u1edf kh\u00f3a " + skillName + " \u1edf level " + unlockLevel + " [" + keyLabel + "]");
             return;
         }
         if (player.consumeEnergy(SKILL_F_ENERGY_COST)) {
             performPlayerAttack(now, attackType);
         }
-    }
-
-    private String getSkillKeyLabel(Player.AttackAnimationType attackType) {
-        if (attackType == null) {
-            return "F";
-        }
-        return switch (attackType) {
-            case SLICE -> "F";
-            case CRUSH -> "L";
-            case PIERCE -> "K";
-            case HIT -> "J";
-            default -> "F";
-        };
     }
 
     // getGameOverMessage:
@@ -5339,7 +4327,7 @@ public class Game {
         // - Hien tai slot nao co item build thi BuildManager se tu doc tu toolbar model.
         // - Chon slot nay se thong bao cho BuildManager bat BUILD_WALL_MODE.
         // - Cac slot khac de null de game thoat khoi che do xay.
-        selectedHotbarIndex = slotIndex;
+        hotbarService.setSelectedIndex(slotIndex);
         syncSelectedHotbarMode();
     }
 
@@ -5390,46 +4378,9 @@ public class Game {
     }
 
     private void refreshBuildInventoryUi() {
-        int previousSelectedIndex = selectedHotbarIndex;
-        String previouslySelectedItemId = getSelectedHotbarItemId();
         buildManager.syncToolbar(inventory.snapshot());
-        rebuildHotbarItems();
-        if (previouslySelectedItemId != null && !previouslySelectedItemId.isBlank()) {
-            int matchedIndex = findHotbarIndexByItemId(previouslySelectedItemId);
-            if (matchedIndex >= 0) {
-                selectedHotbarIndex = matchedIndex;
-            } else {
-                selectedHotbarIndex = previousSelectedIndex;
-            }
-        } else {
-            selectedHotbarIndex = previousSelectedIndex;
-        }
-        if (selectedHotbarIndex < 0) {
-            selectedHotbarIndex = 0;
-        }
-        if (selectedHotbarIndex >= 9) {
-            selectedHotbarIndex = 8;
-        }
+        hotbarService.refresh(inventory.snapshot(), renderer::getItemMeta, this::isBuildItemId);
         syncSelectedHotbarMode();
-    }
-
-    private void rebuildHotbarItems() {
-        hotbarItems.clear();
-        Map<String, Integer> snapshot = inventory.snapshot();
-        for (String itemId : HOTBAR_PRIORITY) {
-            if (itemId == null || itemId.isBlank()) {
-                continue;
-            }
-            int amount = snapshot.getOrDefault(itemId, 0);
-            if (amount <= 0) {
-                continue;
-            }
-            ItemUiMeta meta = renderer.getItemMeta(itemId);
-            hotbarItems.add(new HotbarItemStack(itemId, amount, meta, isBuildItemId(itemId)));
-            if (hotbarItems.size() >= 9) {
-                return;
-            }
-        }
     }
 
     private void syncSelectedHotbarMode() {
@@ -5440,7 +4391,7 @@ public class Game {
             return;
         }
         player.setEquipmentMode(AXE_ITEM_ID.equals(selectedItemId)
-                && isAxeSkillUnlocked()
+                && progressionService.isSkillUnlocked(player.getLevel(), AXE_SKILL_UNLOCK_LEVEL)
                 ? Player.EquipmentMode.AXE_MODE
                 : Player.EquipmentMode.HAND_MODE);
         if (isBuildItemId(selectedItemId)) {
@@ -5451,11 +4402,7 @@ public class Game {
     }
 
     private String getSelectedHotbarItemId() {
-        if (selectedHotbarIndex < 0 || selectedHotbarIndex >= hotbarItems.size()) {
-            return "";
-        }
-        HotbarItemStack stack = hotbarItems.get(selectedHotbarIndex);
-        return stack == null ? "" : stack.getItemId();
+        return hotbarService.getSelectedItemId();
     }
 
     private boolean isBuildItemId(String itemId) {
@@ -5463,92 +4410,6 @@ public class Game {
             return false;
         }
         return buildManager.getRegistry().findByItemId(itemId) != null;
-    }
-
-    private int findHotbarIndexByItemId(String itemId) {
-        if (itemId == null || itemId.isBlank()) {
-            return -1;
-        }
-        for (int i = 0; i < hotbarItems.size(); i++) {
-            HotbarItemStack stack = hotbarItems.get(i);
-            if (stack != null && itemId.equals(stack.getItemId())) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    private Map<String, Integer> resolveShopPurchaseCosts(String resolvedItemId) {
-        return switch (resolvedItemId) {
-            case WOOD_FENCE_ITEM_ID -> Map.of(COIN_ITEM_ID, WOOD_FENCE_PRICE);
-            case WOOD_WALL_ITEM_ID -> Map.of(COIN_ITEM_ID, WOOD_WALL_PRICE);
-            case POTION_ITEM_ID -> Map.of(COIN_ITEM_ID, 12);
-            case TORCH_ITEM_ID -> Map.of(COIN_ITEM_ID, TORCH_PRICE);
-            case ARCHER_TOWER_ITEM_ID -> Map.of("wood", 10, "stone", 10);
-            case FRIENDLY_ARCHER_ITEM_ID -> Map.of(COIN_ITEM_ID, FRIENDLY_ARCHER_PRICE);
-            case CHEST_ITEM_ID -> Map.of(COIN_ITEM_ID, CHEST_PRICE);
-            case BOMB_TRAP_ITEM_ID -> Map.of(COIN_ITEM_ID, BOMB_TRAP_PRICE);
-            case FIRE_BOMB_ITEM_ID -> Map.of(COIN_ITEM_ID, FIRE_BOMB_PRICE);
-            case BASIC_SWORD_ITEM_ID -> Map.of(COIN_ITEM_ID, 18);
-            case PICKAXE_ITEM_ID -> Map.of(COIN_ITEM_ID, 14);
-            case CARROT_ITEM_ID -> Map.of(COIN_ITEM_ID, 3);
-            default -> Map.of();
-        };
-    }
-
-    private boolean hasEnoughResources(Map<String, Integer> purchaseCosts) {
-        if (purchaseCosts == null || purchaseCosts.isEmpty()) {
-            return false;
-        }
-        for (Map.Entry<String, Integer> entry : purchaseCosts.entrySet()) {
-            if (entry == null || entry.getKey() == null || entry.getKey().isBlank()) {
-                continue;
-            }
-            int required = entry.getValue() == null ? 0 : Math.max(0, entry.getValue());
-            if (inventory.getAmount(entry.getKey()) < required) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private boolean consumePurchaseCosts(Map<String, Integer> purchaseCosts) {
-        if (!hasEnoughResources(purchaseCosts)) {
-            return false;
-        }
-        List<Map.Entry<String, Integer>> consumed = new ArrayList<>();
-        for (Map.Entry<String, Integer> entry : purchaseCosts.entrySet()) {
-            if (entry == null || entry.getKey() == null || entry.getKey().isBlank()) {
-                continue;
-            }
-            int amount = entry.getValue() == null ? 0 : Math.max(0, entry.getValue());
-            if (amount <= 0) {
-                continue;
-            }
-            if (!inventory.consumeItem(entry.getKey(), amount)) {
-                for (Map.Entry<String, Integer> rollback : consumed) {
-                    inventory.addItem(rollback.getKey(), rollback.getValue());
-                }
-                return false;
-            }
-            consumed.add(Map.entry(entry.getKey(), amount));
-        }
-        return true;
-    }
-
-    private void refundPurchaseCosts(Map<String, Integer> purchaseCosts) {
-        if (purchaseCosts == null || purchaseCosts.isEmpty()) {
-            return;
-        }
-        for (Map.Entry<String, Integer> entry : purchaseCosts.entrySet()) {
-            if (entry == null || entry.getKey() == null || entry.getKey().isBlank()) {
-                continue;
-            }
-            int amount = entry.getValue() == null ? 0 : Math.max(0, entry.getValue());
-            if (amount > 0) {
-                inventory.addItem(entry.getKey(), amount);
-            }
-        }
     }
 
     private void onResourceDestroyed(system.resource.ResourceNode resource) {
@@ -5632,29 +4493,12 @@ public class Game {
         if (enemy == null || enemy.hasSpawnedDeathDrop() || enemy.isAlive()) {
             return;
         }
-        if (enemy.isHostile() && dayOneObjectiveUnlocked && !dayOneObjectiveCompleted) {
-            dayOneEnemyKillCount++;
-        }
+                if (enemy.isHostile()) {
+                    progressionService.recordEnemyKill();
+                }
         List<DropSpec> dropTable = enemy.isHostile() ? ENEMY_DROP_TABLE : ANIMAL_DROP_TABLE;
         enemy.markDeathDropSpawned();
         spawnDropTable(enemy.getCenterX(), enemy.getCenterY(), dropTable);
-    }
-
-    private String normalizeShopItemId(String itemId) {
-        if (itemId == null || itemId.isBlank()) {
-            return "";
-        }
-        return switch (itemId.trim().toLowerCase()) {
-            case "axe", "riu", "rÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬u" -> AXE_ITEM_ID;
-            case WALL_ITEM_ALIAS -> WOOD_FENCE_ITEM_ID;
-            case "wood_fence", "wood fence" -> WOOD_FENCE_ITEM_ID;
-            case "cung", "archer_tower" -> ARCHER_TOWER_ITEM_ID;
-            case "archer", "friendly_archer", "friendly archer" -> FRIENDLY_ARCHER_ITEM_ID;
-            case "chest", "ruong", "ruong_do" -> CHEST_ITEM_ID;
-            case "bomb", "bomb_trap", "bomb trap", "bom" -> BOMB_TRAP_ITEM_ID;
-            case "fire_bomb", "fire bomb", "firebomb", "bom_lua", "bomb_fire" -> FIRE_BOMB_ITEM_ID;
-            default -> itemId.trim().toLowerCase();
-        };
     }
 
     private void logShopPurchase(String requestedItemId,
@@ -5684,30 +4528,9 @@ public class Game {
         }
     }
 
-    private List<Map<String, Object>> exportDroppedItems() {
-        List<Map<String, Object>> snapshot = new ArrayList<>();
-        for (DroppedItem droppedItem : droppedItems) {
-            if (droppedItem != null) {
-                snapshot.add(droppedItem.toSaveMap());
-            }
-        }
-        return snapshot;
-    }
-
-    private void restoreDroppedItems(Object rawValue) {
-        droppedItems.clear();
-        if (!(rawValue instanceof List<?> list)) {
-            return;
-        }
-        for (Object entry : list) {
-            if (!(entry instanceof Map<?, ?> map)) {
-                continue;
-            }
-            DroppedItem droppedItem = DroppedItem.fromSaveMap(map);
-            if (droppedItem != null) {
-                droppedItems.add(droppedItem);
-            }
-        }
-    }
 }
+
+
+
+
 
