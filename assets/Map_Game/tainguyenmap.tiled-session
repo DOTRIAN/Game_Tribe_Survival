@@ -1,0 +1,283 @@
+{
+    "activeFile": "",
+    "expandedProjectPaths": [
+        "assets/maps",
+        "assets/Map_Game",
+        ".",
+        "assets"
+    ],
+    "fileStates": {
+        "": {
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "#cot": {
+            "scaleInDock": 0.5
+        },
+        "#da": {
+            "scaleInDock": 0.25
+        },
+        "#dovat": {
+            "scaleInDock": 0.33
+        },
+        "#hang": {
+            "scaleInDock": 0.5
+        },
+        "#map_fin": {
+            "scaleInDock": 0.25
+        },
+        "assets/Map_Game/Level_1.tsx": {
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "assets/Map_Game/Rocks.tsx": {
+            "scaleInDock": 1,
+            "scaleInEditor": 1.5
+        },
+        "assets/Map_Game/Rocks_source_texture_shadow.tsx": {
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "assets/Map_Game/Stone_03-Sheet.tsx": {
+            "scaleInDock": 1
+        },
+        "assets/Map_Game/Vegetation.tsx": {
+            "scaleInDock": 1
+        },
+        "assets/Map_Game/Workbench.tsx": {
+            "scaleInDock": 0.75
+        },
+        "assets/Map_Game/fence.tsx": {
+            "scaleInDock": 0.25,
+            "scaleInEditor": 1
+        },
+        "assets/Map_Game/gentle forest v01.tsx": {
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "assets/Map_Game/gr.tsx": {
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "assets/Map_Game/hang.tsx": {
+            "scaleInDock": 1
+        },
+        "assets/Map_Game/houses.tsx": {
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "assets/Map_Game/map.tmx": {
+            "scale": 0.75,
+            "selectedLayer": 2,
+            "viewCenter": {
+                "x": 838,
+                "y": 596
+            }
+        },
+        "assets/Map_Game/map.tmx#Walls": {
+            "scaleInDock": 0.25
+        },
+        "assets/Map_Game/mapdep.tmx": {
+            "scale": 0.5,
+            "selectedLayer": 1,
+            "viewCenter": {
+                "x": 1158,
+                "y": 1982
+            }
+        },
+        "assets/Map_Game/mapdep.tmx#Rocks_source_no_shadow": {
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "assets/Map_Game/mapdep.tmx#Trees_source": {
+            "scaleInDock": 0.75,
+            "scaleInEditor": 1.5
+        },
+        "assets/Map_Game/mapdep.tmx#cay_co": {
+            "scaleInDock": 0.25
+        },
+        "assets/Map_Game/mapdep.tmx#cot": {
+            "scaleInDock": 0.25
+        },
+        "assets/Map_Game/mapdep.tmx#da": {
+            "scaleInDock": 0.25
+        },
+        "assets/Map_Game/mapdep.tmx#dovat": {
+            "scaleInDock": 0.33
+        },
+        "assets/Map_Game/mapdep.tmx#fence_xoa_bg": {
+            "scaleInDock": 0.33
+        },
+        "assets/Map_Game/mapdep.tmx#hang": {
+            "scaleInDock": 0.25
+        },
+        "assets/Map_Game/mapdep.tmx#map_fin": {
+            "scaleInDock": 0.125
+        },
+        "assets/Map_Game/mapdep.tmx#tent_xoa_bg": {
+            "scaleInDock": 0.5,
+            "scaleInEditor": 0.75
+        },
+        "assets/Map_Game/mapdep.tmx#tree_xoa_bg": {
+            "scaleInDock": 0.25
+        },
+        "assets/Map_Game/mapfinal.tmx": {
+            "scale": 0.5,
+            "selectedLayer": 0,
+            "viewCenter": {
+                "x": 944,
+                "y": 686
+            }
+        },
+        "assets/Map_Game/mapfinal.tmx#Rocks_source_no_shadow": {
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "assets/Map_Game/mapfinal.tmx#caigieng": {
+            "dynamicWrapping": true
+        },
+        "assets/Map_Game/mapfinal.tmx#cay_co": {
+            "dynamicWrapping": false,
+            "scaleInDock": 0.22,
+            "scaleInEditor": 0.75
+        },
+        "assets/Map_Game/mapfinal.tmx#cot": {
+            "scaleInDock": 0.25
+        },
+        "assets/Map_Game/mapfinal.tmx#da": {
+            "dynamicWrapping": false,
+            "scaleInDock": 0.25
+        },
+        "assets/Map_Game/mapfinal.tmx#dovat": {
+            "dynamicWrapping": true,
+            "scaleInDock": 0.25
+        },
+        "assets/Map_Game/mapfinal.tmx#dovat2": {
+            "dynamicWrapping": false
+        },
+        "assets/Map_Game/mapfinal.tmx#fence_xoa_bg": {
+            "scaleInDock": 0.33
+        },
+        "assets/Map_Game/mapfinal.tmx#hang": {
+            "scaleInDock": 0.25,
+            "scaleInEditor": 0.5
+        },
+        "assets/Map_Game/mapfinal.tmx#map_fin": {
+            "scaleInDock": 0.0625
+        },
+        "assets/Map_Game/mapfinal.tmx#tent_xoa_bg": {
+            "scaleInDock": 0.25
+        },
+        "assets/Map_Game/nen.tsx": {
+            "dynamicWrapping": false,
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "assets/Map_Game/tenttre.tsx": {
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "assets/Map_Game/tileset.tsx": {
+            "scaleInDock": 1
+        },
+        "assets/Map_Game/treex.tsx": {
+            "scaleInDock": 0.5,
+            "scaleInEditor": 1
+        },
+        "assets/Map_Game/z7855280454757_9c0beb54b9539d143293c368e083aa0f.tsx": {
+            "scaleInDock": 1,
+            "scaleInEditor": 0.75
+        },
+        "assets/Map_Game/z7856113756251_3569b304f3656c901837f31551161cfd.tsx": {
+            "scaleInDock": 0.25,
+            "scaleInEditor": 0.5
+        },
+        "assets/Map_Game/z7856497395844_e156cce251084628b0773ef02e4cb5ae.tsx": {
+            "scaleInDock": 0.33,
+            "scaleInEditor": 0.75
+        },
+        "assets/maps/Bonfire_07-Sheet.tsx": {
+            "scaleInDock": 1,
+            "scaleInEditor": 2
+        },
+        "assets/maps/Props.tsx": {
+            "scaleInDock": 1
+        },
+        "assets/maps/Rocks.tsx": {
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "assets/maps/Roofs.tsx": {
+            "scaleInDock": 1
+        },
+        "assets/maps/TreeSize02.tsx": {
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "assets/maps/TreeSize04.tsx": {
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "assets/maps/Wall_Tiles.tsx": {
+            "scaleInDock": 0.75,
+            "scaleInEditor": 1
+        },
+        "assets/maps/Walls.tsx": {
+            "scaleInDock": 0.75
+        },
+        "assets/maps/floors.tsx": {
+            "scaleInDock": 1,
+            "scaleInEditor": 3
+        },
+        "assets/maps/mapdemo.tmx": {
+            "expandedObjectLayers": [
+                2
+            ],
+            "scale": 3,
+            "selectedLayer": 3,
+            "viewCenter": {
+                "x": 952.1666666666666,
+                "y": 625.6666666666666
+            }
+        }
+    },
+    "frame.defaultDuration": 50,
+    "last.exportedFilePath": "assets/maps",
+    "last.externalTilesetPath": "D:/Game__TEST/assets/Map_Game",
+    "last.imagePath": "C:/Users/Admin/Downloads",
+    "last.objectTemplatePath": "assets/maps",
+    "map.height": 80,
+    "map.lastUsedExportFilter": "Tiled map files (*.tmx *.xml)",
+    "map.lastUsedFormat": "tmx",
+    "map.tileHeight": 16,
+    "map.tileWidth": 16,
+    "map.width": 120,
+    "openFiles": [
+        "assets/Map_Game/mapfinal.tmx",
+        "assets/Map_Game/mapdep.tmx",
+        "assets/Map_Game/nen.tsx"
+    ],
+    "project": "tainguyenmap.tiled-project",
+    "property.type": "int",
+    "recentFiles": [
+        "assets/Map_Game/nen.tsx",
+        "assets/Map_Game/Rocks_source_texture_shadow.tsx",
+        "assets/Map_Game/mapfinal.tmx",
+        "assets/Map_Game/mapdep.tmx",
+        "assets/Map_Game/fence.tsx",
+        "assets/Map_Game/Level_1.tsx",
+        "assets/Map_Game/houses.tsx",
+        "assets/Map_Game/gentle forest v01.tsx",
+        "assets/Map_Game/map.tmx",
+        "assets/Map_Game/z7856113756251_3569b304f3656c901837f31551161cfd.tsx",
+        "assets/Map_Game/z7856497395844_e156cce251084628b0773ef02e4cb5ae.tsx",
+        "assets/Map_Game/gr.tsx"
+    ],
+    "tileset.embedInMap": true,
+    "tileset.lastUsedFormat": "tsx",
+    "tileset.tileSize": {
+        "height": 16,
+        "width": 16
+    },
+    "tileset.type": 0
+}

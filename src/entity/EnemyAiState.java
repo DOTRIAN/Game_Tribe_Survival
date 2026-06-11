@@ -1,0 +1,18 @@
+package entity;
+
+public enum EnemyAiState {
+    IDLE,
+    PATROL,
+    CHASE_PLAYER,
+    MOVE_TO_BASE,
+    MOVE_TO_OBSTACLE,
+    BREAK_FENCE,
+    DIRECT_SIEGE_TO_PLAYER,
+    DIRECT_SIEGE_TO_BASE,
+    ATTACK_PLAYER,
+    ATTACK_BASE,
+    ATTACK_OBSTACLE,
+    RETURN_HOME,
+    STUCK_RECOVERY,
+    DEATH
+}

@@ -1,22 +1,24 @@
 package main;
 
+import core.Game;
 import javafx.application.Application;
 import javafx.stage.Stage;
-import javafx.scene.Scene;
-import javafx.scene.canvas.Canvas;
-import javafx.scene.canvas.GraphicsContext;
-import javafx.animation.AnimationTimer;
-import javafx.scene.layout.StackPane;
-import core.Game;
 
 public class Main extends Application {
-    //Application là 1 class của JAVA, kế thừa nó như tbao hãy hoạt động theo javafx
 
     @Override
     public void start(Stage stage) {
-        Game game = new Game(stage);
+        stage.setTitle("Tribe Survival Game");
+
+        Game game = new Game(stage);  // biến cục bộ dùng trong methods
         game.start();
     }
+
+    /**
+     đây là phương thức start tự định nghĩa để tbao bắt đầu vòng đời game
+     khác với Main.start(Stage stage) vì đây1 là method của JavaFx Applicatio
+     JAVAFX tự gọi nó khi khởi động
+     */
 
     public static void main(String[] args) {
         launch();

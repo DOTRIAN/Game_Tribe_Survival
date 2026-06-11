@@ -1,0 +1,97 @@
+package core;
+
+/**
+ * GameBalance:
+ * - Gom cac thong so item/build/light de tranh hardcode rai rac.
+ * - Chi chua gia tri gameplay co kha nang canh chinh nhanh.
+ */
+public final class GameBalance {
+    public static final int STARTING_COIN_AMOUNT = 120;
+
+    public static final int STONE_WALL_PRICE = 1;
+    public static final int WOOD_FENCE_PRICE = 1;
+    public static final int WOOD_WALL_PRICE = 1;
+    public static final int TORCH_PRICE = 10;
+    public static final int ARCHER_TOWER_PRICE = 20;
+    public static final int BOMB_TRAP_PRICE = 3;
+    public static final int FRIENDLY_ARCHER_PRICE = 5;
+    public static final int FIRE_BOMB_PRICE = 3;
+    public static final int CHEST_PRICE = 50;
+    public static final int TORCH_HITS_TO_BREAK = 2;
+    public static final int WOOD_FENCE_MAX_HP = 10;
+    public static final int ARCHER_TOWER_HITS_TO_BREAK = 40;
+    public static final int BOMB_TRAP_HITS_TO_BREAK = 2;
+    public static final int CHEST_HITS_TO_BREAK = 50;
+    public static final int ARCHER_TOWER_DAMAGE = 3;
+    public static final int BOMB_TRAP_DAMAGE = 50;
+    public static final int FIRE_BOMB_IMPACT_DAMAGE = 12;
+    public static final int FIRE_BOMB_BURN_DAMAGE = 5;
+    public static final double FIRE_BOMB_RADIUS = 32.0;
+    public static final long FIRE_BOMB_BURN_DURATION_NS = 3_600_000_000L;
+    public static final long FIRE_BOMB_FADE_DURATION_NS = 2_000_000_000L;
+    public static final long FIRE_BOMB_DAMAGE_TICK_NS = 450_000_000L;
+    public static final int ROCK_HITS_TO_BREAK = 4;
+    public static final double ARCHER_TOWER_RANGE = 220.0;
+    public static final long ARCHER_TOWER_ATTACK_COOLDOWN_NS = 800_000_000L;
+    public static final long ARCHER_TOWER_ANIMATION_FRAME_NS = 100_000_000L;
+    public static final double ARCHER_ARROW_SPEED = 6.2;
+    public static final long ARCHER_ARROW_LIFETIME_NS = 1_800_000_000L;
+    public static final int FRIENDLY_ARCHER_MAX_HP = 30;
+    public static final int FRIENDLY_ARCHER_RANGED_DAMAGE = 4;
+    public static final int FRIENDLY_ARCHER_MELEE_DAMAGE = 2;
+    public static final double FRIENDLY_ARCHER_ARROW_SPEED = 6.0;
+    public static final double FRIENDLY_ARCHER_VISION_RANGE = 12 * 16.0;
+    public static final double FRIENDLY_ARCHER_SHOOT_RANGE = 8 * 16.0;
+    public static final double FRIENDLY_ARCHER_MELEE_RANGE = 1.1 * 16.0;
+    public static final int FRIENDLY_ARCHER_WANDER_RADIUS_TILES = 4;
+    public static final long FRIENDLY_ARCHER_SHOT_COOLDOWN_NS = 800_000_000L;
+    public static final long FRIENDLY_ARCHER_MELEE_COOLDOWN_NS = 550_000_000L;
+    public static final long FRIENDLY_ARCHER_ARROW_LIFETIME_NS = 1_800_000_000L;
+    public static final double BOMB_TRAP_TRIGGER_RANGE_TILES = 2.0;
+    public static final double BOMB_TRAP_EXPLOSION_RADIUS_TILES = 2.0;
+    public static final long BOMB_TRAP_FUSE_NS = 1_600_000_000L;
+    public static final double BOMB_TRAP_WORLD_WIDTH = 18.0;
+    public static final double BOMB_TRAP_WORLD_HEIGHT = 24.0;
+
+    public static final double TORCH_LIGHT_CORE_RADIUS = 25.0;
+    public static final double TORCH_LIGHT_INNER_RADIUS = 60.0;
+    public static final double TORCH_LIGHT_OUTER_RADIUS = 110.0;
+    public static final double TORCH_LIGHT_FADE_RADIUS = 150.0;
+    public static final double TORCH_LIGHT_INTENSITY = 0.78;
+    public static final double TORCH_LIGHT_RADIUS_FLICKER_PERCENT = 0.03;
+    public static final double TORCH_LIGHT_ALPHA_FLICKER_PERCENT = 0.05;
+    public static final double TORCH_LIGHT_FLICKER_SPEED = 2.6;
+    public static final double CAMPFIRE_LIGHT_CORE_RADIUS = 30.0;
+    public static final double CAMPFIRE_LIGHT_INNER_RADIUS = 72.0;
+    public static final double CAMPFIRE_LIGHT_OUTER_RADIUS = 128.0;
+    public static final double CAMPFIRE_LIGHT_FADE_RADIUS = 176.0;
+    public static final double CAMPFIRE_LIGHT_INTENSITY = 0.82;
+    public static final long TORCH_ANIMATION_FRAME_NS = 90_000_000L;
+    public static final double TORCH_WORLD_WIDTH = 24.0;
+    public static final double TORCH_WORLD_HEIGHT = 36.0;
+    public static final double ARCHER_TOWER_WORLD_WIDTH = 96.0;
+    public static final double ARCHER_TOWER_WORLD_HEIGHT = 144.0;
+    public static final double FRIENDLY_ARCHER_RENDER_WIDTH = 46.0 * 58.0 / 52.0;
+    public static final double FRIENDLY_ARCHER_RENDER_HEIGHT = 58.0;
+
+    public static final long DROPPED_ITEM_ANIMATION_FRAME_NS = 150_000_000L;
+    public static final double DROPPED_ITEM_SIZE = 22.0;
+    public static final double DROPPED_WOOD_WIDTH = 50.0;
+    public static final double DROPPED_WOOD_HEIGHT = 50.0;
+    public static final double DROPPED_NIKU_WIDTH = 50.0;
+    public static final double DROPPED_NIKU_HEIGHT = 50.0;
+    public static final double DROPPED_GOLD_WIDTH = 18.0;
+    public static final double DROPPED_GOLD_HEIGHT = 18.0;
+    public static final double DROPPED_XP_WIDTH = 18.0;
+    public static final double DROPPED_XP_HEIGHT = 18.0;
+    public static final double DROPPED_TORCH_WIDTH = TORCH_WORLD_WIDTH / 3.0;
+    public static final double DROPPED_TORCH_HEIGHT = TORCH_WORLD_HEIGHT / 3.0;
+    public static final double DROPPED_ARCHER_TOWER_WIDTH = ARCHER_TOWER_WORLD_WIDTH / 2.6;
+    public static final double DROPPED_ARCHER_TOWER_HEIGHT = ARCHER_TOWER_WORLD_HEIGHT / 2.6;
+    public static final double DROPPED_BOMB_TRAP_SIZE = 16.0;
+    public static final double DROPPED_STONE_WIDTH = 50.0;
+    public static final double DROPPED_STONE_HEIGHT = 50.0;
+
+    private GameBalance() {
+    }
+}

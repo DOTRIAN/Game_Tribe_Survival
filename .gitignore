@@ -22,3 +22,11 @@
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
+
+target/
+.idea/**/workspace.xml
+
+# Runtime local save/settings files
+data/survival_world.json
+data/player_progress.json
+data/ui_settings.json

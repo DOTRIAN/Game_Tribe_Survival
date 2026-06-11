@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<template>
+ <object name="rock_true" type="Collision" width="29" height="32.3333">
+  <properties>
+   <property name="dropItem" value="stone_resource"/>
+   <property name="hp" type="int" value="5"/>
+  </properties>
+  <capsule/>
+ </object>
+</template>
